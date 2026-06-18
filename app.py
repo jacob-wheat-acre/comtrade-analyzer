@@ -630,11 +630,11 @@ class COMTRADEApp(tk.Tk):
 
         # Triage
         triage = triage_event(summary, feeder_data=feeder_data)
-        tier = triage["tier"]
-        tier_tag = {1: "tier1", 2: "tier2", 3: "tier3"}[tier]
-        self._log_write(f"\n  {triage['summary_line']}\n", tag=tier_tag)
+        priority = triage["priority"]
+        p_tag = {1: "tier1", 2: "tier2", 3: "tier3"}[priority]
+        self._log_write(f"\n  {triage['summary_line']}\n", tag=p_tag)
         for note in triage["notes"]:
-            self._log_write(f"    {note}\n", tag=tier_tag)
+            self._log_write(f"    {note}\n", tag=p_tag)
 
         # Word report (always generated)
         report_data = generate_report(record)

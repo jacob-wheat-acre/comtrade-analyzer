@@ -430,18 +430,18 @@ def _word_waveform(doc, plot_path: Optional[str]) -> None:
 
 
 def _word_triage(doc, triage: dict) -> None:
-    """Render a colored triage-tier banner immediately after the title block."""
-    tier   = triage.get("tier", 3)
-    labels = triage.get("labels", [])
-    notes  = triage.get("notes", [])
+    """Render a colored priority banner immediately after the title block."""
+    priority = triage.get("priority", 3)
+    labels   = triage.get("labels", [])
+    notes    = triage.get("notes", [])
 
-    # Banner background and text colors by tier
-    if tier == 1:
-        bg_hex, hdr_color, hdr_text = "C0392B", _rgb(0xFF, 0xFF, 0xFF), "TIER 1 — IMMEDIATE REVIEW REQUIRED"
-    elif tier == 2:
-        bg_hex, hdr_color, hdr_text = "E87722", _rgb(0xFF, 0xFF, 0xFF), "TIER 2 — ROUTINE REVIEW"
+    # Banner background and text colors by priority
+    if priority == 1:
+        bg_hex, hdr_color, hdr_text = "C0392B", _rgb(0xFF, 0xFF, 0xFF), "PRIORITY 1 — IMMEDIATE REVIEW REQUIRED"
+    elif priority == 2:
+        bg_hex, hdr_color, hdr_text = "E87722", _rgb(0xFF, 0xFF, 0xFF), "PRIORITY 2 — ROUTINE REVIEW"
     else:
-        bg_hex, hdr_color, hdr_text = "1E7A1E", _rgb(0xFF, 0xFF, 0xFF), "TIER 3 — ARCHIVE (no review required)"
+        bg_hex, hdr_color, hdr_text = "1E7A1E", _rgb(0xFF, 0xFF, 0xFF), "PRIORITY 3 — ARCHIVE (no review required)"
 
     # Single-row banner table
     tbl = doc.add_table(rows=1, cols=1)

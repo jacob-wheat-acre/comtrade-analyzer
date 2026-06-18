@@ -1,11 +1,11 @@
 """
 triage.py — Automated event triage for COMTRADE relay event analysis.
 
-Each event is assigned a review tier and a list of flags explaining why.
+Each event is assigned a review priority and a list of flags explaining why.
 
-Tier 1 — Immediate review (same day):  rare or safety-critical events
-Tier 2 — Routine review (weekly batch): elevated risk, less urgent
-Tier 3 — Archive only:                  routine SLG / successful reclose
+Priority 1 — Immediate review (same day):  rare or safety-critical events
+Priority 2 — Routine review (weekly batch): elevated risk, less urgent
+Priority 3 — Archive only:                  routine SLG / successful reclose
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Optional
 
 _LINE_FREQ_HZ = 60.0
 
-# flag_key → (tier, short label, one-line description)
+# flag_key → (priority, short label, one-line description)
 _FLAGS = {
     "hif_suspect":    (1, "HIF Suspect",
                        "High-impedance fault suspected — potential downed conductor (public safety)"),
@@ -42,7 +42,7 @@ def triage_event(
     slow_trip_cycles: float = 10.0,
 ) -> dict:
     """
-    Assign a review tier and flag list to an event.
+    Assign a review priority and flag list to an event.
 
     Parameters
     ----------
@@ -50,12 +50,12 @@ def triage_event(
     feeder_data      : dict from compute_feeder_summary(), or None if feeder
                        analysis was not run (flags that require it are skipped)
     slow_trip_cycles : trip-delay threshold in cycles; events slower than this
-                       receive the 'slow_trip' Tier-1 flag (default 10 = 167 ms)
+                       receive the 'slow_trip' Priority-1 flag (default 10 = 167 ms)
 
     Returns
     -------
     dict with:
-        tier         int           1, 2, or 3
+        priority     int           1, 2, or 3
         flags        list[str]     flag keys from _FLAGS
         labels       list[str]     short human-readable labels
         notes        list[str]     one descriptive sentence per flag
@@ -64,7 +64,7 @@ def triage_event(
     flags: list[str] = []
     slow_trip_ms = slow_trip_cycles * (1000.0 / _LINE_FREQ_HZ)
 
-    # ── Tier 1 checks ────────────────────────────────────────────────────────
+    # ── Priority 1 checks ────────────────────────────────────────────────────
 
     hif = (feeder_data or {}).get("hif_screen", {})
     if hif.get("hif_suspect"):
@@ -85,7 +85,7 @@ def triage_event(
     if trip_ms is not None and trip_ms > slow_trip_ms:
         flags.append("slow_trip")
 
-    # ── Tier 2 checks ────────────────────────────────────────────────────────
+    # ── Priority 2 checks ────────────────────────────────────────────────────
 
     if summary.get("fault_type") == "LLG":
         flags.append("llg_fault")
@@ -93,28 +93,28 @@ def triage_event(
     if seq is not None and not seq.locked_out and seq.total_shots >= 2:
         flags.append("multiple_shots")
 
-    # ── Assign tier ──────────────────────────────────────────────────────────
+    # ── Assign priority ──────────────────────────────────────────────────────
 
-    tier_of = {f: _FLAGS[f][0] for f in flags}
-    if any(t == 1 for t in tier_of.values()):
-        tier = 1
-    elif any(t == 2 for t in tier_of.values()):
-        tier = 2
+    priority_of = {f: _FLAGS[f][0] for f in flags}
+    if any(p == 1 for p in priority_of.values()):
+        priority = 1
+    elif any(p == 2 for p in priority_of.values()):
+        priority = 2
     else:
-        tier = 3
+        priority = 3
 
     labels = [_FLAGS[f][1] for f in flags]
     notes  = [_FLAGS[f][2] for f in flags]
 
-    if tier == 1:
-        summary_line = "TIER 1 — IMMEDIATE REVIEW: " + " | ".join(labels)
-    elif tier == 2:
-        summary_line = "TIER 2 — ROUTINE REVIEW: " + " | ".join(labels)
+    if priority == 1:
+        summary_line = "PRIORITY 1 — IMMEDIATE REVIEW: " + " | ".join(labels)
+    elif priority == 2:
+        summary_line = "PRIORITY 2 — ROUTINE REVIEW: " + " | ".join(labels)
     else:
-        summary_line = "TIER 3 — ARCHIVE (no engineer review required)"
+        summary_line = "PRIORITY 3 — ARCHIVE (no engineer review required)"
 
     return {
-        "tier":         tier,
+        "priority":     priority,
         "flags":        flags,
         "labels":       labels,
         "notes":        notes,

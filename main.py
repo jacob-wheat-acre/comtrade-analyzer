@@ -248,8 +248,8 @@ def process_file(filepath: str, args: argparse.Namespace) -> Optional[EventRecor
     W = 62
     print()
     print("─" * W)
-    tier_labels = {1: "TIER 1 — IMMEDIATE REVIEW", 2: "TIER 2 — ROUTINE REVIEW", 3: "TIER 3 — ARCHIVE"}
-    print(f"  {tier_labels[triage['tier']]}")
+    priority_labels = {1: "PRIORITY 1 — IMMEDIATE REVIEW", 2: "PRIORITY 2 — ROUTINE REVIEW", 3: "PRIORITY 3 — ARCHIVE"}
+    print(f"  {priority_labels[triage['priority']]}")
     for lbl, note in zip(triage["labels"], triage["notes"]):
         print(f"    [{lbl}] {note}")
     print("─" * W)
