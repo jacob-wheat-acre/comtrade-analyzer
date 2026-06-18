@@ -29,6 +29,7 @@ from analysis import compute_event_summary
 from plotting import plot_event, plot_rms_currents, plot_sequence_components, plot_phasors
 from report import generate_report, generate_word_report
 from feeder_analysis import compute_feeder_summary, print_feeder_summary
+from triage import triage_event
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +243,17 @@ def process_file(filepath: str, args: argparse.Namespace) -> Optional[EventRecor
         )
         print_feeder_summary(feeder_data)
 
+    # Triage
+    triage = triage_event(summary, feeder_data=feeder_data)
+    W = 62
+    print()
+    print("─" * W)
+    tier_labels = {1: "TIER 1 — IMMEDIATE REVIEW", 2: "TIER 2 — ROUTINE REVIEW", 3: "TIER 3 — ARCHIVE"}
+    print(f"  {tier_labels[triage['tier']]}")
+    for lbl, note in zip(triage["labels"], triage["notes"]):
+        print(f"    [{lbl}] {note}")
+    print("─" * W)
+
     # Word report
     if args.report:
         from pathlib import Path
@@ -259,6 +271,7 @@ def process_file(filepath: str, args: argparse.Namespace) -> Optional[EventRecor
             waveform_png=waveform_png,
             phasor_png=phasor_png,
             feeder=feeder_data,
+            triage=triage,
         )
         if out_path:
             print(f"  DOCX → {out_path}")

@@ -429,6 +429,52 @@ def _word_waveform(doc, plot_path: Optional[str]) -> None:
     doc.add_paragraph()
 
 
+def _word_triage(doc, triage: dict) -> None:
+    """Render a colored triage-tier banner immediately after the title block."""
+    tier   = triage.get("tier", 3)
+    labels = triage.get("labels", [])
+    notes  = triage.get("notes", [])
+
+    # Banner background and text colors by tier
+    if tier == 1:
+        bg_hex, hdr_color, hdr_text = "C0392B", _rgb(0xFF, 0xFF, 0xFF), "TIER 1 — IMMEDIATE REVIEW REQUIRED"
+    elif tier == 2:
+        bg_hex, hdr_color, hdr_text = "E87722", _rgb(0xFF, 0xFF, 0xFF), "TIER 2 — ROUTINE REVIEW"
+    else:
+        bg_hex, hdr_color, hdr_text = "1E7A1E", _rgb(0xFF, 0xFF, 0xFF), "TIER 3 — ARCHIVE (no review required)"
+
+    # Single-row banner table
+    tbl = doc.add_table(rows=1, cols=1)
+    tbl.alignment = WD_TABLE_ALIGNMENT.LEFT
+    _set_col_widths(tbl, [16.0])
+    cell = tbl.cell(0, 0)
+    _cell_shade(cell, bg_hex)
+    p = cell.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    run = p.add_run(hdr_text)
+    run.bold = True
+    run.font.size = Pt(11)
+    run.font.color.rgb = hdr_color
+
+    # Flag detail rows (one row per flag)
+    if labels:
+        detail_tbl = doc.add_table(rows=len(labels), cols=2)
+        detail_tbl.alignment = WD_TABLE_ALIGNMENT.LEFT
+        _set_col_widths(detail_tbl, [4.0, 12.0])
+        for i, (lbl, note) in enumerate(zip(labels, notes)):
+            row = detail_tbl.rows[i]
+            _cell_shade(row.cells[0], "F2F2F2")
+            lp = row.cells[0].paragraphs[0]
+            lr = lp.add_run(lbl)
+            lr.bold = True
+            lr.font.size = Pt(9)
+            np_ = row.cells[1].paragraphs[0]
+            nr = np_.add_run(note)
+            nr.font.size = Pt(9)
+
+    doc.add_paragraph()
+
+
 def _word_phasor(doc, phasor_png: Optional[str]) -> None:
     """Embed the phasor diagram PNG produced by plotting.plot_phasors()."""
     _section_heading(doc, "Phasor Diagram")
@@ -721,6 +767,7 @@ def generate_word_report(
     waveform_png: Optional[str] = None,
     phasor_png: Optional[str] = None,
     feeder: Optional[dict] = None,
+    triage: Optional[dict] = None,
 ) -> Optional[Path]:
     """
     Generate a Word (.docx) relay event report.
@@ -754,6 +801,10 @@ def generate_word_report(
     title_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     _bold(title_p, "Relay Oscillography Event Report", color=_NAVY, size_pt=16)
     doc.add_paragraph()
+
+    # ---- Triage banner ----
+    if triage is not None:
+        _word_triage(doc, triage)
 
     # ---- Event information table ----
     _word_event_info_table(doc, record, report, location=location, device_type=device_type)

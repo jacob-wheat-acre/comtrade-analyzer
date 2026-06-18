@@ -33,10 +33,13 @@ _BG       = "#f5f5f5"
 _BTN_RUN  = "#1A3A6B"   # dark navy matching report branding
 _BTN_TXT  = "#ffffff"
 _LOG_BG   = "#1e1e1e"
-_LOG_FG   = "#d4d4d4"
-_LOG_ERR  = "#f48771"
-_LOG_INFO = "#4ec9b0"
-_LABEL_FG = "#333333"
+_LOG_FG    = "#d4d4d4"
+_LOG_ERR   = "#f48771"
+_LOG_INFO  = "#4ec9b0"
+_LOG_TIER1 = "#e06c75"   # red   — immediate review
+_LOG_TIER2 = "#e5c07b"   # amber — routine review
+_LOG_TIER3 = "#98c379"   # green — archive
+_LABEL_FG  = "#333333"
 
 # ── Module imports ────────────────────────────────────────────────────────────
 try:
@@ -46,6 +49,7 @@ try:
     from plotting import plot_event, plot_rms_currents, plot_sequence_components, plot_phasors
     from report import generate_report, generate_word_report
     from feeder_analysis import compute_feeder_summary
+    from triage import triage_event
     _MODULES_OK = True
     _import_error = ""
 except Exception as _exc:
@@ -314,6 +318,9 @@ class COMTRADEApp(tk.Tk):
         self._log.tag_config("info",  foreground=_LOG_INFO)
         self._log.tag_config("error", foreground=_LOG_ERR)
         self._log.tag_config("done",  foreground="#b5cea8", font=_FONT_MONO_B)
+        self._log.tag_config("tier1", foreground=_LOG_TIER1, font=_FONT_MONO_B)
+        self._log.tag_config("tier2", foreground=_LOG_TIER2, font=_FONT_MONO_B)
+        self._log.tag_config("tier3", foreground=_LOG_TIER3)
 
         scroll = ttk.Scrollbar(log_frame, command=self._log.yview)
         self._log["yscrollcommand"] = scroll.set
@@ -621,6 +628,14 @@ class COMTRADEApp(tk.Tk):
             if hif.get("hif_suspect"):
                 self._log_write("  WARNING: HIF suspect (low fault current)\n", tag="error")
 
+        # Triage
+        triage = triage_event(summary, feeder_data=feeder_data)
+        tier = triage["tier"]
+        tier_tag = {1: "tier1", 2: "tier2", 3: "tier3"}[tier]
+        self._log_write(f"\n  {triage['summary_line']}\n", tag=tier_tag)
+        for note in triage["notes"]:
+            self._log_write(f"    {note}\n", tag=tier_tag)
+
         # Word report (always generated)
         report_data = generate_report(record)
         out_path = generate_word_report(
@@ -636,6 +651,7 @@ class COMTRADEApp(tk.Tk):
             waveform_png=waveform_png,
             phasor_png=phasor_png,
             feeder=feeder_data,
+            triage=triage,
         )
         if out_path:
             self._log_write(f"  DOCX         → {Path(out_path).name}\n", tag="info")
