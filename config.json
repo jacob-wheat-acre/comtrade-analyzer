@@ -1,0 +1,31 @@
+{
+  "_comment": "COMTRADE Analyzer user configuration. Edit values to match your system.",
+
+  "analysis": {
+    "line_frequency_hz": 60,
+    "fault_threshold_multiplier": 2.0,
+    "rms_window_cycles": 1.0,
+    "pre_fault_window_cycles": 3.0,
+    "fault_search_window_s": 0.15
+  },
+
+  "channel_keywords": {
+    "current": ["IA", "IB", "IC", "IN", "IG", "I_A", "I_B", "I_C", "CURR"],
+    "voltage": ["VA", "VB", "VC", "VN", "V_A", "V_B", "V_C", "VOLT"],
+    "trip":    ["TRIP", "TR", "52A", "CB"]
+  },
+
+  "plotting": {
+    "figsize_width": 14,
+    "figsize_height_per_row": 2.0,
+    "dpi": 150,
+    "show_rms_overlay": true,
+    "zoom_window_s": null,
+    "save_format": "png"
+  },
+
+  "export": {
+    "auto_csv": false,
+    "auto_json": false
+  }
+}
