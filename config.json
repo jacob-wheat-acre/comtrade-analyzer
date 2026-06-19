@@ -31,5 +31,11 @@
 
   "triage": {
     "slow_trip_cycles": 10.0
+  },
+
+  "wso": {
+    "epss_max_shots": 0,
+    "epss_tiers": [2, 3],
+    "avg_response_hours": 2.0
   }
 }
