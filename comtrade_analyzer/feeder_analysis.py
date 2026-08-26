@@ -42,8 +42,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 
-from data_model import EventRecord
-from analysis import (
+from .data_model import EventRecord
+from .analysis import (
     compute_rms,
     detect_fault_inception,
     detect_digital_transitions,

@@ -29,7 +29,7 @@ from typing import Optional, List
 
 import numpy as np
 
-from data_model import EventRecord, ChannelInfo
+from .data_model import EventRecord, ChannelInfo
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ class COMTRADEParser:
 
     def _parse_cff(self, filepath: str) -> EventRecord:
         """Parse a combined .cff file (2013 revision)."""
-        with open(filepath, "r", errors="replace") as fh:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as fh:
             raw = fh.read()
 
         sections: dict = {}
@@ -109,7 +109,7 @@ class COMTRADEParser:
 
     def _parse_cfg_dat(self, cfg_path: str, dat_path: str) -> EventRecord:
         """Parse separate .cfg and .dat files."""
-        with open(cfg_path, "r", errors="replace") as fh:
+        with open(cfg_path, "r", encoding="utf-8", errors="replace") as fh:
             cfg_lines = fh.readlines()
 
         cfg = _parse_cfg_lines(cfg_lines)
@@ -117,7 +117,7 @@ class COMTRADEParser:
         if cfg["file_type"] == "BINARY":
             return _parse_dat_binary_file(dat_path, cfg)
         else:
-            with open(dat_path, "r", errors="replace") as fh:
+            with open(dat_path, "r", encoding="utf-8", errors="replace") as fh:
                 dat_lines = fh.readlines()
             return _parse_dat_ascii_lines(dat_lines, cfg)
 

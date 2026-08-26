@@ -35,11 +35,10 @@ from pathlib import Path
 from typing import Optional
 
 _HERE = Path(__file__).parent
-sys.path.insert(0, str(_HERE))
 
-from comtrade_parser import COMTRADEParser
-from analysis import compute_event_summary
-from feeder_analysis import compute_feeder_summary
+from .comtrade_parser import COMTRADEParser
+from .analysis import compute_event_summary
+from .feeder_analysis import compute_feeder_summary
 
 
 # ---------------------------------------------------------------------------
@@ -92,24 +91,109 @@ def lookup_device(registry: dict, device_id: str, station: str = "") -> Optional
 # Event classification
 # ---------------------------------------------------------------------------
 
-PERMANENT   = "PERMANENT"
-WSO_EXPOSED = "WSO_EXPOSED"
-NOT_EXPOSED = "NOT_EXPOSED"
+PERMANENT      = "PERMANENT"
+WSO_EXPOSED    = "WSO_EXPOSED"
+NOT_EXPOSED    = "NOT_EXPOSED"
+EPSS_CANDIDATE = "EPSS_CANDIDATE"
+INDETERMINATE  = "INDETERMINATE"
+
+# Longest reclose dead time worth waiting for before calling a record
+# inconclusive. Records that end sooner than this after a trip cannot show
+# whether a reclose followed.
+_MAX_DEAD_TIME_MS = 5000.0
 
 
-def classify_event(feeder_data: Optional[dict]) -> str:
+# key → (order, label, what the record shows, what EPSS does to it, confidence)
+_CLASS_TABLE = [
+    ("EPSS_CANDIDATE", "Rode through",
+     "Fault current recorded, but this device never tripped — normally a "
+     "downstream fuse cleared it, so only the lateral went out.",
+     "More sensitive EPSS settings may trip this device instead, dropping "
+     "everything downstream of it with no reclose. A NEW outage that does not "
+     "happen today, and usually a much larger one.",
+     "Needs the device's normal and EPSS pickup settings to confirm."),
+    ("WSO_EXPOSED", "Momentary → sustained",
+     "Tripped, then reclosed successfully — customers saw a blink.",
+     "With reclosing disabled the first trip is the last: the blink becomes a "
+     "sustained outage until a crew patrols and closes.",
+     "Confirmed from the record — a reclose was observed."),
+    ("PERMANENT", "Already sustained",
+     "Tripped and locked out under normal settings.",
+     "Nothing changes. It was already a sustained outage with a truck roll.",
+     "Confirmed from the record — lockout observed."),
+    ("INDETERMINATE", "Unknown",
+     "Tripped, but the record ends before any reclose could have occurred.",
+     "Cannot be determined. It is either a momentary that would convert, or a "
+     "lockout that would not.",
+     "Unresolved. Longer records, or the device's reclose settings, would "
+     "settle it."),
+    ("NOT_EXPOSED", "No change",
+     "No fault current and no device operation.",
+     "Nothing for EPSS to act on.",
+     "Confirmed from the record."),
+]
+
+
+def class_table() -> list:
+    """The EPSS classification scheme as data, for display and export."""
+    return [{"key": k, "order": i, "label": lbl, "observed": obs,
+             "epss_effect": eff, "confidence": conf}
+            for i, (k, lbl, obs, eff, conf) in enumerate(_CLASS_TABLE)]
+
+
+def classify_event(feeder_data: Optional[dict],
+                   summary: Optional[dict] = None,
+                   record_end_ms: Optional[float] = None) -> str:
+    """
+    What this event becomes on an EPSS day.
+
+    EPSS does two things: it disables reclosing, and it makes the relay more
+    sensitive and faster. Both matter, and they create different outcomes:
+
+      EPSS_CANDIDATE  Fault current recorded but the device did not trip on
+                      normal-day settings — typically a downstream fuse cleared
+                      it, so only the lateral went out. Under more sensitive
+                      EPSS settings this same fault may trip the recloser,
+                      taking out everything downstream of it, with no reclose.
+                      A NEW outage that does not exist on a normal day, and
+                      usually a much larger one. Confirming it needs the
+                      device's normal and EPSS pickup settings.
+
+      WSO_EXPOSED     Tripped and reclosed successfully — a momentary blink
+                      today, a sustained outage once reclosing is removed.
+
+      PERMANENT       Locked out on normal settings. Already sustained.
+
+      INDETERMINATE   Tripped, but the record ends before any reclose could
+                      have occurred. Cannot tell which of the two above it is.
+
+      NOT_EXPOSED     No fault current and no operation. Nothing to convert.
+    """
     if feeder_data is None:
         return NOT_EXPOSED
     seq = feeder_data.get("reclose_sequence")
     if seq is None:
         return NOT_EXPOSED
+
     if seq.locked_out:
         return PERMANENT
-    # WSO-exposed only if at least one actual reclose was observed.
-    # outcome='LAST' means a single trip with no reclose in the record —
-    # EPSS cannot suppress what didn't happen.
+
     if any(s.outcome == "RECLOSED" for s in seq.shots):
         return WSO_EXPOSED
+
+    # No trip at all. If fault current was present, the device rode through
+    # something — the case this whole analysis exists to find.
+    if seq.total_shots == 0:
+        if summary and summary.get("fault_inception_s") is not None:
+            return EPSS_CANDIDATE
+        return NOT_EXPOSED
+
+    # Tripped once with no reclose in the record. Whether that is a lockout or
+    # a reclose we simply did not record depends on how long the record ran.
+    if summary and record_end_ms is not None:
+        trip_s = summary.get("trip_time_s")
+        if trip_s is not None and (record_end_ms - trip_s * 1000.0) < _MAX_DEAD_TIME_MS:
+            return INDETERMINATE
     return NOT_EXPOSED
 
 
@@ -334,7 +418,7 @@ def write_json(results: dict, path: str):
         if isinstance(v, set):
             return sorted(v)
         return str(v)
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         json.dump(results, fh, indent=2, default=_serial)
     print(f"  JSON → {path}")
 

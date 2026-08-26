@@ -15,8 +15,8 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.lines import Line2D
 
-from data_model import EventRecord
-from analysis import (
+from .data_model import EventRecord
+from .analysis import (
     compute_rms,
     detect_fault_inception,
     detect_trip_time,
@@ -24,12 +24,18 @@ from analysis import (
     compute_phasors_at,
 )
 
-# Use non-interactive backend when no display is available
-try:
-    import matplotlib
-    matplotlib.use("TkAgg")
-except Exception:
-    pass
+# Deliberately no matplotlib.use() here.
+#
+# This module used to force "TkAgg" (despite the comment claiming otherwise).
+# Because app.py imports this module *after* setting "Agg", the force won, so
+# the GUI ran the interactive Tk backend while rendering figures on a worker
+# thread. Tk is not thread-safe: that corrupted the Tcl interpreter and the
+# process segfaulted in Tcl_DeleteHashEntry during teardown at quit.
+#
+# Leaving the backend alone lets the caller decide — app.py pins "Agg" before
+# importing this, and the CLI gets matplotlib's own default (interactive on a
+# desktop, Agg when headless), which is what plt.show() below expects.
+import matplotlib
 
 # Color palettes — readable on white background
 _COLORS_CURRENT = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
@@ -213,8 +219,13 @@ def plot_event(
                                       linewidth=1.4, label="Trip"))
 
     if legend_handles and n_rows > 0:
+        # get_lines() also returns the unlabelled axvline markers drawn by
+        # _draw_markers; matplotlib auto-names those '_child<N>' and they would
+        # show up in the legend alongside the named handles built below.
+        plotted = [ln for ln in axes[0].get_lines()
+                   if not ln.get_label().startswith("_")]
         axes[0].legend(
-            handles=axes[0].get_lines() + legend_handles,
+            handles=plotted + legend_handles,
             loc="upper right", fontsize=6.5, ncol=2,
         )
 
@@ -223,8 +234,14 @@ def plot_event(
         print(f"Plot saved → {save_path}")
     else:
         plt.show()
+        return fig          # interactive: the caller's window owns it
 
-    return fig
+    # Saved to disk and nobody uses the return value, but pyplot holds a
+    # global reference to every figure it creates. Without this a folder run
+    # leaks one live figure (~45 MB here) per event, and a 100-event folder
+    # walks the GUI into swap until macOS stops redrawing the window.
+    plt.close(fig)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -283,8 +300,14 @@ def plot_rms_currents(
         print(f"RMS plot saved → {save_path}")
     else:
         plt.show()
+        return fig          # interactive: the caller's window owns it
 
-    return fig
+    # Saved to disk and nobody uses the return value, but pyplot holds a
+    # global reference to every figure it creates. Without this a folder run
+    # leaks one live figure (~45 MB here) per event, and a 100-event folder
+    # walks the GUI into swap until macOS stops redrawing the window.
+    plt.close(fig)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -345,8 +368,14 @@ def plot_sequence_components(
         print(f"Sequence plot saved → {save_path}")
     else:
         plt.show()
+        return fig          # interactive: the caller's window owns it
 
-    return fig
+    # Saved to disk and nobody uses the return value, but pyplot holds a
+    # global reference to every figure it creates. Without this a folder run
+    # leaks one live figure (~45 MB here) per event, and a 100-event folder
+    # walks the GUI into swap until macOS stops redrawing the window.
+    plt.close(fig)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -550,8 +579,14 @@ def plot_phasors(
         print(f"Phasor plot saved → {save_path}")
     else:
         plt.show()
+        return fig          # interactive: the caller's window owns it
 
-    return fig
+    # Saved to disk and nobody uses the return value, but pyplot holds a
+    # global reference to every figure it creates. Without this a folder run
+    # leaks one live figure (~45 MB here) per event, and a 100-event folder
+    # walks the GUI into swap until macOS stops redrawing the window.
+    plt.close(fig)
+    return None
 
 
 # ---------------------------------------------------------------------------

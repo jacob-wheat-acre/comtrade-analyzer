@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comtrade-analyzer"
+version = "0.2.0"
+description = "IEEE C37.111 relay event analysis and WSO/EPSS reliability impact for distribution feeders"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+dependencies = [
+    "numpy>=1.23",
+    "matplotlib>=3.6",
+    "python-docx>=0.8.11",
+]
+
+[project.optional-dependencies]
+# tkinter ships with CPython on Windows/macOS; on Linux install python3-tk via apt.
+dev = ["pytest>=7"]
+
+[project.scripts]
+comtrade-batch     = "comtrade_analyzer.batch:main"
+comtrade-analyze   = "comtrade_analyzer.main:main"
+comtrade-wso       = "comtrade_analyzer.wso_impact:main"
+comtrade-dashboard = "comtrade_analyzer.fleet_dashboard:main"
+comtrade-gui       = "comtrade_analyzer.app:main"
+comtrade-demo-fleet = "comtrade_analyzer.fleet_gen:main"
+
+[tool.setuptools]
+packages = ["comtrade_analyzer"]
+
+[tool.setuptools.package-data]
+comtrade_analyzer = ["config.json", "dashboard_template.html", "devices_template.csv", "icon.png"]

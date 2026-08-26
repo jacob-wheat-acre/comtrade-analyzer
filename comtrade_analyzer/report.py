@@ -20,8 +20,8 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from data_model import EventRecord
-from analysis import (
+from .data_model import EventRecord
+from .analysis import (
     compute_event_summary,
     detect_fault_inception,
     detect_trip_time,
@@ -608,7 +608,7 @@ def _word_reclose_operations(doc, feeder: dict) -> None:
 
     Only rendered when feeder analysis data is present in the report dict.
     """
-    from feeder_analysis import RecloserSequence, RecloserShot
+    from .feeder_analysis import RecloserSequence, RecloserShot
 
     seq: RecloserSequence = feeder.get("reclose_sequence")
     if seq is None or seq.total_shots == 0:

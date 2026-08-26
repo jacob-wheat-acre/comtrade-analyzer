@@ -22,9 +22,11 @@ _FLAGS = {
                        "Recloser locked out — permanent fault, likely equipment damage"),
     "3ph_fault":      (1, "Three-Phase Fault",
                        "Three-phase fault — rare on distribution, usually equipment failure not weather"),
-    "no_trip":        (1, "No Trip Detected",
-                       "Fault inception found but no TRIP bit ever asserted — possible relay misoperation "
-                       "or upstream device cleared instead"),
+    "no_trip":        (2, "Rode Through",
+                       "Fault current recorded but this device did not trip — normally a downstream "
+                       "fuse cleared it, so only the lateral went out. Under more sensitive EPSS "
+                       "settings the same fault may trip this device instead, taking out everything "
+                       "downstream of it with no reclose. Check coordination before a WSO day."),
     "slow_trip":      (1, "Slow Trip",
                        "Trip time exceeds configured threshold — possible coordination failure, "
                        "CT saturation, or relay setting drift"),
@@ -34,6 +36,47 @@ _FLAGS = {
                        "Recloser operated 2+ times before clearing — semi-permanent fault "
                        "(tree contact, damaged insulator, failing equipment)"),
 }
+
+
+# flag_key → how the rule is evaluated, and where to change it. Kept beside
+# _FLAGS so the two cannot drift; the dashboard renders this rather than
+# carrying its own copy.
+_TRIGGERS = {
+    "hif_suspect":    ("Post-fault current rise stays below the HIF screen threshold",
+                       "hif_threshold_a (feeder analysis, default 50 A)"),
+    "lockout":        ("Recloser reached lockout — a LOCK/86 channel asserted, or the "
+                       "final trip had no reclose", "—"),
+    "3ph_fault":      ("Fault classified 3PH — all three phase currents elevated "
+                       "(smallest > 0.7 x largest)", "—"),
+    "no_trip":        ("Fault inception detected but no TRIP channel rising edge",
+                       "device pickup settings (normal vs EPSS)"),
+    "slow_trip":      ("Fault inception → trip exceeds the slow-trip threshold",
+                       "config.json → triage.slow_trip_cycles"),
+    "llg_fault":      ("Fault classified LLG — two phases elevated with measurable "
+                       "zero-sequence current", "—"),
+    "multiple_shots": ("Two or more reclose shots before clearing, without lockout", "—"),
+}
+
+
+def rule_table(slow_trip_cycles: float = 10.0, line_freq_hz: float = _LINE_FREQ_HZ) -> list:
+    """
+    The triage rules as data, for display and for export to the dashboard.
+
+    Returns one dict per flag: key, priority, label, description, trigger and
+    the setting that tunes it (or '—' when the rule has no threshold).
+    """
+    out = []
+    for key, (priority, label, note) in _FLAGS.items():
+        trigger, setting = _TRIGGERS.get(key, ("", "—"))
+        if key == "slow_trip":
+            ms = slow_trip_cycles * (1000.0 / line_freq_hz)
+            trigger += f" ({slow_trip_cycles:g} cycles = {ms:.0f} ms at {line_freq_hz:g} Hz)"
+        out.append({
+            "key": key, "priority": priority, "label": label,
+            "description": note, "trigger": trigger, "setting": setting,
+        })
+    out.sort(key=lambda r: (r["priority"], r["label"]))
+    return out
 
 
 def triage_event(
@@ -62,6 +105,7 @@ def triage_event(
         summary_line str           single line for report headers / log output
     """
     flags: list[str] = []
+    evidence: dict = {}          # flag_key → what actually triggered it
     slow_trip_ms = slow_trip_cycles * (1000.0 / _LINE_FREQ_HZ)
 
     # ── Priority 1 checks ────────────────────────────────────────────────────
@@ -69,29 +113,42 @@ def triage_event(
     hif = (feeder_data or {}).get("hif_screen", {})
     if hif.get("hif_suspect"):
         flags.append("hif_suspect")
+        evidence["hif_suspect"] = (
+            f"current rise {hif.get('delta_current_a', '?')} A is below the "
+            f"{hif.get('threshold_a', '?')} A screen threshold")
 
     seq = (feeder_data or {}).get("reclose_sequence")
     if seq is not None and seq.locked_out:
         flags.append("lockout")
+        evidence["lockout"] = f"locked out after {seq.total_shots} shot(s)"
 
     if summary.get("fault_type") == "3PH":
         flags.append("3ph_fault")
+        evidence["3ph_fault"] = "classified 3PH"
 
     if (summary.get("fault_inception_s") is not None
             and summary.get("trip_time_s") is None):
         flags.append("no_trip")
+        evidence["no_trip"] = (
+            f"inception at {summary['fault_inception_s'] * 1000:.1f} ms, "
+            f"no TRIP edge in the record")
 
     trip_ms = summary.get("trip_delay_ms")
     if trip_ms is not None and trip_ms > slow_trip_ms:
         flags.append("slow_trip")
+        evidence["slow_trip"] = (
+            f"{trip_ms:.1f} ms to trip, threshold {slow_trip_ms:.1f} ms "
+            f"({slow_trip_cycles:g} cycles)")
 
     # ── Priority 2 checks ────────────────────────────────────────────────────
 
     if summary.get("fault_type") == "LLG":
         flags.append("llg_fault")
+        evidence["llg_fault"] = "classified LLG"
 
     if seq is not None and not seq.locked_out and seq.total_shots >= 2:
         flags.append("multiple_shots")
+        evidence["multiple_shots"] = f"{seq.total_shots} shots before clearing"
 
     # ── Assign priority ──────────────────────────────────────────────────────
 
@@ -113,10 +170,20 @@ def triage_event(
     else:
         summary_line = "PRIORITY 3 — ARCHIVE (no engineer review required)"
 
+    reasons = [{
+        "key":      f,
+        "priority": _FLAGS[f][0],
+        "label":    _FLAGS[f][1],
+        "note":     _FLAGS[f][2],
+        "evidence": evidence.get(f, ""),
+        "decisive": _FLAGS[f][0] == priority,
+    } for f in flags]
+
     return {
         "priority":     priority,
         "flags":        flags,
         "labels":       labels,
         "notes":        notes,
+        "reasons":      reasons,
         "summary_line": summary_line,
     }

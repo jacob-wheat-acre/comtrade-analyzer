@@ -77,12 +77,17 @@ def install_mac():
     r   = subprocess.run(["which", "python3"], capture_output=True, text=True)
     py3 = r.stdout.strip() or sys.executable
 
+    # Force the native slice on Apple Silicon so tkinter doesn't get launched
+    # under Rosetta.  On an Intel Mac `arch -arm64` fails outright, so only add
+    # it where it applies.
+    arch_prefix = "arch -arm64 " if platform.machine() == "arm64" else ""
+
     launcher = macos_dir / "COMTRADE Analyzer"
     launcher.write_text(
         f'#!/bin/bash\n'
         f'cd "{TOOL_DIR}"\n'
         f'rm -rf "{TOOL_DIR}/__pycache__"\n'
-        f'exec arch -arm64 "{py3}" "{TOOL_DIR / "app.py"}"\n'
+        f'exec {arch_prefix}"{py3}" "{TOOL_DIR / "app.py"}"\n'
     )
     launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
@@ -134,33 +139,80 @@ def install_windows():
     bat      = TOOL_DIR / "COMTRADE Analyzer.bat"
     ico      = TOOL_DIR / "icon.ico"
 
-    # Write a .bat launcher next to the tool
-    bat.write_text(
-        f'@echo off\r\n'
-        f'cd /d "{TOOL_DIR}"\r\n'
-        f'python app.py\r\n'
-    )
+    # The .bat is a tracked file in the repo, not something generated here.
+    # This function used to write its own three-line version over the top,
+    # which meant the launcher you got depended on whether you had run the
+    # installer -- the repo copy falls back to pythonw and explains itself when
+    # Python is missing; the generated one did neither. One implementation.
+    if not bat.exists():
+        print(f"\n  {bat.name} is missing from {TOOL_DIR}.")
+        print("  Re-clone or `git checkout` it; the shortcut points at it.\n")
+        return
+
+    if not ico.exists():
+        print(f"\n  {ico.name} is missing, so the shortcut would get the "
+              "default icon.\n  Run:  python3 make_icon.py\n")
+        return
+
+    # Replace rather than update. A .lnk that already carries a bad icon path
+    # keeps its cached bitmap through a rewrite of the same file, and the
+    # symptom that follows -- "I re-ran the installer and nothing changed" --
+    # is indistinguishable from the installer not having worked.
+    if shortcut.exists():
+        try:
+            shortcut.unlink()
+        except OSError as exc:
+            print(f"\n  Could not replace the old shortcut: {exc}\n")
 
     ps = (
         "$ws = New-Object -ComObject WScript.Shell; "
         f"$sc = $ws.CreateShortcut('{shortcut}'); "
         f"$sc.TargetPath = '{bat}'; "
         f"$sc.WorkingDirectory = '{TOOL_DIR}'; "
-        f"$sc.IconLocation = '{ico}'; "
+        # ",0" names the icon's index within the file. Without an IconLocation
+        # at all, Windows draws the target's icon -- and the target is a .bat,
+        # whose icon is the generic gears.
+        f"$sc.IconLocation = '{ico},0'; "
         "$sc.Description = 'COMTRADE Relay Event Analyzer'; "
-        "$sc.Save()"
+        "$sc.Save(); "
+        # Read it back. Save() reports nothing when the shell quietly declines
+        # a value, and an unset icon is exactly the failure this is fixing.
+        f"$c = $ws.CreateShortcut('{shortcut}'); "
+        "Write-Output ('ICON=' + $c.IconLocation)"
     )
     result = subprocess.run(
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
         capture_output=True, text=True,
     )
 
-    if shortcut.exists():
-        print(f"\n  Shortcut created: {shortcut}\n")
-    else:
-        print(f"\n  Could not create shortcut at {shortcut}")
-        print(f"  PowerShell error: {result.stderr.strip()}")
+    if not shortcut.exists():
+        print(f"\n  Could not create shortcut: {result.stderr.strip()}")
         print(f"  You can still launch by double-clicking '{bat.name}'\n")
+        return
+
+    print(f"\n  Shortcut created: {shortcut}")
+    readback = next((l.split("=", 1)[1].strip()
+                     for l in result.stdout.splitlines() if l.startswith("ICON=")),
+                    "")
+    if readback and readback.lower().startswith(str(ico).lower()):
+        print(f"  Icon: {readback}")
+    else:
+        print(f"  Warning: the shortcut's icon did not stick "
+              f"(reads back as {readback or 'empty'}).")
+        print("  Right-click the shortcut -> Properties -> Change Icon, and "
+              f"point it at:\n    {ico}")
+
+    # Tell the shell its icon cache is stale. Without this the desktop keeps
+    # drawing the previous icon until something else happens to invalidate it.
+    try:
+        import ctypes
+        SHCNE_ASSOCCHANGED, SHCNF_IDLIST = 0x08000000, 0x0000
+        ctypes.windll.shell32.SHChangeNotify(
+            SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)
+    except Exception:
+        pass
+    print("\n  If the desktop still shows the old icon, the shell is serving a "
+          "cached copy:\n      ie4uinit.exe -show\n  or sign out and back in.\n")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

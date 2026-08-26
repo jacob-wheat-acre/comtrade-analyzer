@@ -1,0 +1,1929 @@
+<meta charset="utf-8">
+<title>Feeder Event Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+/* ---------------------------------------------------------------------------
+   Tokens.  Light is the complete set on bare :root; dark redefines only the
+   values, once for the OS setting and once for an explicit theme stamp.
+   Neutrals carry a slight blue bias so they sit with the signal-blue accent
+   rather than reading as default grey.
+   --------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  --plane:      #e9edf3;
+  --surface:    #fbfcfd;
+  --surface-2:  #f1f4f8;
+  --surface-3:  #e6ebf1;
+  --ink:        #0f151c;
+  --ink-2:      #47535f;
+  --muted:      #74808d;
+  --grid:       #dfe5ec;
+  --baseline:   #c4ced8;
+  --hairline:   rgba(15, 21, 28, 0.11);
+  --shadow:     0 1px 2px rgba(15, 21, 28, .05), 0 8px 24px -12px rgba(15, 21, 28, .16);
+
+  /* UI chrome — deliberately a darker step than the PERMANENT series blue,
+     so interface accents never impersonate a data class. */
+  --chrome:     #184f95;
+  --chrome-2:   #256abf;
+
+  /* Categorical: the validated first three slots (blue / orange / aqua). */
+  --c-permanent: #2a78d6;
+  --c-exposed:   #eb6834;
+  --c-clear:     #1baf7a;
+  --c-candidate: #4a3aa7;
+
+  /* Status — fixed, never themed. Always shipped with an icon and a label. */
+  --st-good:     #0ca30c;
+  --st-warning:  #fab219;
+  --st-serious:  #ec835a;
+  --st-critical: #d03b3b;
+
+  --seq-1: #cde2fb; --seq-2: #86b6ef; --seq-3: #3987e5; --seq-4: #2a78d6; --seq-5: #184f95;
+
+  --r-sm: 3px; --r-md: 6px; --r-lg: 10px;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: "Archivo", "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --plane:     #0a0e13;
+    --surface:   #151b23;
+    --surface-2: #1b232d;
+    --surface-3: #232d38;
+    --ink:       #eef3f8;
+    --ink-2:     #a8b6c4;
+    --muted:     #7d8b99;
+    --grid:      #232d38;
+    --baseline:  #35414e;
+    --hairline:  rgba(255, 255, 255, 0.10);
+    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+    --chrome:    #86b6ef;
+    --chrome-2:  #6da7ec;
+    --c-permanent: #3987e5;
+    --c-exposed:   #d95926;
+    --c-clear:     #199e70;
+    --c-candidate: #9085e9;
+    --seq-1: #104281; --seq-2: #184f95; --seq-3: #256abf; --seq-4: #3987e5; --seq-5: #86b6ef;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane:     #0a0e13;
+  --surface:   #151b23;
+  --surface-2: #1b232d;
+  --surface-3: #232d38;
+  --ink:       #eef3f8;
+  --ink-2:     #a8b6c4;
+  --muted:     #7d8b99;
+  --grid:      #232d38;
+  --baseline:  #35414e;
+  --hairline:  rgba(255, 255, 255, 0.10);
+  --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+  --chrome:    #86b6ef;
+  --chrome-2:  #6da7ec;
+  --c-permanent: #3987e5;
+  --c-exposed:   #d95926;
+  --c-clear:     #199e70;
+  --c-candidate: #9085e9;
+  --seq-1: #104281; --seq-2: #184f95; --seq-3: #256abf; --seq-4: #3987e5; --seq-5: #86b6ef;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1280px; margin: 0 auto; padding: 20px 20px 64px; }
+
+/* ---- Type roles ---------------------------------------------------------- */
+h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; letter-spacing: -0.012em; }
+h1 { font-size: 19px; font-weight: 700; }
+h2 { font-size: 13px; font-weight: 600; }
+.eyebrow {
+  font-family: var(--display); font-size: 10.5px; font-weight: 600;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+}
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.num  { font-variant-numeric: tabular-nums; }
+
+/* ---- Top bar ------------------------------------------------------------- */
+.topbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px;
+  padding: 14px 18px; margin-bottom: 16px;
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: var(--r-lg); box-shadow: var(--shadow);
+}
+.brand { display: flex; align-items: center; gap: 11px; }
+.brand-mark {
+  width: 32px; height: 32px; flex: none; border-radius: var(--r-md);
+  background: var(--surface-2); border: 1px solid var(--hairline);
+  display: grid; place-items: center;
+}
+.brand-sub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.topbar-meta { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 999px; font-size: 11px;
+  background: var(--surface-2); border: 1px solid var(--hairline); color: var(--ink-2);
+  white-space: nowrap;
+}
+.chip .mono { font-size: 11px; }
+.chip-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+/* ---- Hero ---------------------------------------------------------------- */
+.hero {
+  /* auto-fit rather than a viewport media query: the hero collapses to one
+     column when its own container gets narrow, not just the window. */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 28px; align-items: center;
+  padding: 24px 26px; margin-bottom: 14px;
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: var(--r-lg); box-shadow: var(--shadow);
+}
+.hero-figure {
+  font-family: var(--sans); font-size: 76px; font-weight: 600;
+  line-height: .95; letter-spacing: -0.035em; color: var(--c-exposed);
+  margin: 8px 0 6px;
+}
+.hero-claim { font-size: 17px; font-weight: 500; max-width: 34ch; line-height: 1.35; }
+.hero-claim strong { font-weight: 600; }
+.hero-note { margin-top: 12px; font-size: 12.5px; color: var(--ink-2); max-width: 46ch; }
+.hero-note b { font-weight: 600; color: var(--ink); }
+
+/* ---- Unit grid (one cell = one event) ------------------------------------ */
+.units { display: flex; flex-direction: column; gap: 10px; }
+.unit-grid { display: grid; gap: 3px; }
+.unit {
+  aspect-ratio: 1; border-radius: var(--r-sm); border: 0; padding: 0;
+  cursor: pointer; transition: transform .12s ease, outline-color .12s ease;
+  outline: 2px solid transparent; outline-offset: 1px;
+}
+.unit:hover, .unit:focus-visible { transform: scale(1.22); outline-color: var(--ink); z-index: 2; }
+.unit:focus { outline: none; }
+.unit:focus-visible { outline-color: var(--chrome); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.legend-item { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--ink-2); }
+.legend-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.legend-val { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ---- Stat tiles ---------------------------------------------------------- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.tile {
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: var(--r-lg); padding: 14px 16px 15px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.tile-label { font-size: 11.5px; color: var(--muted); }
+.tile-value { font-size: 29px; font-weight: 600; line-height: 1.1; letter-spacing: -0.02em; }
+.tile-sub { font-size: 11.5px; color: var(--ink-2); }
+.tile-meter { height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden; margin-top: 7px; }
+.tile-meter > i { display: block; height: 100%; border-radius: 2px; }
+
+/* ---- Cards / charts ------------------------------------------------------ */
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.card {
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: var(--r-lg); padding: 16px 18px 18px; box-shadow: var(--shadow);
+  min-width: 0;
+}
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.card-note { font-size: 11.5px; color: var(--muted); }
+.chart { width: 100%; overflow-x: auto; }
+svg { display: block; max-width: 100%; }
+svg text { font-family: var(--sans); }
+
+/* ---- Table --------------------------------------------------------------- */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.field { display: flex; align-items: center; gap: 6px; }
+.field label { font-size: 11px; color: var(--muted); }
+select, input[type="search"] {
+  font-family: var(--sans); font-size: 12.5px; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--hairline);
+  border-radius: var(--r-md); padding: 5px 8px;
+}
+input[type="search"] { min-width: 190px; }
+select:focus-visible, input:focus-visible, button:focus-visible {
+  outline: 2px solid var(--chrome); outline-offset: 1px;
+}
+.btn {
+  font-family: var(--sans); font-size: 12.5px; color: var(--ink-2);
+  background: var(--surface-2); border: 1px solid var(--hairline);
+  border-radius: var(--r-md); padding: 5px 11px; cursor: pointer;
+}
+.btn:hover { color: var(--ink); border-color: var(--baseline); }
+.filter-count { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+.table-scroll { overflow-x: auto; border-radius: var(--r-md); }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+thead th {
+  position: sticky; top: 0; z-index: 3;
+  text-align: left; font-family: var(--display); font-size: 10.5px; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--muted);
+  background: var(--surface); padding: 8px 10px; white-space: nowrap;
+  border-bottom: 1px solid var(--baseline); cursor: pointer; user-select: none;
+}
+thead th:hover { color: var(--ink); }
+thead th[aria-sort]:not([aria-sort="none"]) { color: var(--chrome); }
+th .arrow { opacity: .55; font-size: 9px; }
+tbody td { padding: 7px 10px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+tbody tr.row { cursor: pointer; }
+tbody tr.row:hover td { background: var(--surface-2); }
+tbody tr.row.open td { background: var(--surface-2); }
+td.stripe { padding-left: 0; }
+.sev { display: block; width: 3px; height: 22px; border-radius: 2px; }
+.num-col { text-align: right; font-variant-numeric: tabular-nums; }
+.trunc { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 500;
+  border: 1px solid var(--hairline); background: var(--surface-2); color: var(--ink-2);
+  white-space: nowrap;
+}
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.pill-ico { font-size: 10px; line-height: 1; }
+
+.flagset { display: flex; flex-wrap: wrap; gap: 4px; }
+.flag {
+  font-size: 10.5px; padding: 1px 6px; border-radius: var(--r-sm);
+  background: var(--surface-3); color: var(--ink-2); white-space: nowrap;
+}
+
+/* ---- Expanded detail row ------------------------------------------------- */
+tr.detail > td { background: var(--surface-2); padding: 0; border-bottom: 1px solid var(--baseline); }
+.detail-inner { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px 20px; padding: 16px 18px 18px 24px; }
+.detail-block h3 { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; font-size: 12px; }
+.dl dt { color: var(--muted); }
+.dl dd { margin: 0; font-variant-numeric: tabular-nums; }
+.shot-table { width: 100%; font-size: 11.5px; }
+.shot-table th { font-family: var(--display); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 3px 8px 3px 0; }
+.shot-table td { padding: 3px 8px 3px 0; border: 0; font-variant-numeric: tabular-nums; }
+.note { font-size: 11.5px; color: var(--ink-2); line-height: 1.5; }
+
+/* ---- Oscillography viewer ------------------------------------------------ */
+.wave { grid-column: 1 / -1; border-top: 1px solid var(--grid); margin-top: 4px; padding-top: 14px; }
+.wave-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 8px; }
+.wave-legend { display: flex; flex-wrap: wrap; gap: 4px 13px; }
+.wave-key { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-2); }
+.wave-key i { width: 11px; height: 3px; border-radius: 2px; flex: none; }
+.wave-toggle { margin-left: auto; display: flex; gap: 0; border: 1px solid var(--hairline); border-radius: var(--r-md); overflow: hidden; }
+.wave-toggle button {
+  font-family: var(--sans); font-size: 11.5px; color: var(--ink-2); cursor: pointer;
+  background: var(--surface); border: 0; padding: 4px 11px;
+}
+.wave-toggle button + button { border-left: 1px solid var(--hairline); }
+.wave-toggle button[aria-pressed="true"] { background: var(--surface-3); color: var(--ink); font-weight: 500; }
+.wave-plot { position: relative; overflow-x: auto; }
+.wave-plot svg { cursor: crosshair; }
+.wave-foot { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
+
+/* ---- Data-quality banner ------------------------------------------------- */
+.dq { border-radius: var(--r-lg); border: 1px solid var(--hairline);
+      background: var(--surface); box-shadow: var(--shadow);
+      padding: 14px 18px; margin-bottom: 14px; }
+.dq h2 { margin-bottom: 4px; }
+.dq-item { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px;
+           padding: 7px 0; border-top: 1px solid var(--grid); font-size: 12.5px; }
+.dq-item:first-of-type { border-top: 0; }
+.dq-tag { font-family: var(--display); font-size: 10px; font-weight: 600;
+          letter-spacing: .06em; padding: 2px 7px; border-radius: var(--r-sm);
+          white-space: nowrap; height: fit-content; }
+.dq-fail { background: var(--st-critical); color: #fff; }
+.dq-warn { background: var(--st-warning); color: #241a00; }
+.dq-fix { grid-column: 2; color: var(--ink-2); font-size: 12px; }
+
+/* ---- Why this priority --------------------------------------------------- */
+.why { grid-column: 1 / -1; border-top: 1px solid var(--grid); margin-top: 4px; padding-top: 14px; }
+.why h3 { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.why table { max-width: 780px; }
+.why tbody tr:not(.decisive) { opacity: .58; }
+.rules-tbl { width: 100%; border-collapse: collapse; font-size: 12px; max-width: 100%; }
+.rules-tbl th { font-family: var(--display); font-size: 10px; letter-spacing: .06em;
+                text-transform: uppercase; color: var(--muted); text-align: left;
+                padding: 4px 12px 5px 0; border-bottom: 1px solid var(--baseline); }
+.rules-tbl td { padding: 6px 12px 6px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.rules-tbl td.set { font-family: var(--mono); font-size: 11px; color: var(--ink-2); white-space: nowrap; }
+
+/* ---- Cross-filtering ----------------------------------------------------- */
+svg [data-click] { cursor: pointer; }
+svg [data-click]:hover .hit { fill: var(--surface-3); opacity: .55; }
+svg [data-click]:focus-visible { outline: 2px solid var(--chrome); outline-offset: 2px; }
+.tile.clickable { cursor: pointer; transition: border-color .12s ease; }
+.tile.clickable:hover { border-color: var(--baseline); }
+.legend-item.clickable { cursor: pointer; }
+.legend-item.clickable:hover { color: var(--ink); }
+.drill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 3px 6px 3px 10px; border-radius: 999px; font-size: 11.5px;
+  background: var(--surface-3); border: 1px solid var(--hairline); color: var(--ink);
+}
+.drill button {
+  border: 0; background: none; cursor: pointer; color: var(--muted);
+  font-size: 14px; line-height: 1; padding: 0 3px;
+}
+.drill button:hover { color: var(--ink); }
+
+/* ---- Phasors, logs and peak tables --------------------------------------- */
+.pha { grid-column: 1 / -1; border-top: 1px solid var(--grid); margin-top: 4px; padding-top: 14px; }
+.pha-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.pha-cell { min-width: 0; }
+.pha-cell h4 { margin: 0 0 4px; font-family: var(--display); font-size: 10.5px;
+               font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.mini { grid-column: 1 / -1; border-top: 1px solid var(--grid); margin-top: 4px; padding-top: 14px;
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+.mini h3 { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+table.mini-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+table.mini-tbl th { font-family: var(--display); font-size: 10px; letter-spacing: .06em;
+                    text-transform: uppercase; color: var(--muted); text-align: left;
+                    padding: 2px 8px 3px 0; border-bottom: 1px solid var(--grid); }
+table.mini-tbl td { padding: 2px 8px 2px 0; font-variant-numeric: tabular-nums; border: 0; }
+table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10px; }
+.logscroll { max-height: 190px; overflow-y: auto; }
+
+/* ---- Tooltip ------------------------------------------------------------- */
+#tip {
+  position: fixed; z-index: 60; pointer-events: none; opacity: 0;
+  transition: opacity .09s ease; max-width: 280px;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--baseline); border-radius: var(--r-md);
+  box-shadow: var(--shadow); padding: 8px 10px; font-size: 12px; line-height: 1.45;
+}
+#tip .tip-title { font-weight: 600; margin-bottom: 3px; }
+#tip .tip-row { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+#tip .tip-row b { color: var(--ink); font-weight: 600; }
+
+/* ---- Footer -------------------------------------------------------------- */
+.foot { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 22px; margin-top: 14px; }
+.foot h2 { margin-bottom: 8px; }
+.foot p { font-size: 12px; color: var(--ink-2); line-height: 1.6; margin: 0 0 8px; max-width: 62ch; }
+.verify { display: grid; gap: 6px; }
+.verify-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
+.verify-bar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+.verify-bar > i { display: block; height: 100%; background: var(--st-good); }
+
+.empty { padding: 28px; text-align: center; color: var(--muted); font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+  .unit:hover, .unit:focus-visible { transform: none; }
+}
+@media (max-width: 720px) {
+  .hero-figure { font-size: 60px; }
+  .wrap { padding: 12px 12px 48px; }
+}
+</style>
+
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M1 12.5 L3.6 12.5 L5 3 L7.4 15.5 L9.6 6.5 L11.4 12.5 L17 12.5"
+                stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"
+                stroke-linecap="round" style="color: var(--chrome)"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Feeder Event Review</h1>
+        <div class="brand-sub" id="brandSub"></div>
+      </div>
+    </div>
+    <div class="topbar-meta" id="topMeta"></div>
+  </header>
+
+  <div id="dqBanner"></div>
+
+  <section class="hero">
+    <div>
+      <div class="eyebrow">EPSS exposure</div>
+      <div class="hero-figure" id="heroFigure">—</div>
+      <p class="hero-claim" id="heroClaim"></p>
+      <p class="hero-note" id="heroNote"></p>
+    </div>
+    <div class="units">
+      <div class="eyebrow">One cell, one event</div>
+      <div class="unit-grid" id="unitGrid"></div>
+      <div class="legend" id="unitLegend"></div>
+    </div>
+  </section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid-2">
+    <div class="card">
+      <div class="card-head"><h2>Fault mix</h2><span class="card-note" id="faultNote"></span></div>
+      <div class="chart" id="chartFault"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Triage backlog</h2><span class="card-note">Review priority</span></div>
+      <div class="chart" id="chartPriority"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>EPSS exposure by zone</h2><span class="card-note" id="zoneNote"></span></div>
+      <div class="chart" id="chartZones"></div>
+      <div class="legend" id="zoneLegend" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Reclose shots per event</h2><span class="card-note">Shots observed before clearing</span></div>
+      <div class="chart" id="chartShots"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Clearing time</h2><span class="card-note" id="tripNote"></span></div>
+      <div class="chart" id="chartTrip"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Devices driving exposure</h2><span class="card-note">Events needing a reclose</span></div>
+      <div class="chart" id="chartDevices"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Event register</h2>
+      <span class="card-note">Click any chart above to filter · select a row for the reclose sequence, phasors and screens</span>
+    </div>
+    <div class="filters">
+      <div class="field"><label for="fZone">Zone</label><select id="fZone"></select></div>
+      <div class="field"><label for="fFault">Fault</label><select id="fFault"></select></div>
+      <div class="field"><label for="fPrio">Priority</label><select id="fPrio"></select></div>
+      <div class="field"><label for="fClass">EPSS class</label><select id="fClass"></select></div>
+      <div class="field">
+        <label class="sr-only" for="fSearch">Search</label>
+        <input type="search" id="fSearch" placeholder="Device, feeder, event ID, flag…">
+      </div>
+      <span id="drillChip"></span>
+      <button class="btn" id="fReset" type="button">Reset</button>
+      <span class="filter-count" id="filterCount"></span>
+    </div>
+    <div class="table-scroll">
+      <table id="eventTable">
+        <thead><tr id="headRow"></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="tableEmpty" hidden>No events match these filters.</div>
+  </section>
+
+  <section class="card" id="classCard">
+    <div class="card-head">
+      <h2>What EPSS does to each event</h2>
+      <span class="card-note">How every event is classified, and how sure we are</span>
+    </div>
+    <div class="table-scroll"><table class="rules-tbl" id="classTable"></table></div>
+    <p class="note" id="classFoot" style="margin-top:10px"></p>
+  </section>
+
+  <section class="card" id="rulesCard">
+    <div class="card-head">
+      <h2>Triage rules</h2>
+      <span class="card-note">What sets each priority, and where to change it</span>
+    </div>
+    <div class="table-scroll"><table class="rules-tbl" id="rulesTable"></table></div>
+    <p class="note" id="rulesFoot" style="margin-top:10px"></p>
+  </section>
+
+  <footer class="foot">
+    <div>
+      <h2>How an event is classified</h2>
+      <p id="methodText"></p>
+      <p id="settingsText"></p>
+    </div>
+    <div>
+      <h2>Detector agreement</h2>
+      <p id="verifyIntro"></p>
+      <div class="verify" id="verify"></div>
+    </div>
+  </footer>
+</div>
+
+<div id="tip" role="status" aria-live="polite"></div>
+
+<style>
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+           overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+</style>
+
+<script>
+"use strict";
+
+/* Dataset injected by fleet_dashboard.py */
+const FLEET = __FLEET_DATA__;
+
+const EV   = FLEET.events || [];
+const AGG  = FLEET.aggregates || {};
+const TOT  = AGG.totals || {};
+const SET  = FLEET.settings || {};
+
+/* ---------------------------------------------------------------------------
+   Vocabulary — every class and priority carries a label and an icon, so no
+   meaning is ever left to color alone.
+   --------------------------------------------------------------------------- */
+/* What each event becomes on an EPSS day. EPSS both removes reclosing and
+   makes the relay more sensitive, so there are two different conversions. */
+const CLASS_META = {
+  EPSS_CANDIDATE: { label: "Rode through", short: "Rode thru", v: "--c-candidate", order: 0,
+                    blurb: "Fault current recorded but this device did not trip — normally a downstream "
+                         + "fuse cleared it, so only the lateral went out. Under more sensitive EPSS "
+                         + "settings the same fault may trip this device instead, dropping everything "
+                         + "downstream of it with no reclose. A new outage that does not happen today, "
+                         + "and usually a much bigger one. Confirming it needs the device's normal and "
+                         + "EPSS pickup settings." },
+  WSO_EXPOSED:    { label: "Momentary → sustained", short: "Exposed", v: "--c-exposed", order: 1,
+                    blurb: "Tripped and reclosed successfully — a blink today. With reclosing removed "
+                         + "it becomes a sustained outage." },
+  PERMANENT:      { label: "Already sustained", short: "Permanent", v: "--c-permanent", order: 2,
+                    blurb: "Locked out under normal settings — already a sustained outage, so EPSS "
+                         + "changes nothing." },
+  INDETERMINATE:  { label: "Unknown", short: "Unknown", v: "--muted", order: 3,
+                    blurb: "Tripped, but the record ends before any reclose could have occurred, so "
+                         + "there is no way to tell whether it recovered or locked out. Longer records "
+                         + "or the device's reclose settings would resolve it." },
+  NOT_EXPOSED:    { label: "No change", short: "No change", v: "--c-clear", order: 4,
+                    blurb: "No fault current and no operation — nothing for EPSS to change." },
+};
+const CLASS_ORDER = ["EPSS_CANDIDATE", "WSO_EXPOSED", "PERMANENT", "INDETERMINATE", "NOT_EXPOSED"];
+
+const PRIO_META = {
+  1: { label: "Priority 1", v: "--st-critical", icon: "▲", note: "Immediate — same-day review" },
+  2: { label: "Priority 2", v: "--st-warning",  icon: "◆", note: "Routine — weekly batch" },
+  3: { label: "Priority 3", v: "--muted",       icon: "–", note: "Archive — no review required" },
+};
+
+/* The rule table comes from triage.py via the analysis JSON, so tuning the
+   rules there updates this page too. The short names below are display-only. */
+const RULES = FLEET.triage_rules || [];
+const RULE_BY_KEY = Object.fromEntries(RULES.map((r) => [r.key, r]));
+
+const FLAG_SHORT = {
+  hif_suspect: "HIF suspect", lockout: "Lockout", "3ph_fault": "3-phase",
+  no_trip: "No trip", slow_trip: "Slow trip", llg_fault: "LLG",
+  multiple_shots: "Multi-shot",
+};
+const FLAG_LABEL = new Proxy({}, {
+  get: (_t, k) => FLAG_SHORT[k] || (RULE_BY_KEY[k] && RULE_BY_KEY[k].label) || k,
+});
+
+/* ---- Small helpers ------------------------------------------------------- */
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => (n === null || n === undefined) ? "—" : Number(n).toLocaleString("en-US");
+const fmtF = (n, d = 1) => (n === null || n === undefined) ? "—"
+  : Number(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = (n, d) => d ? Math.round((100 * n) / d) : 0;
+
+function shortTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d)) return iso.slice(5, 16).replace("T", " ");
+  const p = (x) => String(x).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function shortId(id) {
+  const m = String(id).match(/_(\d+)$/);
+  return m ? "#" + m[1] : String(id).slice(-6);
+}
+
+/* ---- Tooltip ------------------------------------------------------------- */
+const TIPS = new Map();
+let tipSeq = 0;
+const tipEl = $("tip");
+
+function tipRef(html) { const k = "t" + (++tipSeq); TIPS.set(k, html); return k; }
+
+/* Click handlers for chart marks, registered the same way tooltips are. */
+const CLICKS = new Map();
+let clickSeq = 0;
+function clickRef(fn) { const k = "c" + (++clickSeq); CLICKS.set(k, fn); return k; }
+
+function bindClicks(root) {
+  root.querySelectorAll("[data-click]").forEach((node) => {
+    const fn = CLICKS.get(node.getAttribute("data-click"));
+    if (!fn) return;
+    node.setAttribute("tabindex", "0");
+    node.setAttribute("role", "button");
+    node.addEventListener("click", fn);
+    node.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); fn(); }
+    });
+  });
+}
+
+function bindTips(root) {
+  root.querySelectorAll("[data-tip]").forEach((node) => {
+    node.addEventListener("mouseenter", (e) => {
+      tipEl.innerHTML = TIPS.get(node.getAttribute("data-tip")) || "";
+      tipEl.style.opacity = "1";
+      placeTip(e);
+    });
+    node.addEventListener("mousemove", placeTip);
+    node.addEventListener("mouseleave", () => { tipEl.style.opacity = "0"; });
+  });
+}
+function placeTip(e) {
+  const pad = 14, r = tipEl.getBoundingClientRect();
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - pad;
+  tipEl.style.left = Math.max(8, x) + "px";
+  tipEl.style.top = Math.max(8, y) + "px";
+}
+function tipHTML(title, rows) {
+  return `<div class="tip-title">${title}</div>` +
+    rows.map((r) => `<div class="tip-row">${r}</div>`).join("");
+}
+
+/* ---- SVG mark geometry --------------------------------------------------- */
+const R = 4;   /* rounded data-end; square at the baseline */
+
+function barPath(x, y, w, h, r = R) {
+  if (w <= 0.75) return "";
+  const rr = Math.min(r, w, h / 2);
+  if (w <= rr) return `M${x} ${y}h${w}v${h}h${-w}Z`;
+  return `M${x} ${y}H${x + w - rr}A${rr} ${rr} 0 0 1 ${x + w} ${y + rr}` +
+         `V${y + h - rr}A${rr} ${rr} 0 0 1 ${x + w - rr} ${y + h}H${x}Z`;
+}
+function colPath(x, yTop, w, h, r = R) {
+  if (h <= 0.75) return "";
+  const rr = Math.min(r, h, w / 2);
+  return `M${x} ${yTop + h}V${yTop + rr}A${rr} ${rr} 0 0 1 ${x + rr} ${yTop}` +
+         `H${x + w - rr}A${rr} ${rr} 0 0 1 ${x + w} ${yTop + rr}V${yTop + h}Z`;
+}
+const widthOf = (el, fallback) => Math.max(el.clientWidth || fallback, 300);
+
+/* ---------------------------------------------------------------------------
+   Horizontal bar chart — one series, value direct-labelled at the tip, so no
+   gridlines are needed.
+   --------------------------------------------------------------------------- */
+function hbars(el, rows, opts = {}) {
+  const W = widthOf(el, 520);
+  const rowH = opts.rowH || 34, barH = Math.min(opts.barH || 16, 24);
+  const labelW = opts.labelW || 118, valueW = opts.valueW || 46;
+  const H = rows.length * rowH;
+  const x0 = labelW, xMax = W - valueW - 8;
+  const max = Math.max(...rows.map((d) => d.value), 1);
+  const scale = (v) => Math.max(0, ((xMax - x0) * v) / max);
+
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(opts.aria || "bar chart")}">`;
+  rows.forEach((d, i) => {
+    const y = i * rowH, by = y + (rowH - barH) / 2;
+    const w = scale(d.value);
+    const k = tipRef(d.tip || tipHTML(esc(d.label), [`<b>${fmt(d.value)}</b> ${esc(opts.unit || "events")}`]));
+    const ck = d.filter ? clickRef(d.filter) : null;
+    s += `<g data-tip="${k}"${ck ? ` data-click="${ck}" aria-label="Filter to ${esc(d.label)}"` : ""}>`;
+    s += `<rect class="hit" x="0" y="${y}" width="${W}" height="${rowH}" fill="transparent"></rect>`;
+    if (d.icon) {
+      s += `<text x="0" y="${y + rowH / 2 + 4}" font-size="10" style="fill:var(${d.color})">${d.icon}</text>`;
+    }
+    s += `<text x="${d.icon ? 14 : 0}" y="${y + rowH / 2 + 4}" font-size="12.5" style="fill:var(--ink)">${esc(d.label)}</text>`;
+    if (d.sub) {
+      s += `<text x="${x0 - 10}" y="${y + rowH / 2 + 4}" font-size="11" text-anchor="end" style="fill:var(--muted)">${esc(d.sub)}</text>`;
+    }
+    s += `<path d="${barPath(x0, by, w, barH)}" style="fill:var(${d.color})"></path>`;
+    s += `<text x="${x0 + w + 8}" y="${by + barH / 2 + 4}" font-size="12" style="fill:var(--ink-2)" font-variant-numeric="tabular-nums">${fmt(d.value)}</text>`;
+    s += `</g>`;
+  });
+  s += `</svg>`;
+  el.innerHTML = s;
+  bindTips(el);
+  bindClicks(el);
+}
+
+/* ---------------------------------------------------------------------------
+   Stacked horizontal bars — 2px surface gaps do the separating, never strokes.
+   --------------------------------------------------------------------------- */
+function stackedBars(el, rows, keys, opts = {}) {
+  const W = widthOf(el, 520);
+  const rowH = 46, barH = 18, GAP = 2;
+  const labelW = opts.labelW || 132, valueW = 34;
+  const H = rows.length * rowH;
+  const x0 = labelW, xMax = W - valueW;
+  const max = Math.max(...rows.map((d) => keys.reduce((a, k) => a + (d.values[k] || 0), 0)), 1);
+  const scale = (v) => ((xMax - x0) * v) / max;
+
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(opts.aria || "stacked bar chart")}">`;
+  rows.forEach((d, i) => {
+    const y = i * rowH, by = y + 14;
+    const total = keys.reduce((a, k) => a + (d.values[k] || 0), 0);
+    s += `<text x="0" y="${y + 13}" font-size="12.5" font-weight="500" style="fill:var(--ink)">${esc(d.label)}</text>`;
+    if (d.sub) s += `<text x="0" y="${y + 29}" font-size="11" style="fill:var(--muted)">${esc(d.sub)}</text>`;
+
+    let cx = x0;
+    keys.forEach((k, j) => {
+      const v = d.values[k] || 0;
+      if (!v) return;
+      const raw = scale(v);
+      const isLast = keys.slice(j + 1).every((kk) => !(d.values[kk] || 0));
+      const w = isLast ? raw : Math.max(raw - GAP, 1);
+      const meta = CLASS_META[k];
+      const kk = tipRef(tipHTML(esc(d.label), [
+        `<b>${fmt(v)}</b> of ${fmt(total)} — ${esc(meta.label)}`,
+        d.extra ? esc(d.extra) : "",
+        esc(meta.blurb),
+      ].filter(Boolean)));
+      const ck = d.filter ? clickRef(() => d.filter(k)) : null;
+      s += `<g data-tip="${kk}"${ck ? ` data-click="${ck}" aria-label="Filter to ${esc(d.label)} ${esc(meta.label)}"` : ""}>` +
+           `<path d="${isLast ? barPath(cx, by, w, barH) : `M${cx} ${by}h${w}v${barH}h${-w}Z`}" style="fill:var(${meta.v})"></path></g>`;
+      /* Only label a segment when the text comfortably fits inside it. */
+      if (w > 26) {
+        s += `<text x="${cx + w / 2}" y="${by + barH / 2 + 4}" font-size="11" text-anchor="middle" font-variant-numeric="tabular-nums" style="fill:#fff">${v}</text>`;
+      }
+      cx += raw;
+    });
+    s += `<text x="${W}" y="${by + barH / 2 + 4}" font-size="11.5" text-anchor="end" style="fill:var(--muted)" font-variant-numeric="tabular-nums">${fmt(total)}</text>`;
+  });
+  s += `</svg>`;
+  el.innerHTML = s;
+  bindTips(el);
+  bindClicks(el);
+}
+
+/* ---------------------------------------------------------------------------
+   Column histogram with a labelled threshold reference line.
+   --------------------------------------------------------------------------- */
+function histogram(el, bins, opts = {}) {
+  const W = widthOf(el, 520);
+  const H = opts.height || 210, padL = 34, padR = 8, padT = 14, padB = 42;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(...bins.map((b) => b.count), 1);
+  const ticks = niceTicks(max, 4);
+  const yMax = ticks[ticks.length - 1];
+  const yOf = (v) => padT + plotH - (plotH * v) / yMax;
+  const slot = plotW / bins.length;
+  const barW = Math.min(slot - 6, 44);
+
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(opts.aria || "histogram")}">`;
+  ticks.forEach((t) => {
+    s += `<line x1="${padL}" x2="${W - padR}" y1="${yOf(t)}" y2="${yOf(t)}" stroke-width="1" style="stroke:var(${t === 0 ? "--baseline" : "--grid"})"></line>`;
+    s += `<text x="${padL - 8}" y="${yOf(t) + 4}" font-size="10.5" text-anchor="end" style="fill:var(--muted)" font-variant-numeric="tabular-nums">${t}</text>`;
+  });
+
+  bins.forEach((b, i) => {
+    const x = padL + i * slot + (slot - barW) / 2;
+    const h = plotH - (yOf(b.count) - padT);
+    const k = tipRef(tipHTML(esc(b.tipTitle || b.label), [
+      `<b>${fmt(b.count)}</b> events`, esc(b.note || ""),
+    ].filter(Boolean)));
+    const ck = b.filter ? clickRef(b.filter) : null;
+    s += `<g data-tip="${k}"${ck ? ` data-click="${ck}" aria-label="Filter to ${esc(b.label)}"` : ""}>`;
+    s += `<rect class="hit" x="${padL + i * slot}" y="${padT}" width="${slot}" height="${plotH}" fill="transparent"></rect>`;
+    s += `<path d="${colPath(x, yOf(b.count), barW, h)}" style="fill:var(${b.color || "--c-permanent"})"></path>`;
+    s += `</g>`;
+    s += `<text x="${x + barW / 2}" y="${H - padB + 15}" font-size="10.5" text-anchor="middle" style="fill:var(--muted)" font-variant-numeric="tabular-nums">${esc(b.label)}</text>`;
+    if (b.emphasize && b.count) {
+      s += `<text x="${x + barW / 2}" y="${yOf(b.count) - 6}" font-size="11" text-anchor="middle" font-weight="600" style="fill:var(--ink)" font-variant-numeric="tabular-nums">${b.count}</text>`;
+    }
+  });
+
+  if (opts.threshold) {
+    const tx = padL + opts.threshold.at * slot;
+    s += `<line x1="${tx}" x2="${tx}" y1="${padT - 6}" y2="${padT + plotH}" stroke-width="1" style="stroke:var(--st-critical)"></line>`;
+    s += `<text x="${tx + 5}" y="${padT + 2}" font-size="10.5" style="fill:var(--st-critical)">${esc(opts.threshold.label)}</text>`;
+  }
+  if (opts.axisLabel) {
+    s += `<text x="${padL + plotW / 2}" y="${H - 6}" font-size="10.5" text-anchor="middle" style="fill:var(--muted)">${esc(opts.axisLabel)}</text>`;
+  }
+  s += `</svg>`;
+  el.innerHTML = s;
+  bindTips(el);
+  bindClicks(el);
+}
+
+function niceTicks(max, count) {
+  const raw = max / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) || mag * 10;
+  const out = [];
+  for (let v = 0; v <= max + step * 0.001; v += step) out.push(Math.round(v * 100) / 100);
+  if (out[out.length - 1] < max) out.push(out[out.length - 1] + step);
+  return out;
+}
+</script>
+
+<script>
+"use strict";
+
+/* ---------------------------------------------------------------------------
+   Header, hero and the unit grid
+   --------------------------------------------------------------------------- */
+function renderHeader() {
+  const n = TOT.events || EV.length;
+  const gen = FLEET.generated_at ? new Date(FLEET.generated_at) : null;
+  $("brandSub").textContent =
+    `${fmt(n)} COMTRADE events${FLEET.parse_errors && FLEET.parse_errors.length
+      ? ` · ${FLEET.parse_errors.length} unreadable` : ""}` +
+    (gen ? ` · analyzed ${gen.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "");
+
+  const chips = [
+    ["EPSS", "0 reclose shots"],
+    ["Tiers", (SET.epss_tiers || []).join(" · ")],
+    ["Response", `${fmtF(SET.response_hours, 1)} h`],
+    ["Slow trip", `> ${fmt(SET.slow_trip_cycles)} cyc`],
+    ["Feeder Z", `${SET.feeder_z_ohm_per_mile} Ω/mi`],
+  ];
+  $("topMeta").innerHTML = chips
+    .map(([k, v]) => `<span class="chip">${esc(k)} <span class="mono">${esc(v)}</span></span>`)
+    .join("");
+}
+
+function renderHero() {
+  const n = TOT.events || EV.length;
+  const exposed = TOT.wso_exposed || 0;
+  $("heroFigure").textContent = fmt(exposed);
+  const cand = TOT.epss_candidate || 0;
+  const indet = TOT.indeterminate || 0;
+  $("heroClaim").innerHTML =
+    `of <strong>${fmt(n)}</strong> analyzed events were a blink today — tripped and reclosed. ` +
+    `With reclosing removed, each becomes a sustained outage.` +
+    (cand ? ` A further <strong>${fmt(cand)}</strong> rode through without tripping and may ` +
+            `trip under more sensitive EPSS settings, which would be a new outage.` : "");
+
+  const hrs = TOT.est_customer_hours_per_wso_day || 0;
+  const inactive = Object.values(AGG.zones || {}).filter((z) => !z.epss_active);
+  const held = inactive.reduce((a, z) => a + z.wso_exposed, 0);
+  $("heroNote").innerHTML =
+    `<b>${fmt(Math.round(hrs))}</b> estimated customer-hours per WSO day across ` +
+    `<b>${fmt(TOT.customers_covered)}</b> customers, at ${fmtF(SET.response_hours, 1)} h average crew response.` +
+    (held ? ` A further <b>${fmt(held)}</b> exposed events sit in Tier ${inactive.map((z) => z.risk_tiers.join("/")).join(", ")} zones, which EPSS does not cover today.` : "") +
+    (indet ? ` <b>${fmt(indet)}</b> events tripped but their record ends before any reclose could show, so their outcome is unknown — see the register.` : "");
+}
+
+function renderUnits() {
+  const grid = $("unitGrid");
+  const sorted = EV.slice().sort((a, b) =>
+    (CLASS_META[a.wso_class].order - CLASS_META[b.wso_class].order) ||
+    String(a.timestamp).localeCompare(String(b.timestamp)));
+  const n = sorted.length;
+  const cols = Math.min(Math.max(Math.ceil(Math.sqrt(n)), 6), 20);
+  const cell = n <= 144 ? 20 : n <= 400 ? 12 : 8;
+  grid.style.gridTemplateColumns = `repeat(${cols}, ${cell}px)`;
+
+  grid.innerHTML = sorted.map((e) => {
+    const m = CLASS_META[e.wso_class];
+    const k = tipRef(tipHTML(`${esc(e.device_id)} · ${esc(shortId(e.event_id))}`, [
+      `${esc(m.label)} · ${esc(e.fault_type)} fault · ${e.total_shots} shot${e.total_shots === 1 ? "" : "s"}`,
+      `${esc(PRIO_META[e.priority].label)}${e.flag_labels.length ? " · " + esc(e.flag_labels.join(", ")) : ""}`,
+      `${esc(shortTime(e.timestamp))} · ${esc(e.feeder)}`,
+    ]));
+    return `<button class="unit" data-tip="${k}" data-event="${esc(e.event_id)}" ` +
+      `style="background:var(${m.v})" aria-label="${esc(e.device_id)} ${esc(m.label)}"></button>`;
+  }).join("");
+  bindTips(grid);
+
+  grid.querySelectorAll(".unit").forEach((b) =>
+    b.addEventListener("click", () => focusEvent(b.getAttribute("data-event"))));
+
+  $("unitLegend").innerHTML = CLASS_ORDER.map((k) => {
+    const c = AGG.by_wso_class[k] || 0;
+    return `<span class="legend-item clickable" data-cls="${esc(k)}" role="button" tabindex="0">` +
+      `<span class="legend-swatch" style="background:var(${CLASS_META[k].v})"></span>` +
+      `${esc(CLASS_META[k].label)} <span class="legend-val">${fmt(c)}</span></span>`;
+  }).join("");
+
+  $("unitLegend").querySelectorAll("[data-cls]").forEach((el) => {
+    const go = () => applyDrill({ reset: true, cls: el.getAttribute("data-cls") });
+    el.addEventListener("click", go);
+    el.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); }
+    });
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   Stat tiles
+   --------------------------------------------------------------------------- */
+function renderTiles() {
+  const n = TOT.events || EV.length;
+  const tiles = [
+    {
+      label: "Customer-hours per WSO day",
+      value: fmt(Math.round(TOT.est_customer_hours_per_wso_day || 0)),
+      sub: `${fmt(TOT.customers_covered)} customers in EPSS-active zones`,
+    },
+    {
+      label: "Priority 1 backlog",
+      value: fmt(TOT.priority_1 || 0),
+      sub: `${pct(TOT.priority_1 || 0, n)}% of the sample needs same-day review`,
+      meter: { frac: (TOT.priority_1 || 0) / n, v: "--st-critical" },
+      drill: () => applyDrill({ reset: true, priority: "1" }),
+    },
+    {
+      label: "Lockouts",
+      value: fmt(TOT.locked_out || 0),
+      sub: "Permanent faults — crew dispatch either way",
+      drill: () => applyDrill({ reset: true,
+        chip: { label: "Locked out", test: (e) => e.locked_out } }),
+    },
+    {
+      label: "High-impedance screens",
+      value: fmt(TOT.hif_suspect || 0),
+      sub: "Possible downed conductor — public safety",
+      drill: () => applyDrill({ reset: true,
+        chip: { label: "HIF suspect", test: (e) => e.hif_suspect } }),
+    },
+    {
+      label: "Median clearing time",
+      value: TOT.median_trip_delay_ms === null || TOT.median_trip_delay_ms === undefined
+        ? "—" : fmtF(TOT.median_trip_delay_ms, 1),
+      sub: TOT.median_trip_delay_ms
+        ? `ms — ${fmtF((TOT.median_trip_delay_ms * 60) / 1000, 1)} cycles at 60 Hz`
+        : "no trip recorded",
+    },
+  ];
+  $("kpis").innerHTML = tiles.map((t, i) => `
+    <div class="tile${t.drill ? " clickable" : ""}"${t.drill ? ` data-tile="${i}" role="button" tabindex="0"` : ""}>
+      <span class="tile-label">${esc(t.label)}</span>
+      <span class="tile-value">${t.value}</span>
+      <span class="tile-sub">${esc(t.sub)}</span>
+      ${t.meter ? `<span class="tile-meter"><i style="width:${Math.round(t.meter.frac * 100)}%;background:var(${t.meter.v})"></i></span>` : ""}
+    </div>`).join("");
+
+  $("kpis").querySelectorAll("[data-tile]").forEach((el) => {
+    const go = tiles[Number(el.getAttribute("data-tile"))].drill;
+    el.addEventListener("click", go);
+    el.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); }
+    });
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   Charts
+   --------------------------------------------------------------------------- */
+const FAULT_DESC = {
+  SLG: "Single line-to-ground — the ordinary distribution fault",
+  LL:  "Line-to-line — no ground path",
+  LLG: "Double line-to-ground — two conductors involved",
+  "3PH": "Three-phase — rare, usually equipment failure",
+  UNKNOWN: "Not classified — insufficient channels or no clear pattern",
+};
+
+function renderFaultMix() {
+  const n = TOT.events || EV.length;
+  const order = ["SLG", "LL", "LLG", "3PH", "UNKNOWN"];
+  const rows = order
+    .filter((k) => AGG.by_fault_type[k])
+    .map((k) => ({
+      label: k, value: AGG.by_fault_type[k], color: "--c-permanent",
+      sub: `${pct(AGG.by_fault_type[k], n)}%`,
+      filter: () => applyDrill({ reset: true, fault: k }),
+      tip: tipHTML(esc(k), [`<b>${fmt(AGG.by_fault_type[k])}</b> events · ${pct(AGG.by_fault_type[k], n)}%`, esc(FAULT_DESC[k] || "")]),
+    }));
+  $("faultNote").textContent = `n = ${fmt(n)}`;
+  hbars($("chartFault"), rows, { labelW: 92, rowH: 32 });
+}
+
+function renderPriority() {
+  const n = TOT.events || EV.length;
+  const rows = [1, 2, 3].map((p) => {
+    const c = AGG.by_priority[String(p)] || 0;
+    const m = PRIO_META[p];
+    const flags = Object.entries(AGG.by_flag || {})
+      .filter(([f]) => FLAG_PRIORITY[f] === p)
+      .map(([f, v]) => `${FLAG_LABEL[f] || f} ${v}`);
+    return {
+      label: m.label, value: c, color: m.v, icon: m.icon, sub: `${pct(c, n)}%`,
+      filter: () => applyDrill({ reset: true, priority: String(p) }),
+      tip: tipHTML(esc(m.label), [`<b>${fmt(c)}</b> events — ${esc(m.note)}`,
+        flags.length ? "Flags: " + esc(flags.join(", ")) : "No flags raised"]),
+    };
+  });
+  hbars($("chartPriority"), rows, { labelW: 122, rowH: 32 });
+}
+const FLAG_PRIORITY = new Proxy({}, {
+  get: (_t, k) => (RULE_BY_KEY[k] ? RULE_BY_KEY[k].priority : undefined),
+});
+
+function renderZones() {
+  const zones = Object.values(AGG.zones || {}).sort((a, b) => b.wso_exposed - a.wso_exposed);
+  const rows = zones.map((z) => ({
+    label: z.zone.replace(/_/g, " "),
+    sub: `Tier ${z.risk_tiers.join("/") || "—"} · ${z.epss_active ? "EPSS active" : "EPSS inactive"}`,
+    extra: `${fmt(z.customers_served)} customers · ${fmt(z.device_count)} device${z.device_count === 1 ? "" : "s"}`,
+    values: { EPSS_CANDIDATE: z.epss_candidate || 0, WSO_EXPOSED: z.wso_exposed,
+              PERMANENT: z.permanent, INDETERMINATE: z.indeterminate || 0,
+              NOT_EXPOSED: z.not_exposed },
+    filter: (cls) => applyDrill({ reset: true, zone: z.zone, cls }),
+  }));
+  const covered = zones.filter((z) => z.epss_active).length;
+  $("zoneNote").textContent = `${covered} of ${zones.length} zones under EPSS`;
+  stackedBars($("chartZones"), rows, CLASS_ORDER, { labelW: 128 });
+  $("zoneLegend").innerHTML = CLASS_ORDER.map((k) =>
+    `<span class="legend-item"><span class="legend-swatch" style="background:var(${CLASS_META[k].v})"></span>${esc(CLASS_META[k].label)}</span>`).join("");
+}
+
+function renderShots() {
+  const n = TOT.events || EV.length;
+  const keys = Object.keys(AGG.by_shots || {}).sort((a, b) => a - b);
+  const NOTE = {
+    0: "No relay operation recorded in the window",
+    1: "Single trip — exposed only if a reclose followed",
+    2: "Two shots — semi-permanent fault, tree or damaged insulator",
+    3: "Three shots — the full sequence ran to its last attempt",
+  };
+  const rows = keys.map((k) => {
+    const c = AGG.by_shots[k];
+    return {
+      label: `${k} shot${k === "1" ? "" : "s"}`,
+      value: c, color: Number(k) >= 2 ? "--c-exposed" : "--c-permanent",
+      sub: `${pct(c, n)}%`,
+      filter: () => applyDrill({ reset: true,
+        chip: { label: `${k} shot${k === "1" ? "" : "s"}`,
+                test: (e) => e.total_shots === Number(k) } }),
+      tip: tipHTML(`${esc(k)} shot${k === "1" ? "" : "s"}`,
+        [`<b>${fmt(c)}</b> events · ${pct(c, n)}%`, esc(NOTE[k] || "")].filter(Boolean)),
+    };
+  });
+  hbars($("chartShots"), rows, { labelW: 100, rowH: 32 });
+}
+
+function renderTrip() {
+  const edges = [0, 1, 2, 3, 5, 10, 15, 20, 30];
+  const thresholdCycles = SET.slow_trip_cycles || 10;
+  const bins = edges.slice(0, -1).map((lo, i) => {
+    const hi = edges[i + 1];
+    const count = EV.filter((e) => e.trip_delay_cycles !== null && e.trip_delay_cycles !== undefined &&
+      e.trip_delay_cycles >= lo && e.trip_delay_cycles < hi).length;
+    return {
+      label: hi === edges[edges.length - 1] ? `${lo}+` : `${lo}–${hi}`,
+      count,
+      color: lo >= thresholdCycles ? "--st-critical" : "--c-permanent",
+      tipTitle: `${lo}–${hi} cycles (${Math.round((lo * 1000) / 60)}–${Math.round((hi * 1000) / 60)} ms)`,
+      note: lo >= thresholdCycles ? "Past the slow-trip threshold — flagged Priority 1" : "",
+      emphasize: lo >= thresholdCycles,
+      filter: () => applyDrill({ reset: true,
+        chip: { label: `Clearing ${lo}–${hi} cycles`,
+                test: (e) => e.trip_delay_cycles !== null && e.trip_delay_cycles !== undefined
+                             && e.trip_delay_cycles >= lo && e.trip_delay_cycles < hi } }),
+    };
+  });
+  const at = edges.findIndex((e) => e >= thresholdCycles);
+  const noTrip = EV.length - EV.filter((e) => e.trip_delay_cycles !== null && e.trip_delay_cycles !== undefined).length;
+  $("tripNote").textContent = `Fault inception → trip${noTrip ? ` · ${noTrip} with no trip` : ""}`;
+  histogram($("chartTrip"), bins, {
+    axisLabel: "Cycles at 60 Hz",
+    threshold: { at, label: `${thresholdCycles} cyc` },
+    height: 210,
+  });
+}
+
+function renderDevices() {
+  const top = (AGG.devices || []).filter((d) => d.events > 0).slice(0, 8);
+  const rows = top.map((d) => ({
+    label: d.device_id, value: d.wso_exposed, color: "--c-exposed",
+    sub: `${fmt(d.customers_served)} cust`,
+    filter: () => applyDrill({ reset: true,
+      chip: { label: d.device_id, test: (e) => e.device_id === d.device_id } }),
+    tip: tipHTML(esc(d.device_id), [
+      esc(d.feeder) + ` · ${esc(String(d.zone).replace(/_/g, " "))} · Tier ${d.risk_tier ?? "—"}`,
+      `<b>${fmt(d.wso_exposed)}</b> exposed of ${fmt(d.events)} events · ${fmt(d.permanent)} permanent`,
+      `${fmt(d.customers_served)} customers · ${fmt(d.priority_1)} Priority 1`,
+    ]),
+  }));
+  hbars($("chartDevices"), rows, { labelW: 168, rowH: 30, barH: 14 });
+}
+
+function renderCharts() {
+  renderFaultMix(); renderPriority(); renderZones();
+  renderShots(); renderTrip(); renderDevices();
+}
+</script>
+
+<script>
+"use strict";
+
+/* ---------------------------------------------------------------------------
+   Event register — filter, sort, expand
+   --------------------------------------------------------------------------- */
+const COLS = [
+  { key: "_sev",     label: "",            sortable: false },
+  { key: "event_id", label: "Event",       get: (e) => shortId(e.event_id) },
+  { key: "timestamp",label: "Time",        get: (e) => e.timestamp || "" },
+  { key: "device_id",label: "Device" },
+  { key: "zone",     label: "Zone" },
+  { key: "fault_type", label: "Fault" },
+  { key: "faulted_phase", label: "Ph" },
+  { key: "priority", label: "Priority" },
+  { key: "wso_class",label: "EPSS class",  get: (e) => CLASS_META[e.wso_class].order },
+  { key: "total_shots", label: "Shots",    num: true },
+  { key: "trip_delay_ms", label: "Clear ms", num: true },
+  { key: "peak_phase_current_a", label: "Peak I A", num: true },
+  { key: "est_miles", label: "Est. mi",    num: true },
+  { key: "flags",    label: "Flags",       sortable: false },
+];
+
+let sortKey = "priority", sortDir = 1, expanded = null;
+
+function pillClass(e) {
+  const m = CLASS_META[e.wso_class];
+  return `<span class="pill"><span class="dot" style="background:var(${m.v})"></span>${esc(m.short)}</span>`;
+}
+function pillPrio(e) {
+  const m = PRIO_META[e.priority];
+  return `<span class="pill"><span class="pill-ico" style="color:var(${m.v})">${m.icon}</span>${esc(m.label.replace("Priority ", "P"))}</span>`;
+}
+
+/* ---------------------------------------------------------------------------
+   Drill-down. Clicking a chart mark narrows the event register.
+
+   Where an existing dropdown covers the dimension (zone, fault, priority, EPSS
+   class) the drill sets that dropdown, so what happened stays visible in the
+   controls. Dimensions with no dropdown — shot count, clearing-time band, a
+   specific device — become a removable chip beside the filters instead.
+   --------------------------------------------------------------------------- */
+let drill = null;      /* { label, test(e) } */
+
+function applyDrill(opts) {
+  // Clear first, then apply. The other order wipes the value just set, which
+  // left every dropdown-backed drill doing nothing at all.
+  if (opts.reset) {
+    ["fZone", "fFault", "fPrio", "fClass"].forEach((k) => { $(k).value = ""; });
+    $("fSearch").value = "";
+    drill = null;
+  }
+  if (opts.zone !== undefined) $("fZone").value = opts.zone;
+  if (opts.fault !== undefined) $("fFault").value = opts.fault;
+  if (opts.priority !== undefined) $("fPrio").value = opts.priority;
+  if (opts.cls !== undefined) $("fClass").value = opts.cls;
+  if (opts.search !== undefined) $("fSearch").value = opts.search;
+  if (opts.chip !== undefined) drill = opts.chip;
+  expanded = null;
+  renderDrillChip();
+  renderBody();
+  const tbl = $("eventTable");
+  if (tbl) tbl.scrollIntoView({ block: "start" });
+  window.scrollBy(0, -90);
+}
+
+function clearDrill() {
+  drill = null;
+  renderDrillChip();
+  renderBody();
+}
+
+function renderDrillChip() {
+  const host = $("drillChip");
+  if (!host) return;
+  if (!drill) { host.innerHTML = ""; return; }
+  host.innerHTML = `<span class="drill">${esc(drill.label)}` +
+    `<button type="button" title="Clear this filter" aria-label="Clear ${esc(drill.label)}">×</button></span>`;
+  host.querySelector("button").addEventListener("click", clearDrill);
+}
+
+function currentRows() {
+  const z = $("fZone").value, f = $("fFault").value,
+        p = $("fPrio").value, c = $("fClass").value,
+        q = $("fSearch").value.trim().toLowerCase();
+  return EV.filter((e) => {
+    if (drill && !drill.test(e)) return false;
+    if (z && e.zone !== z) return false;
+    if (f && e.fault_type !== f) return false;
+    if (p && String(e.priority) !== p) return false;
+    if (c && e.wso_class !== c) return false;
+    if (q) {
+      const hay = [e.event_id, e.device_id, e.feeder, e.zone, e.fault_type,
+        e.sequence_outcome, ...(e.flag_labels || []), ...(e.flags || [])].join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function sortRows(rows) {
+  const col = COLS.find((c) => c.key === sortKey);
+  const val = (e) => {
+    const v = col && col.get ? col.get(e) : e[sortKey];
+    return v === null || v === undefined ? (sortDir === 1 ? Infinity : -Infinity) : v;
+  };
+  return rows.slice().sort((a, b) => {
+    const x = val(a), y = val(b);
+    const d = typeof x === "number" && typeof y === "number"
+      ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
+    return d * sortDir || String(a.timestamp).localeCompare(String(b.timestamp));
+  });
+}
+
+function renderHead() {
+  $("headRow").innerHTML = COLS.map((c) => {
+    const active = c.key === sortKey;
+    const arrow = active ? `<span class="arrow">${sortDir === 1 ? "▲" : "▼"}</span>` : "";
+    const sortAttr = c.sortable === false ? "" :
+      ` aria-sort="${active ? (sortDir === 1 ? "ascending" : "descending") : "none"}" tabindex="0" role="button" data-sort="${c.key}"`;
+    return `<th${sortAttr} class="${c.num ? "num-col" : ""}">${esc(c.label)} ${arrow}</th>`;
+  }).join("");
+  $("headRow").querySelectorAll("[data-sort]").forEach((th) => {
+    const go = () => {
+      const k = th.getAttribute("data-sort");
+      if (k === sortKey) sortDir *= -1; else { sortKey = k; sortDir = 1; }
+      renderHead(); renderBody();
+    };
+    th.addEventListener("click", go);
+    th.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); } });
+  });
+}
+
+function renderBody() {
+  const rows = sortRows(currentRows());
+  $("filterCount").textContent = rows.length === EV.length
+    ? `${fmt(EV.length)} events`
+    : `${fmt(rows.length)} of ${fmt(EV.length)} events`;
+  $("tableEmpty").hidden = rows.length > 0;
+
+  const html = rows.map((e) => {
+    const open = expanded === e.event_id;
+    const cells = [
+      `<td class="stripe"><span class="sev" style="background:var(${PRIO_META[e.priority].v})"></span></td>`,
+      `<td class="mono">${esc(shortId(e.event_id))}</td>`,
+      `<td class="mono">${esc(shortTime(e.timestamp))}</td>`,
+      `<td class="mono">${esc(e.device_id)}</td>`,
+      `<td>${esc(String(e.zone).replace(/_/g, " "))}</td>`,
+      `<td>${esc(e.fault_type)}</td>`,
+      `<td class="mono">${esc(e.faulted_phase || "—")}</td>`,
+      `<td>${pillPrio(e)}</td>`,
+      `<td>${pillClass(e)}</td>`,
+      `<td class="num-col">${e.total_shots}</td>`,
+      `<td class="num-col">${e.trip_delay_ms === null ? "—" : fmtF(e.trip_delay_ms, 1)}</td>`,
+      `<td class="num-col">${fmt(Math.round(e.peak_phase_current_a))}</td>`,
+      `<td class="num-col">${e.est_miles_valid ? fmtF(e.est_miles, 2) : "—"}</td>`,
+      `<td><span class="flagset">${(e.flags || []).map((f) =>
+        `<span class="flag">${esc(FLAG_LABEL[f] || f)}</span>`).join("")}</span></td>`,
+    ].join("");
+    return `<tr class="row${open ? " open" : ""}" data-event="${esc(e.event_id)}" tabindex="0">${cells}</tr>` +
+      (open ? `<tr class="detail"><td colspan="${COLS.length}">${detailHTML(e)}</td></tr>` : "");
+  }).join("");
+
+  $("tableBody").innerHTML = html;
+  drawExpandedWaveform();
+  $("tableBody").querySelectorAll("tr.row").forEach((tr) => {
+    const go = () => {
+      const id = tr.getAttribute("data-event");
+      expanded = expanded === id ? null : id;
+      renderBody();
+    };
+    tr.addEventListener("click", go);
+    tr.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); } });
+  });
+}
+
+function drawExpandedWaveform() {
+  if (!expanded) return;
+  const host = $("wave-host");
+  const e = EV.find((x) => x.event_id === expanded);
+  if (host && e) renderWaveform(host, e);
+  const pha = $("pha-host");
+  if (pha && e) renderPhasors(pha, e);
+}
+
+function detailHTML(e) {
+  const det = e.detail || {};
+  const prov = det.provenance;
+  const shots = (e.shots || []).length ? `
+    <table class="shot-table">
+      <thead><tr><th>Shot</th><th>Element</th><th>Type</th><th>Operate</th><th>Dead</th><th>Outcome</th></tr></thead>
+      <tbody>${e.shots.map((s) => `<tr>
+        <td>${s.shot_number}</td><td class="mono">${esc(s.element || "—")}</td>
+        <td>${esc(s.shot_type)}</td>
+        <td>${s.operate_time_ms === null ? "—" : fmtF(s.operate_time_ms, 1) + " ms"}</td>
+        <td>${s.dead_time_ms === null ? "—" : fmtF(s.dead_time_ms, 0) + " ms"}</td>
+        <td>${esc(s.outcome)}</td></tr>`).join("")}</tbody>
+    </table>` : `<p class="note">No trip operation recorded in this window.</p>`;
+
+  const loc = e.est_miles_valid
+    ? `${fmtF(e.est_miles, 2)} mi from the station`
+    : "Not usable";
+
+  return `<div class="detail-inner">
+    <div class="detail-block">
+      <h3>Record</h3>
+      <dl class="dl">
+        <dt>Event</dt><dd class="mono">${esc(e.event_id)}</dd>
+        <dt>Recorded</dt><dd>${esc(e.timestamp ? new Date(e.timestamp).toLocaleString("en-US") : "—")}</dd>
+        <dt>Device</dt><dd class="mono">${esc(e.device_id)}</dd>
+        <dt>Feeder</dt><dd>${esc(e.feeder || "—")}</dd>
+        <dt>Zone</dt><dd>${esc(String(e.zone).replace(/_/g, " "))} · Tier ${e.risk_tier ?? "—"}${e.epss_zone ? " · EPSS" : ""}</dd>
+        <dt>Customers</dt><dd>${fmt(e.customers_served)}</dd>
+        <dt>Sampling</dt><dd>${fmt(e.sample_rate_hz)} Hz · ${fmtF(e.duration_s, 3)} s · ${fmt(e.line_freq_hz)} Hz system</dd>
+        ${prov ? `
+        <dt>Record</dt><dd>C37.111 rev ${esc(prov.revision)} · ${esc(prov.file_type)} · ${fmt(prov.n_samples)} samples</dd>
+        <dt>Channels</dt><dd>${prov.n_analog} analog · ${prov.n_digital} digital</dd>
+        <dt>Trigger</dt><dd>${fmtF(prov.trigger_ms, 1)} ms into the record</dd>` : ""}
+        ${(det.elements || []).length ? `<dt>Elements</dt><dd class="mono">${esc(det.elements.join(", "))}</dd>` : ""}
+      </dl>
+    </div>
+    <div class="detail-block">
+      <h3>Reclose sequence</h3>
+      ${shots}
+      <p class="note" style="margin-top:8px">${esc(e.sequence_outcome)}</p>
+      <p class="note"><b>On an EPSS day: ${esc(CLASS_META[e.wso_class].label)}</b></p>
+      <p class="note">${esc(CLASS_META[e.wso_class].blurb)}</p>
+      ${(() => {
+        const c = (FLEET.epss_classes || []).find((x) => x.key === e.wso_class);
+        return c ? `<p class="note" style="color:var(--muted)">${esc(c.confidence)}</p>` : "";
+      })()}
+    </div>
+    <div class="detail-block">
+      <h3>Measurements &amp; screens</h3>
+      <dl class="dl">
+        <dt>Fault</dt><dd>${esc(e.fault_type)}${e.faulted_phase ? ` · phase ${esc(e.faulted_phase)}` : ""}</dd>
+        <dt>Inception</dt><dd>${e.fault_inception_s === null ? "—" : fmtF(e.fault_inception_s * 1000, 1) + " ms into record"}</dd>
+        <dt>Clearing</dt><dd>${e.trip_delay_ms === null ? "no trip" : `${fmtF(e.trip_delay_ms, 1)} ms · ${fmtF(e.trip_delay_cycles, 1)} cyc`}</dd>
+        <dt>Peak phase I</dt><dd>${fmt(Math.round(e.peak_phase_current_a))} A</dd>
+        <dt>Peak residual</dt><dd>${fmt(Math.round(e.peak_residual_a))} A</dd>
+        <dt>HIF screen</dt><dd>${e.hif_suspect ? "Suspect" : "Clear"} · Δ${fmtF(e.hif_delta_a, 1)} A</dd>
+        <dt>Location</dt><dd>${esc(loc)}</dd>
+      </dl>
+      <p class="note" style="margin-top:8px">${esc(e.est_miles_note || "")}</p>
+      ${(det.dc_offset || []).length ? `<p class="note"><b>DC offset:</b> ` +
+        det.dc_offset.map((d) => `${esc(d.channel)} ${fmt(Math.round(d.dc_a))} A` +
+          (d.tau_ms ? ` (τ ≈ ${fmtF(d.tau_ms, 0)} ms)` : "")).join(" · ") + `</p>` : ""}
+      <p class="note"><b>${esc(e.triage_line)}</b></p>
+      ${(e.findings || []).filter((f) => f.level !== "info").length ? `
+        <p class="note" style="margin-top:8px"><b>Data quality</b></p>
+        ${e.findings.filter((f) => f.level !== "info").map((f) =>
+          `<p class="note" style="color:var(${f.level === "error" ? "--st-critical" : "--ink-2"})">
+             ${esc(f.message)}${f.fix ? ` — ${esc(f.fix)}` : ""}</p>`).join("")}` : ""}
+    </div>
+    <div class="why">
+      <h3>Why Priority ${e.priority}</h3>
+      ${(e.flag_reasons || []).length ? `
+        <table class="mini-tbl">
+          <thead><tr><th></th><th>Rule</th><th>What triggered it</th></tr></thead>
+          <tbody>${e.flag_reasons.map((r) => `<tr${r.decisive ? ' class="decisive"' : ""}>
+            <td><span class="pill"><span class="pill-ico" style="color:var(${PRIO_META[r.priority].v})">${PRIO_META[r.priority].icon}</span>P${r.priority}</span></td>
+            <td>${esc(r.label)}</td>
+            <td class="note" style="padding-left:0">${esc(r.evidence || r.note)}</td>
+          </tr>`).join("")}</tbody>
+        </table>
+        <p class="note" style="margin-top:7px">The highest-priority rule that fired
+        sets the event's priority${e.flag_reasons.some((r) => !r.decisive)
+          ? " — rows in grey fired but did not decide it" : ""}.</p>`
+      : `<p class="note">No rule fired. Everything that raises a flag is listed
+         under <b>Triage rules</b> at the foot of this page; an event that trips
+         none of them is Priority 3, archive only.</p>`}
+    </div>
+    <div class="wave" id="wave-host"></div>
+    <div class="pha" id="pha-host"></div>
+    <div class="mini">
+      <div>
+        <h3>Peak measured quantities</h3>
+        <table class="mini-tbl">
+          <thead><tr><th>Channel</th><th class="r">Peak</th><th class="r">RMS</th><th></th></tr></thead>
+          <tbody>${(det.peaks || []).map((q) => `<tr>
+            <td class="mono">${esc(q.channel)}</td>
+            <td class="r">${fmt(Math.round(q.peak))}</td>
+            <td class="r">${fmt(Math.round(q.rms))}</td>
+            <td>${esc(q.units)}</td></tr>`).join("")}</tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Digital operations log</h3>
+        ${(det.digital_log || []).length ? `<div class="logscroll"><table class="mini-tbl">
+          <thead><tr><th>Channel</th><th>Event</th><th class="r">Time</th><th class="r">vs trigger</th></tr></thead>
+          <tbody>${det.digital_log.map((o) => `<tr>
+            <td class="mono">${esc(o.channel)}</td>
+            <td>${o.event === "ASSERT" ? "assert" : "drop"}</td>
+            <td class="r">${fmtF(o.t_ms, 1)} ms</td>
+            <td class="r">${o.rel_trigger_ms >= 0 ? "+" : ""}${fmtF(o.rel_trigger_ms, 1)} ms</td>
+          </tr>`).join("")}</tbody></table></div>`
+          : `<p class="note">No digital channel transitions detected.</p>`}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------------------------------------------------------------------------
+   Oscillography viewer — draws the decimated envelope fleet_analyze.py stores.
+
+   Each channel is a min/max envelope per bucket: filled at low opacity with a
+   stroked outline.  Zoomed into the fault window a bucket holds roughly one
+   sample, so min and max converge and the envelope reads as the actual trace.
+   --------------------------------------------------------------------------- */
+const PHASE_COLOR = ["--c-permanent", "--c-exposed", "--c-clear", "--muted"];
+const waveView = new Map();      /* event_id → 'full' | 'zoom' */
+
+/* Multi-shot events are about the sequence, single trips about the fault. */
+const waveDefault = (e) => (e.total_shots >= 2 ? "full" : "zoom");
+
+function timeTicks(t0, t1, target = 6) {
+  const span = t1 - t0;
+  const raw = span / target;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw) || mag * 10;
+  const out = [];
+  for (let v = Math.ceil(t0 / step) * step; v <= t1 + 1e-9; v += step) out.push(v);
+  return out;
+}
+const msLabel = (ms) => (Math.abs(ms) >= 1000 ? (ms / 1000).toFixed(2) + " s" : Math.round(ms) + " ms");
+
+function renderWaveform(host, e) {
+  const w = e.wave;
+  if (!w || !w.i_names) {
+    host.innerHTML = `<p class="note">This dataset was built without waveforms — re-run fleet_analyze.py without --no-waveforms.</p>`;
+    return;
+  }
+  const view = waveView.get(e.event_id) || waveDefault(e);
+  const d = view === "full" ? w.full : w.zoom;
+
+  const W = Math.max(host.clientWidth || 760, 420);
+  /* padT leaves room for up to three staggered rows of marker labels. */
+  const padL = 54, padR = 14, padT = 38, gap = 13, axisH = 26, hD = 15;
+  const hI = 126, hV = 100, hDig = w.d_names.length * hD;
+  const H = padT + hI + gap + hV + gap + hDig + axisH;
+  const plotW = W - padL - padR;
+
+  const t0 = d.t0, t1 = d.t1, span = Math.max(t1 - t0, 1e-6);
+  const X = (ms) => padL + (plotW * (ms - t0)) / span;
+  const iScale = Math.max(w.i_peak, 1), vScale = Math.max(w.v_peak, 1);
+  const iTop = padT, vTop = padT + hI + gap, dTop = vTop + hV + gap;
+  const yI = (a) => iTop + hI / 2 - ((hI / 2 - 4) * a) / iScale;
+  const yV = (v) => vTop + hV / 2 - ((hV / 2 - 4) * v) / vScale;
+
+  const envelope = (vals, q, yFn) => {
+    const n = vals.length / 2;
+    let top = "", bot = "";
+    for (let k = 0; k < n; k++) {
+      const x = (padL + (plotW * (k + 0.5)) / n).toFixed(1);
+      top += (k ? "L" : "M") + x + " " + yFn(vals[2 * k + 1] * q).toFixed(1);
+      bot = "L" + x + " " + yFn(vals[2 * k] * q).toFixed(1) + bot;
+    }
+    return top + bot + "Z";
+  };
+
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Oscillography for ${esc(e.event_id)}">`;
+
+  /* Panel grounds and zero baselines */
+  [[iTop, hI], [vTop, hV]].forEach(([top, h]) => {
+    s += `<rect x="${padL}" y="${top}" width="${plotW}" height="${h}" style="fill:var(--surface)" opacity="0.6"></rect>`;
+    s += `<line x1="${padL}" x2="${padL + plotW}" y1="${top + h / 2}" y2="${top + h / 2}" stroke-width="1" style="stroke:var(--baseline)"></line>`;
+  });
+
+  /* Time gridlines */
+  const ticks = timeTicks(t0, t1);
+  ticks.forEach((t) => {
+    s += `<line x1="${X(t).toFixed(1)}" x2="${X(t).toFixed(1)}" y1="${iTop}" y2="${dTop + hDig}" stroke-width="1" style="stroke:var(--grid)"></line>`;
+    s += `<text x="${X(t).toFixed(1)}" y="${H - 8}" font-size="10" text-anchor="middle" style="fill:var(--muted)" font-variant-numeric="tabular-nums">${msLabel(t)}</text>`;
+  });
+
+  /* Event markers */
+  const marks = [];
+  if (w.marks.fault != null) marks.push({ t: w.marks.fault, c: "--st-critical", dash: "4 3", label: "fault" });
+  (w.marks.trips || []).forEach((t, i) => marks.push({ t, c: "--chrome", dash: "2 3", label: (w.marks.trips.length > 1 ? `trip ${i + 1}` : "trip") }));
+  (w.marks.recloses || []).forEach((t, i) => marks.push({ t, c: "--c-clear", dash: "2 3", label: `reclose ${i + 1}` }));
+  if (w.marks.lockout != null) marks.push({ t: w.marks.lockout, c: "--st-critical", dash: "", label: "lockout" });
+  /* Markers cluster tightly on multi-shot records, so labels are dealt into
+     three rows — a label goes in the highest row whose last entry has cleared. */
+  const laneRight = [-1e9, -1e9, -1e9];
+  marks.filter((m) => m.t >= t0 && m.t <= t1)
+       .sort((a, b) => a.t - b.t)
+       .forEach((m) => {
+    const x = X(m.t);
+    const wEst = m.label.length * 5.4 + 10;
+    let lane = laneRight.findIndex((r) => x - r >= wEst);
+    if (lane === -1) lane = laneRight.indexOf(Math.min(...laneRight));
+    laneRight[lane] = x;
+    const ly = 10 + lane * 10;
+    const xs = x.toFixed(1);
+    s += `<line x1="${xs}" x2="${xs}" y1="${ly + 2}" y2="${dTop + hDig}" stroke-width="1.2"` +
+         (m.dash ? ` stroke-dasharray="${m.dash}"` : "") + ` style="stroke:var(${m.c})"></line>`;
+    s += `<text x="${(x + 4).toFixed(1)}" y="${ly}" font-size="9.5" style="fill:var(${m.c})">${esc(m.label)}</text>`;
+  });
+
+  /* Channels */
+  w.i_names.forEach((name, idx) => {
+    const c = PHASE_COLOR[idx % PHASE_COLOR.length];
+    s += `<path d="${envelope(d.i[name], w.i_q, yI)}" style="fill:var(${c});stroke:var(${c})" fill-opacity="0.20" stroke-width="1.1" stroke-linejoin="round"></path>`;
+  });
+  w.v_names.forEach((name, idx) => {
+    const c = PHASE_COLOR[idx % PHASE_COLOR.length];
+    s += `<path d="${envelope(d.v[name], w.v_q, yV)}" style="fill:var(${c});stroke:var(${c})" fill-opacity="0.20" stroke-width="1.1" stroke-linejoin="round"></path>`;
+  });
+
+  /* Y-axis labels */
+  s += `<text x="${padL - 8}" y="${iTop + 11}" font-size="10" text-anchor="end" style="fill:var(--muted)" font-variant-numeric="tabular-nums">${fmt(Math.round(iScale))}</text>`;
+  s += `<text x="${padL - 8}" y="${iTop + hI / 2 + 4}" font-size="10" text-anchor="end" style="fill:var(--muted)">A</text>`;
+  s += `<text x="${padL - 8}" y="${vTop + 11}" font-size="10" text-anchor="end" style="fill:var(--muted)" font-variant-numeric="tabular-nums">${fmt(Math.round(vScale / 1000))}k</text>`;
+  s += `<text x="${padL - 8}" y="${vTop + hV / 2 + 4}" font-size="10" text-anchor="end" style="fill:var(--muted)">V</text>`;
+
+  /* Digital strip */
+  w.d_names.forEach((name, i) => {
+    const yTop = dTop + i * hD;
+    s += `<text x="${padL - 8}" y="${yTop + hD / 2 + 3.5}" font-size="9.5" text-anchor="end" style="fill:var(--muted)">${esc(name)}</text>`;
+    s += `<line x1="${padL}" x2="${padL + plotW}" y1="${yTop + hD / 2}" y2="${yTop + hD / 2}" stroke-width="1" style="stroke:var(--grid)"></line>`;
+    const edges = d.d[name] || [];
+    for (let k = 0; k < edges.length; k++) {
+      if (!edges[k][1]) continue;
+      const end = k + 1 < edges.length ? edges[k + 1][0] : t1;
+      const x0 = X(Math.max(edges[k][0], t0)), x1 = X(Math.min(end, t1));
+      if (x1 > x0) {
+        s += `<rect x="${x0.toFixed(1)}" y="${yTop + 3}" width="${Math.max(x1 - x0, 1.5).toFixed(1)}" height="${hD - 7}" rx="1.5" style="fill:var(--chrome)" opacity="0.8"></rect>`;
+      }
+    }
+  });
+
+  /* Crosshair + hit area */
+  s += `<line class="wx" x1="0" x2="0" y1="${iTop}" y2="${dTop + hDig}" stroke-width="1" style="stroke:var(--ink)" opacity="0"></line>`;
+  s += `<rect class="whit" x="${padL}" y="${iTop}" width="${plotW}" height="${dTop + hDig - iTop}" fill="transparent"></rect>`;
+  s += `</svg>`;
+
+  const keys = w.i_names.concat(w.v_names).map((n, i) => {
+    const c = PHASE_COLOR[(i < w.i_names.length ? i : i - w.i_names.length) % PHASE_COLOR.length];
+    return `<span class="wave-key"><i style="background:var(${c})"></i>${esc(n)}</span>`;
+  }).join("");
+
+  host.innerHTML =
+    `<div class="wave-head"><div class="wave-legend">${keys}</div>` +
+    `<div class="wave-toggle">` +
+    `<button type="button" data-view="zoom" aria-pressed="${view === "zoom"}">Fault window</button>` +
+    `<button type="button" data-view="full" aria-pressed="${view === "full"}">Full record</button>` +
+    `</div></div>` +
+    `<div class="wave-plot">${s}</div>` +
+    `<p class="wave-foot">${msLabel(t0)} – ${msLabel(t1)} of a ${fmtF(e.duration_s * 1000, 0)} ms record · ` +
+    `${fmt(e.sample_rate_hz)} Hz · envelope of ${d.i[w.i_names[0]].length / 2} windows` +
+    (view === "full" && e.total_shots >= 2 ? " · switch to the fault window to resolve individual cycles" : "") +
+    `</p>`;
+
+  host.querySelectorAll(".wave-toggle button").forEach((b) =>
+    b.addEventListener("click", () => {
+      waveView.set(e.event_id, b.getAttribute("data-view"));
+      renderWaveform(host, e);
+    }));
+
+  wireCrosshair(host, e, d, { padL, plotW, t0, t1, span });
+}
+
+function wireCrosshair(host, e, d, geo) {
+  const svg = host.querySelector("svg");
+  const hit = svg.querySelector(".whit");
+  const cross = svg.querySelector(".wx");
+  const w = e.wave;
+  const nB = d.i[w.i_names[0]].length / 2;
+
+  const fmtRange = (vals, k, q, unit) => {
+    const mn = vals[2 * k] * q, mx = vals[2 * k + 1] * q;
+    const wide = mx - mn > 0.02 * (unit === "A" ? w.i_peak : w.v_peak);
+    return wide ? `${fmt(Math.round(mn))} … ${fmt(Math.round(mx))}` : fmt(Math.round(mx));
+  };
+
+  const move = (ev) => {
+    const r = svg.getBoundingClientRect();
+    const sx = ((ev.clientX - r.left) * svg.viewBox.baseVal.width) / r.width;
+    const frac = Math.min(Math.max((sx - geo.padL) / geo.plotW, 0), 0.999);
+    const k = Math.min(nB - 1, Math.floor(frac * nB));
+    const x = geo.padL + (geo.plotW * (k + 0.5)) / nB;
+    cross.setAttribute("x1", x); cross.setAttribute("x2", x);
+    cross.setAttribute("opacity", "0.45");
+
+    const t = geo.t0 + geo.span * ((k + 0.5) / nB);
+    const rows = w.i_names.map((n) => `${esc(n)} <b>${fmtRange(d.i[n], k, w.i_q, "A")}</b> A`)
+      .concat(w.v_names.map((n) => `${esc(n)} <b>${fmtRange(d.v[n], k, w.v_q, "V")}</b> V`));
+    tipEl.innerHTML = tipHTML(msLabel(t), rows);
+    tipEl.style.opacity = "1";
+    placeTip(ev);
+  };
+  hit.addEventListener("mousemove", move);
+  hit.addEventListener("mouseleave", () => {
+    cross.setAttribute("opacity", "0");
+    tipEl.style.opacity = "0";
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   Phasor diagram — the one thing the Word report had that this page did not.
+
+   Three polar panels: voltages, currents, sequence currents. Every phasor is
+   PEAK (compute_phasors_at scales by 2/N), and all of them are rotated so the
+   fault-window Va sits at 0 deg, so pre-fault and fault angles are directly
+   comparable. Pre-fault phasors are drawn faded behind the fault ones.
+   --------------------------------------------------------------------------- */
+const SEQ_COLOR = { I0: "--c-clear", I1: "--c-permanent", I2: "--st-critical",
+                    V0: "--c-clear", V1: "--c-permanent", V2: "--st-critical" };
+
+function polarPanel(items, size, opts = {}) {
+  const cx = size / 2, cy = size / 2, r = size / 2 - 42;
+  const max = Math.max(...items.map((d) => d.mag), 1e-9);
+  const R = (m) => (r * m) / max;
+  const P = (m, a) => [cx + R(m) * Math.cos((a * Math.PI) / 180),
+                       cy - R(m) * Math.sin((a * Math.PI) / 180)];
+
+  let s = `<svg viewBox="0 0 ${size} ${size}" width="100%" height="${size}" role="img" aria-label="${esc(opts.aria || "phasor diagram")}">`;
+  [0.33, 0.66, 1].forEach((f) => {
+    s += `<circle cx="${cx}" cy="${cy}" r="${(r * f).toFixed(1)}" fill="none" stroke-width="1" style="stroke:var(--grid)"></circle>`;
+  });
+  for (let a = 0; a < 360; a += 30) {
+    const [x, y] = P(max, a);
+    s += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke-width="1" style="stroke:var(--grid)"></line>`;
+  }
+  [[0, "0°"], [90, "90°"], [180, "180°"], [270, "270°"]].forEach(([a, lbl]) => {
+    const [x, y] = P(max * 1.13, a);
+    s += `<text x="${x.toFixed(1)}" y="${(y + 3).toFixed(1)}" font-size="8.5" text-anchor="middle" style="fill:var(--muted)">${lbl}</text>`;
+  });
+
+  const arrow = (d, faded) => {
+    if (d.mag <= 0) return "";
+    const [x, y] = P(d.mag, d.ang);
+    const head = 6, a = (d.ang * Math.PI) / 180;
+    const bx = x - head * Math.cos(a), by = y + head * Math.sin(a);
+    const px = -Math.sin(a) * head * 0.42, py = -Math.cos(a) * head * 0.42;
+    const op = faded ? 0.28 : 1;
+    let g = `<g opacity="${op}">`;
+    g += `<line x1="${cx}" y1="${cy}" x2="${bx.toFixed(1)}" y2="${by.toFixed(1)}" stroke-width="${faded ? 1.4 : 2}" style="stroke:var(${d.color})"></line>`;
+    g += `<path d="M${x.toFixed(1)} ${y.toFixed(1)}L${(bx + px).toFixed(1)} ${(by + py).toFixed(1)}L${(bx - px).toFixed(1)} ${(by - py).toFixed(1)}Z" style="fill:var(${d.color})"></path>`;
+    g += `</g>`;
+    return g;
+  };
+
+  (opts.faded || []).forEach((d) => { s += arrow(d, true); });
+  items.forEach((d) => { s += arrow(d, false); });
+
+  /* Label the fault phasors. During a fault the collapsed phase is a stub next
+     to a healthy one at full magnitude, so labels pinned to the arrow tip pile
+     up on the origin. Push every label out to at least MIN_LBL from the centre
+     and draw a hairline leader when it no longer touches its arrow. */
+  const MIN_LBL = r * 0.52;
+  items.forEach((d) => {
+    if (d.mag <= 0) return;
+    const a = (d.ang * Math.PI) / 180;
+    const tipR = R(d.mag);
+    const lblR = Math.max(tipR + 14, MIN_LBL);
+    const lx = cx + lblR * Math.cos(a), ly = cy - lblR * Math.sin(a);
+    if (lblR - tipR > 18) {
+      const sx = cx + (tipR + 3) * Math.cos(a), sy = cy - (tipR + 3) * Math.sin(a);
+      const ex = cx + (lblR - 10) * Math.cos(a), ey = cy - (lblR - 10) * Math.sin(a);
+      s += `<line x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke-width="0.8" stroke-dasharray="2 2" style="stroke:var(${d.color})" opacity="0.6"></line>`;
+    }
+    const anchor = Math.cos(a) > 0.3 ? "start" : Math.cos(a) < -0.3 ? "end" : "middle";
+    const dy = Math.sin(a) > 0.3 ? -4 : Math.sin(a) < -0.3 ? 12 : 3;
+    s += `<text x="${lx.toFixed(1)}" y="${(ly + dy).toFixed(1)}" font-size="9.5" font-weight="600" text-anchor="${anchor}" style="fill:var(--ink)">${esc(d.label)}</text>`;
+    s += `<text x="${lx.toFixed(1)}" y="${(ly + dy + 10).toFixed(1)}" font-size="9" text-anchor="${anchor}" style="fill:var(--muted)" font-variant-numeric="tabular-nums">${fmt(Math.round(d.mag))}∠${d.ang.toFixed(0)}°</text>`;
+  });
+
+  s += `</svg>`;
+  return s;
+}
+
+function renderPhasors(host, e) {
+  const ph = (e.detail || {}).phasors;
+  if (!ph) { host.innerHTML = ""; return; }
+
+  const pick = (obj, names) => names.filter((n) => obj[n])
+    .map((n, i) => ({ label: n, mag: obj[n].mag, ang: obj[n].ang,
+                      color: PHASE_COLOR[i % PHASE_COLOR.length] }));
+
+  const vNames = Object.keys(ph.fault).filter((n) => (ph.units[n] || "").toUpperCase().startsWith("V"));
+  const iNames = Object.keys(ph.fault).filter((n) => !(ph.units[n] || "").toUpperCase().startsWith("V"));
+
+  const seq = (obj) => Object.keys(obj).map((k) =>
+    ({ label: k, mag: obj[k].mag, ang: obj[k].ang, color: SEQ_COLOR[k] || "--muted" }));
+
+  const panels = [
+    ["Voltage phasors (V, peak)", pick(ph.fault, vNames), pick(ph.pre, vNames)],
+    ["Current phasors (A, peak)", pick(ph.fault, iNames), pick(ph.pre, iNames)],
+    ["Sequence currents (A, peak)", seq(ph.seq_i || {}), []],
+  ];
+
+  host.innerHTML =
+    `<h3 style="font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 10px">` +
+    `Phasor diagram — fault window at ${fmtF(ph.t_fault_ms, 1)} ms, reference ${esc(ph.ref_channel || "—")} = 0°</h3>` +
+    `<div class="pha-grid">` +
+    panels.map(([title, items, faded]) => items.length
+      ? `<div class="pha-cell"><h4>${esc(title)}</h4>${polarPanel(items, 268, { faded, aria: title })}</div>`
+      : "").join("") +
+    `</div>` +
+    `<p class="wave-foot">Magnitudes are peak, not RMS. Faded arrows are the pre-fault phasors at ` +
+    `${fmtF(ph.t_pre_ms, 1)} ms, rotated by the same angle so the two are directly comparable.</p>`;
+}
+
+function focusEvent(id) {
+  ["fZone", "fFault", "fPrio", "fClass"].forEach((k) => { $(k).value = ""; });
+  $("fSearch").value = "";
+  expanded = id;
+  renderBody();
+  const tr = $("tableBody").querySelector(`tr.row[data-event="${CSS.escape(id)}"]`);
+  if (!tr) return;
+  /* Jump straight to the record rather than animating: the register sits
+     thousands of pixels down, and smooth scrolling is disabled outright in some
+     browsers, which would leave the click looking like it did nothing.
+     renderBody() is synchronous, so the row is already laid out — scroll now,
+     then take focus with preventScroll so it cannot undo the scroll. */
+  tr.scrollIntoView({ block: "center" });
+  tr.focus({ preventScroll: true });
+}
+
+function renderFilters() {
+  const opts = (el, values, labeller) => {
+    $(el).innerHTML = `<option value="">All</option>` +
+      values.map((v) => `<option value="${esc(v)}">${esc(labeller ? labeller(v) : v)}</option>`).join("");
+  };
+  opts("fZone", [...new Set(EV.map((e) => e.zone))].sort(), (v) => String(v).replace(/_/g, " "));
+  opts("fFault", ["SLG", "LL", "LLG", "3PH", "UNKNOWN"].filter((f) => AGG.by_fault_type[f]));
+  opts("fPrio", ["1", "2", "3"], (v) => PRIO_META[v].label);
+  opts("fClass", CLASS_ORDER, (v) => CLASS_META[v].label);
+
+  ["fZone", "fFault", "fPrio", "fClass"].forEach((k) =>
+    $(k).addEventListener("change", () => { expanded = null; renderBody(); }));
+  let t;
+  $("fSearch").addEventListener("input", () => {
+    clearTimeout(t); t = setTimeout(() => { expanded = null; renderBody(); }, 120);
+  });
+  $("fReset").addEventListener("click", () => {
+    ["fZone", "fFault", "fPrio", "fClass"].forEach((k) => { $(k).value = ""; });
+    $("fSearch").value = ""; drill = null; expanded = null;
+    renderDrillChip(); renderBody();
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   Footer
+   --------------------------------------------------------------------------- */
+function renderDataQuality() {
+  const host = $("dqBanner");
+  if (!host) return;
+  const dq = FLEET.data_quality || [];
+  const errs = (FLEET.parse_errors || []).filter((e) => e.diagnosis);
+  if (!dq.length && !errs.length) { host.innerHTML = ""; return; }
+
+  const row = (tag, cls, msg, count, fix) => `
+    <div class="dq-item">
+      <span class="dq-tag ${cls}">${tag}</span>
+      <span><b>${esc(msg)}</b>${count ? ` — ${fmt(count)} file(s)` : ""}</span>
+      ${fix ? `<span class="dq-fix">${esc(fix)}</span>` : ""}
+    </div>`;
+
+  host.innerHTML = `<div class="dq">
+    <h2>Data quality</h2>
+    <p class="card-note" style="margin:0 0 8px">
+      Read these before trusting the numbers below — they affect every result on this page.
+    </p>
+    ${errs.map((e) => row("UNREADABLE", "dq-fail", e.diagnosis.message, 0, e.diagnosis.fix)).join("")}
+    ${dq.map((f) => row(f.level === "error" ? "BLOCKING" : "CHECK",
+                        f.level === "error" ? "dq-fail" : "dq-warn",
+                        f.message, f.count, f.fix)).join("")}
+  </div>`;
+}
+
+function renderClasses() {
+  const tbl = $("classTable");
+  if (!tbl) return;
+  const CLASSES = FLEET.epss_classes || [];
+  if (!CLASSES.length) {
+    tbl.innerHTML = "";
+    $("classFoot").textContent =
+      "This dataset predates class export — re-run the analysis to see the scheme here.";
+    return;
+  }
+  const counts = AGG.by_wso_class || {};
+  tbl.innerHTML =
+    `<thead><tr><th>Class</th><th>What the record shows</th>` +
+    `<th>What EPSS does to it</th><th class="num-col">In this set</th>` +
+    `<th>How sure</th></tr></thead>` +
+    `<tbody>${CLASSES.map((c) => {
+      const m = CLASS_META[c.key] || {};
+      const n = counts[c.key] || 0;
+      return `<tr>
+        <td style="white-space:nowrap"><span class="pill">
+          <span class="dot" style="background:var(${m.v || "--muted"})"></span>${esc(c.label)}</span></td>
+        <td>${esc(c.observed)}</td>
+        <td class="note" style="padding:0">${esc(c.epss_effect)}</td>
+        <td class="num-col">${n ? `<a href="#" data-cls="${esc(c.key)}">${fmt(n)}</a>` : "0"}</td>
+        <td class="note" style="padding:0">${esc(c.confidence)}</td>
+      </tr>`;
+    }).join("")}</tbody>`;
+
+  tbl.querySelectorAll("[data-cls]").forEach((a) => {
+    a.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      applyDrill({ reset: true, cls: a.getAttribute("data-cls") });
+    });
+  });
+
+  const cand = TOT.epss_candidate || 0, indet = TOT.indeterminate || 0;
+  $("classFoot").innerHTML =
+    `EPSS does two things — it disables reclosing <em>and</em> makes the relay more ` +
+    `sensitive — so there are two different conversions, not one. ` +
+    (cand ? `The <b>${fmt(cand)}</b> ride-throughs are the ones worth acting on before a WSO day: ` +
+            `today a fuse drops one lateral, on an EPSS day the recloser above it may drop the ` +
+            `whole section. ` : "") +
+    (indet ? `The <b>${fmt(indet)}</b> unknowns are records that end before any reclose could appear — ` +
+             `not evidence that none happened. ` : "") +
+    `The counts are clickable.`;
+}
+
+function renderRules() {
+  const tbl = $("rulesTable");
+  if (!tbl) return;
+  if (!RULES.length) {
+    tbl.innerHTML = "";
+    $("rulesFoot").textContent =
+      "This dataset predates rule export — re-run the analysis to see the rules here.";
+    return;
+  }
+  const counts = AGG.by_flag || {};
+  tbl.innerHTML =
+    `<thead><tr><th>Priority</th><th>Rule</th><th>Fires when</th>` +
+    `<th>Why it matters</th><th class="num-col">In this set</th><th>Setting</th></tr></thead>` +
+    `<tbody>${RULES.map((r) => `<tr>
+      <td><span class="pill"><span class="pill-ico" style="color:var(${PRIO_META[r.priority].v})">${PRIO_META[r.priority].icon}</span>P${r.priority}</span></td>
+      <td><b>${esc(r.label)}</b></td>
+      <td>${esc(r.trigger)}</td>
+      <td class="note" style="padding:0">${esc(r.description)}</td>
+      <td class="num-col">${counts[r.key] ? `<a href="#" data-flag="${esc(r.key)}">${fmt(counts[r.key])}</a>` : "0"}</td>
+      <td class="set">${esc(r.setting)}</td>
+    </tr>`).join("")}</tbody>`;
+
+  tbl.querySelectorAll("[data-flag]").forEach((a) => {
+    a.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      const key = a.getAttribute("data-flag");
+      applyDrill({ reset: true, chip: {
+        label: FLAG_LABEL[key], test: (e) => (e.flags || []).includes(key) } });
+    });
+  });
+
+  const p3 = TOT.priority_3 || 0;
+  $("rulesFoot").innerHTML =
+    `An event takes the priority of the highest-priority rule that fires. ` +
+    `Anything that fires no rule is Priority 3 — ${fmt(p3)} of ${fmt(TOT.events)} here. ` +
+    `The counts are clickable. Rules live in <span class="mono">triage.py</span>; ` +
+    `thresholds marked above are set in <span class="mono">config.json</span>.`;
+}
+
+function renderFooter() {
+  $("methodText").innerHTML =
+    `Each record is parsed to IEEE C37.111, then screened for fault inception, trip time, ` +
+    `symmetrical components and reclose sequence. An event is <b>WSO-exposed</b> only when the ` +
+    `recloser actually operated and reclosed at least once: under EPSS those shots are removed, ` +
+    `so the momentary becomes a sustained outage. Events that locked out are already sustained, ` +
+    `and events cleared on the first trip have no reclose for EPSS to suppress. ` +
+    `Fault classification is a review aid, not a replacement for a relay algorithm.`;
+
+  $("settingsText").innerHTML =
+    `Settings: EPSS 0 reclose shots on Tier ${esc((SET.epss_tiers || []).join(" and "))}; ` +
+    `${fmtF(SET.response_hours, 1)} h average crew response; slow-trip flag past ${fmt(SET.slow_trip_cycles)} cycles; ` +
+    `fault location at ${SET.feeder_z_ohm_per_mile} Ω/mile, ±20–30% and suppressed on high-impedance faults ` +
+    `(${fmt(TOT.location_suppressed || 0)} of ${fmt(TOT.events)} here).`;
+
+  const v = FLEET.validation;
+  if (!v) {
+    $("verifyIntro").textContent =
+      "This dataset carries no ground-truth file, so detector agreement is not measured.";
+    $("verify").innerHTML = "";
+    return;
+  }
+  $("verifyIntro").innerHTML =
+    `These events are synthetic, so every record has a known answer. The detectors were scored ` +
+    `against it over all ${fmt(v.checked)} events — the bar any change to the analysis has to clear.`;
+  const rows = [
+    ["Fault type", v.fault_type_match_pct],
+    ["EPSS class", v.wso_class_match_pct],
+    ["Shot count", v.shot_count_match_pct],
+    ["Triage flag recall", v.triage_flag_recall_pct],
+  ];
+  $("verify").innerHTML = rows.map(([k, val]) => `
+    <div class="verify-row">
+      <span>${esc(k)}</span><span class="num" style="font-weight:600">${fmtF(val, 1)}%</span>
+      <span class="verify-bar"><i style="width:${val}%"></i></span>
+    </div>`).join("") +
+    (v.mismatches && v.mismatches.length
+      ? `<p class="note" style="margin-top:6px">${fmt(v.mismatches.length)} event(s) disagreed — see fleet_analysis.json.</p>`
+      : "");
+}
+
+/* ---------------------------------------------------------------------------
+   Init
+   --------------------------------------------------------------------------- */
+function init() {
+  renderHeader(); renderHero(); renderUnits(); renderTiles(); renderCharts();
+  renderFilters(); renderHead(); renderBody(); renderDataQuality(); renderClasses(); renderRules(); renderFooter();
+}
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { TIPS.clear(); CLICKS.clear(); renderCharts(); drawExpandedWaveform(); }, 150);
+});
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
+</script>

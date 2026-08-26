@@ -26,34 +26,92 @@ Designed for protection engineers reviewing fault events on 12–35 kV distribut
 ```bash
 git clone https://github.com/jacob-wheat-acre/comtrade-analyzer.git
 cd comtrade-analyzer
-pip install -r requirements.txt
-pip install python-docx          # required for Word report generation
+python -m venv .venv && source .venv/bin/activate   # .venv\Scripts\activate on Windows
+pip install .
 ```
 
-Python 3.10+ recommended. tkinter is included with most Python distributions; on Linux install `python3-tk` via your package manager.
+That installs the package and puts six commands on your PATH:
+
+| Command | What it does |
+|---|---|
+| `comtrade-batch` | **Bulk folder analysis** — dashboard + CSV + EPSS numbers, incremental, optional watch mode |
+| `comtrade-analyze` | Single event or folder — plots, Word report, CSV/JSON |
+| `comtrade-wso` | WSO/EPSS reliability impact report |
+| `comtrade-dashboard` | Re-render the dashboard from an existing `fleet_analysis.json` |
+| `comtrade-gui` | tkinter desktop interface |
+| `comtrade-demo-fleet` | Generate synthetic events to try the pipeline without real data |
+
+Use `pip install -e .` instead — it installs the tool **in place**, so a later
+`git pull` updates it with no reinstall. That is the recommended setup for a
+shared team copy.
+
+**New to git or setting up a colleague's PC?** [`GIT_GUIDE.md`](GIT_GUIDE.md) is
+a from-scratch walkthrough — installing Python and Git, cloning, installing,
+getting updates, and what to do when `git pull` complains. No prior command-line
+experience assumed.
+
+**Something not working?**
+
+```bash
+python check_install.py
+```
+
+It reports which Python is actually running, which libraries loaded, whether the
+commands are on PATH, whether the folder is cloud-synced, and whether `git pull`
+will work — then tells you what to do about anything broken. Paste its whole
+output when reporting a problem.
+
+**Double-clickable launchers** ship in the folder. `.bat` files are Windows-only
+(macOS cannot run them); `.command` files are the macOS equivalent:
+
+| Task | Windows | macOS |
+|---|---|---|
+| Open the GUI | `COMTRADE Analyzer.bat` | the Desktop app, see below |
+| Analyze a folder | `Analyze Folder.bat` (drag a folder onto it) | `Analyze Folder.command` (drag the folder into the prompt) |
+| Put an icon on the Desktop | `install_shortcut.bat` | `python3 install_shortcut.py` |
+
+On macOS, `python3 install_shortcut.py` builds a real **COMTRADE Analyzer.app**
+on your Desktop. On first launch macOS may warn that it is from an unidentified
+developer — System Settings → Privacy & Security → Open Anyway.
+
+Python 3.10+ required. tkinter ships with CPython on Windows and macOS; on Linux install `python3-tk` via your package manager. Running from a checkout without installing still works — `python main.py` and `python app.py` are kept as shims.
 
 ---
 
 ## Quick Start
 
+**Bulk analysis of an export folder — the usual starting point:**
+```bash
+comtrade-batch ./events --devices devices.csv
+```
+Writes `analysis/fleet_dashboard.html`, `fleet_events.csv` and `fleet_analysis.json`.
+Open the HTML in a browser; it is a local file with no external dependencies.
+
 **GUI:**
 ```bash
-python app.py
+comtrade-gui
 ```
+Point it at a folder and click Run Analysis: it classifies every event and
+opens the dashboard in your browser. It does **not** render a plot or a report
+per event — the dashboard is the viewer, and it carries the waveform, phasor
+diagram, digital operations log and peak quantities for each one. Point it at a
+single `.cfg` instead and you get the detailed per-event output (plots, Word
+report) as before.
 
-**CLI — single file:**
+**Single event:**
 ```bash
-python main.py fault_event.cfg --report --phasor-plot --save-plots
-```
-
-**CLI — folder batch:**
-```bash
-python main.py ./events/ --report --phasor-plot --save-plots
+comtrade-analyze fault_event.cfg --report --phasor-plot --save-plots
 ```
 
 **WSO reliability impact analysis:**
 ```bash
-python wso_impact.py ./events/ --devices devices.csv --response-hours 2
+comtrade-wso ./events/ --devices devices.csv --response-hours 2
+```
+
+**Try it without real data:**
+```bash
+comtrade-demo-fleet --count 100          # writes ./fleet/
+comtrade-batch ./fleet/events --devices ./fleet/fleet_devices.csv
 ```
 
 ---
@@ -144,6 +202,83 @@ Outputs land in `<folder>/wso_output/`:
 
 ---
 
+## Bulk Analysis at Work (`comtrade-batch`)
+
+The command built for running this against a real export folder. It analyzes
+everything, writes the dashboard and CSV, and prints the EPSS numbers in one go.
+
+```bash
+comtrade-batch //share/subnet/export --devices devices.csv --out ./review
+```
+
+### It only parses what is new
+
+A manifest under `<out>/.state/analyzed.json` records the size and mtime of every
+file already analyzed, so re-running only touches new events. A folder that has
+accumulated 40,000 events does not get re-parsed on every run.
+
+```
+Analyzing 2 new event(s); 30 cached.
+```
+
+Pass `--rebuild` to force a full re-analysis — do this after changing
+`--feeder-z`, `--epss-tiers` or anything else that affects results.
+
+### Watched-folder mode
+
+For a folder SUBNET writes into continuously:
+
+```bash
+comtrade-batch //share/subnet/export --devices devices.csv --watch --interval 300
+```
+
+It sweeps every 5 minutes, analyzes only what arrived, and rewrites the outputs.
+A failed sweep is logged and the watcher keeps going. Output is line-buffered and
+`SIGTERM` is handled cleanly, so it behaves under a service manager:
+
+```ini
+# /etc/systemd/system/comtrade-batch.service
+[Service]
+ExecStart=/opt/comtrade/.venv/bin/comtrade-batch /srv/subnet/export \
+          --devices /opt/comtrade/devices.csv --out /srv/protection/review \
+          --watch --interval 300
+Restart=on-failure
+```
+
+On Windows, point Task Scheduler at the same command without `--watch` and let
+the scheduler supply the interval — the manifest makes repeat runs cheap.
+
+### Useful flags
+
+| Flag | Why |
+|---|---|
+| `--out DIR` | Write outputs to a share instead of next to the events |
+| `--rebuild` | Re-analyze everything (after a settings change) |
+| `--always-write` | Rewrite outputs even when nothing new arrived |
+| `--no-waveforms` | Drop the inline oscillography — JSON goes from ~25 KB to ~1 KB per event |
+| `--no-dashboard` | JSON and CSV only |
+| `--jobs N` | Worker processes (defaults to CPU count - 1) |
+
+---
+
+## Handling operational data
+
+Real event files, and everything derived from them, contain device IDs, feeder
+names, customer counts and outage estimates.
+
+- **`devices.csv` is gitignored** and must stay that way. Only
+  `devices_template.csv` is tracked. Never commit a populated registry, and keep
+  real device IDs and feeder names out of commit messages and test fixtures.
+- **Every `comtrade-batch` output is a local file.** The dashboard is
+  self-contained HTML that loads no external resources and sends nothing
+  anywhere. Opening it in a browser does not transmit the data.
+- **`comtrade-dashboard --artifact`** exists only to prepare the page for
+  publishing to an external service. Publishing uploads the full per-event
+  dataset — device IDs, feeders, customer counts and all. Do not use it with real
+  operational data unless your organization has explicitly cleared that.
+
+---
+
 ## Configuration (`config.json`)
 
 ```jsonc
@@ -162,6 +297,29 @@ Outputs land in `<folder>/wso_output/`:
   }
 }
 ```
+
+---
+
+## Tests
+
+```bash
+pytest test_comtrade.py -v
+```
+
+81 tests covering the parser, the peak-vs-RMS magnitude conventions, Fortescue
+sequence math, fault classification, reclose-sequence detection, the WSO/EPSS
+three-way boundary, triage flags, the HIF screen, the fault-location guard, the
+batch manifest, and waveform decimation — plus end-to-end checks against the
+generated fixtures.
+
+Two tests are `xfail(strict=True)` and record known defects rather than hiding
+them. If either flips to `XPASS`, the defect was fixed and the marker should be
+removed in the same commit:
+
+| Test | Defect |
+|---|---|
+| `test_the_slg_reference_fixture_classifies_as_slg` | `generate_test_data.py` drives the unfaulted phases at 140 A against an 800 A faulted phase, so `ratio_mid` lands at 0.154 against the classifier's `< 0.15` SLG gate and it classifies LLG. Fix the fixture (`I_FAULT_BC` 140 → ~110 A), not the threshold. |
+| `test_no_current_rise_is_not_flagged` | `screen_high_impedance_fault` tests `0 < max_delta < threshold`, so floating-point dust on an unchanged current satisfies it — a steady load reports `delta 0.0 A` and `hif_suspect True` together. Needs a meaningful floor on `max_delta`. |
 
 ---
 
@@ -221,19 +379,27 @@ For current AcSELerator users: AcSELerator can batch-export `.cev` files to COMT
 
 ```
 comtrade-analyzer/
-├── app.py                  GUI (tkinter)
-├── main.py                 CLI entry point
-├── wso_impact.py           WSO reliability impact batch analysis
-├── comtrade_parser.py      IEEE C37.111 parser (CFG + DAT)
-├── data_model.py           EventRecord dataclass
-├── analysis.py             Fault classification, phasor extraction, DFT
-├── feeder_analysis.py      Reclose sequence, fault location, HIF screen
-├── plotting.py             Waveform, RMS, sequence, phasor plots
-├── report.py               Word (.docx) report generator
-├── triage.py               Priority 1/2/3 event triage
-├── config.json             User-configurable thresholds
-├── devices_template.csv    Device registry template (copy → devices.csv)
-├── install_shortcut.py     Desktop shortcut installer
-├── make_icon.py            Icon generator (PNG / ICO / ICNS)
-└── generate_test_*.py      Synthetic test event generators
+├── pyproject.toml            Package metadata and console entry points
+├── comtrade_analyzer/
+│   ├── batch.py              Bulk folder analysis (comtrade-batch) — incremental + watch
+│   ├── main.py               Single-event CLI (comtrade-analyze)
+│   ├── app.py                GUI (comtrade-gui)
+│   ├── wso_impact.py         WSO reliability impact (comtrade-wso)
+│   ├── fleet_analyze.py      Per-event pipeline, aggregation, waveform extraction
+│   ├── fleet_dashboard.py    Dashboard renderer (comtrade-dashboard)
+│   ├── dashboard_template.html   Dashboard markup, CSS and JS
+│   ├── fleet_gen.py          Synthetic event generator (comtrade-demo-fleet)
+│   ├── comtrade_parser.py    IEEE C37.111 parser (CFG + DAT)
+│   ├── data_model.py         EventRecord dataclass
+│   ├── analysis.py           Fault classification, phasor extraction, DFT
+│   ├── feeder_analysis.py    Reclose sequence, fault location, HIF screen
+│   ├── plotting.py           Waveform, RMS, sequence, phasor plots
+│   ├── report.py             Word (.docx) report generator
+│   ├── triage.py             Priority 1/2/3 event triage
+│   ├── config.json           User-configurable thresholds
+│   └── devices_template.csv  Device registry template (copy → devices.csv)
+├── main.py, app.py           Compatibility shims for running from a checkout
+├── install_shortcut.py       Desktop shortcut installer
+├── make_icon.py              Icon generator (PNG / ICO / ICNS)
+└── generate_test_*.py        Synthetic test event generators
 ```
