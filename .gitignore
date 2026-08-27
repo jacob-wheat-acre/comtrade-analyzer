@@ -23,9 +23,11 @@ wso_output/
 *_summary.json
 *_report.docx
 
-# Synthetic event fleet — regenerate with fleet_gen.py, don't commit 12 MB of
-# generated COMTRADE files or the rendered dashboard
+# Scratch output from comtrade-demo-fleet. The tracked demo set lives in
+# demo/ and IS committed on purpose — it is the only way to show the tool
+# before real COMTRADE files are flowing.
 fleet/
+demo/analysis/
 
 # Device registry — contains operational/customer data, do not commit
 # Copy devices_template.csv to devices.csv and populate it locally

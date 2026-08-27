@@ -108,9 +108,26 @@ comtrade-analyze fault_event.cfg --report --phasor-plot --save-plots
 comtrade-wso ./events/ --devices devices.csv --response-hours 2
 ```
 
-**Try it without real data:**
+**Demo it without real data.** A 100-event synthetic set ships in `demo/`, so
+you can show the tool before any COMTRADE files are flowing.
+
+*Nothing to install* — open `demo/demo_dashboard.html` in a browser. It is a
+complete, pre-built dashboard. This is the fallback if the Python install
+fights you on a managed PC.
+
+*Or run the pipeline yourself*, which is the better demo because people watch
+it happen:
 ```bash
-comtrade-demo-fleet --count 100          # writes ./fleet/
+comtrade-batch demo/events --devices demo/devices.csv
+```
+100 events in about a second, then it opens the dashboard it just built.
+
+Every dashboard built from generated events carries a **DEMO DATA** badge in
+the header, so nobody mistakes it for real plant.
+
+To make a different set (a fresh seed gives different events):
+```bash
+comtrade-demo-fleet --count 250 --seed 7      # writes ./fleet/, gitignored
 comtrade-batch ./fleet/events --devices ./fleet/fleet_devices.csv
 ```
 

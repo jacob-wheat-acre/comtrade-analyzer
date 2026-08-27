@@ -163,6 +163,23 @@ Plots block on `plt.show()` unless `--save-plots` is passed, so headless
 regression runs need `--save-plots` and `MPLBACKEND=Agg`. There is no pytest suite; if you
 add one, `classify_fault` and the sequence math are the places it pays off.
 
+## The demo set
+
+`demo/` is **tracked on purpose** — 100 synthetic events, the registry, the
+ground truth, and a pre-built `demo_dashboard.html`. It exists because the tool
+had to be demonstrated before SUBNET was returning COMTRADE files, and a
+colleague's managed PC may not get the Python install working on the first try.
+The pre-built HTML is the zero-dependency fallback.
+
+Regenerate it with `fleet_gen --count 100 --seed 20260601`; the seed is what
+makes it reproducible. Rebuild the HTML after any dashboard change, or it goes
+stale against the code. `demo/analysis/` and `fleet/` stay ignored — those are
+scratch.
+
+Any dashboard built from a set with a `fleet_truth.json` beside it shows a
+DEMO DATA badge. Ground truth only exists for generated events, so that badge
+is a reliable "this is not real plant" signal.
+
 ## Diagnostics
 
 `diagnostics.py` exists because a batch that reports "0 events analyzed" with

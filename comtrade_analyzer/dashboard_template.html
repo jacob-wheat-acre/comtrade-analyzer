@@ -833,15 +833,17 @@ function renderHeader() {
       ? ` · ${FLEET.parse_errors.length} unreadable` : ""}` +
     (gen ? ` · analyzed ${gen.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "");
 
-  const chips = [
+  const chips = ((FLEET.validation) ? [["", "DEMO DATA — synthetic events, not real plant"]] : []).concat([
     ["EPSS", "0 reclose shots"],
     ["Tiers", (SET.epss_tiers || []).join(" · ")],
     ["Response", `${fmtF(SET.response_hours, 1)} h`],
     ["Slow trip", `> ${fmt(SET.slow_trip_cycles)} cyc`],
     ["Feeder Z", `${SET.feeder_z_ohm_per_mile} Ω/mi`],
-  ];
+  ]);
   $("topMeta").innerHTML = chips
-    .map(([k, v]) => `<span class="chip">${esc(k)} <span class="mono">${esc(v)}</span></span>`)
+    .map(([k, v]) => k
+      ? `<span class="chip">${esc(k)} <span class="mono">${esc(v)}</span></span>`
+      : `<span class="chip" style="background:var(--st-warning);color:#241a00;border-color:transparent;font-weight:600">${esc(v)}</span>`)
     .join("");
 }
 

@@ -195,14 +195,18 @@ cloud-synced, and whether `git pull` will work. It ends with either
 Run it any time something misbehaves, and paste its whole output when you
 report a problem — it answers most of the questions the maintainer would ask.
 
-Then try the tool on fake data, so you are not debugging against a real event:
+Then try the tool on the demo data that ships with it, so you are not
+debugging against a real event:
 
 ```
-comtrade-demo-fleet --count 30
-comtrade-batch fleet\events --devices fleet\fleet_devices.csv
+comtrade-batch demo\events --devices demo\devices.csv
 ```
 
-Open the `fleet_dashboard.html` it names at the end.
+It analyses 100 synthetic events in about a second and opens the dashboard.
+
+**If that fails, you can still demo.** `demo\demo_dashboard.html` is a
+complete pre-built dashboard — double-click it. It needs no Python at all, so
+it works even while you are still sorting the install out.
 
 ---
 
