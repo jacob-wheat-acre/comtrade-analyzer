@@ -1,0 +1,14 @@
+device_id,station,feeder,zone,risk_tier,customers_served
+BKR_CH-1211,Cedar Hollow Sub,Cedar Hollow 1211,ZONE_A,3,1368
+RCL_CH-1212,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,872
+RCL_CH-1215,Cedar Hollow Sub,Sawmill Grade 1215,ZONE_A,3,435
+BKR_RG-2104,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,927
+RCL_RG-2106,Ridgeline Sub,Ridgeline 2106,ZONE_B,2,885
+RCL_RG-2110,Ridgeline Sub,Bear Gulch 2110,ZONE_B,2,574
+RCL_RG-2112,Ridgeline Sub,Summit Tap 2112,ZONE_B,2,882
+BKR_VO-3301,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,2200
+RCL_VO-3305,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,358
+RCL_VO-3308,Valley Oak Sub,Almond Row 3308,ZONE_C,2,801
+BKR_RB-4402,Riverbend Sub,Riverbend 4402,ZONE_D,1,1064
+RCL_RB-4407,Riverbend Sub,Riverbend 4407,ZONE_D,1,674
+RCL_RB-4411,Riverbend Sub,Delta Flats 4411,ZONE_D,1,498

@@ -30,8 +30,11 @@ fleet/
 demo/analysis/
 
 # Device registry — contains operational/customer data, do not commit
-# Copy devices_template.csv to devices.csv and populate it locally
+# Copy devices_template.csv to devices.csv and populate it locally.
+# The pattern is deliberately bare so it catches a registry dropped anywhere
+# in the tree; the demo set's invented registry is the one exception.
 devices.csv
+!demo/devices.csv
 
 # macOS
 .DS_Store
