@@ -45,6 +45,7 @@ _HERE = Path(__file__).parent
 
 from .comtrade_parser import COMTRADEParser
 from .diagnostics import check_record, explain_parse_error, worst_level
+from .relay_settings import load_settings
 from .analysis import (
     compute_event_summary,
     compute_phasors_at,
@@ -54,6 +55,7 @@ from .analysis import (
 from .feeder_analysis import compute_feeder_summary
 from .triage import rule_table, triage_event
 from .wso_impact import (
+    EPSS_CANDIDATE, NOT_EXPOSED,
     class_table, classify_event, load_registry, lookup_device,
 )
 
@@ -335,13 +337,29 @@ def extract_report_detail(record, summary, feeder) -> dict:
     }
 
 
+_SETTINGS_CACHE: dict = {}
+
+
+def _catalog(path, primary):
+    """Load the settings catalog once per worker process."""
+    if not path:
+        return None
+    key = (path, primary)
+    if key not in _SETTINGS_CACHE:
+        try:
+            _SETTINGS_CACHE[key] = load_settings(path, pickups_are_primary=primary)
+        except Exception:                          # noqa: BLE001 — sanity_check reports it
+            _SETTINGS_CACHE[key] = None
+    return _SETTINGS_CACHE[key]
+
+
 def analyze_one(args: tuple) -> dict:
     """
     Analyze a single COMTRADE file.  Returns a flat dict (JSON-serialisable).
 
     Runs in a worker process, so it takes a plain tuple and returns plain data.
     """
-    filepath, feeder_z, slow_trip_cycles, wave_opts = args
+    filepath, feeder_z, slow_trip_cycles, wave_opts, settings_opts = args
     basename = os.path.basename(filepath)
     out = {"file": basename, "path": filepath, "ok": False, "error": None}
 
@@ -386,6 +404,16 @@ def analyze_one(args: tuple) -> dict:
     est_miles = (loc or {}).get("estimated_miles")
     loc_valid, loc_note = _location_valid(est_miles, bool(hif.get("hif_suspect")))
 
+    # Pickup settings are compared against RMS current over the fault window,
+    # not the peak — a peak includes DC offset and would overstate the multiple.
+    fault_rms = 0.0
+    if summary.get("fault_inception_s") is not None:
+        fi = int(np.searchsorted(record.time, summary["fault_inception_s"]))
+        end = min(fi + record.samples_per_cycle(), len(record.time))
+        for name, data in record.analog_channels.items():
+            if name.upper() in ("IA", "IB", "IC") and end > fi:
+                fault_rms = max(fault_rms, float(np.sqrt(np.mean(data[fi:end] ** 2))))
+
     peak_current = max(summary["max_currents"].values(), default=0.0)
     peak_phase_current = max(
         (v for k, v in summary["max_currents"].items() if k.upper() in ("IA", "IB", "IC")),
@@ -413,6 +441,7 @@ def analyze_one(args: tuple) -> dict:
         "trip_delay_ms":     round(summary["trip_delay_ms"], 2) if summary["trip_delay_ms"] is not None else None,
         "trip_delay_cycles": (round(summary["trip_delay_ms"] * record.line_freq() / 1000.0, 2)
                               if summary["trip_delay_ms"] is not None else None),
+        "fault_current_rms_a":  round(fault_rms, 1),
         "peak_current_a":       round(peak_current, 1),
         "peak_phase_current_a": round(peak_phase_current, 1),
         "peak_residual_a":      round(summary["max_currents"].get("IN", 0.0), 1),
@@ -453,6 +482,26 @@ def analyze_one(args: tuple) -> dict:
         except Exception as exc:                   # noqa: BLE001 — a plot is optional
             out["wave"] = {}
             out["wave_error"] = f"{type(exc).__name__}: {exc}"
+
+    cat = _catalog(*settings_opts) if settings_opts else None
+    if cat is not None and fault_rms > 0:
+        relay = cat.lookup(summary.get("device_id", ""))
+        if relay is not None:
+            ev = relay.evaluate(fault_rms, kind="phase")
+            ev["relay_name"] = relay.relay_name
+            ev["template"] = relay.template.raw if relay.template else None
+            out["settings_eval"] = ev
+
+            # Settings turn a guess into an answer. A ride-through whose current
+            # cannot reach the EPSS pickup either is not a candidate at all.
+            if out["wso_class"] == EPSS_CANDIDATE and ev["resolved"]:
+                if ev["converts_under_epss"]:
+                    out["settings_verdict"] = "confirmed"
+                elif ev["epss"]["picks_up"] is False:
+                    out["wso_class"] = NOT_EXPOSED
+                    out["settings_verdict"] = "ruled_out"
+                else:
+                    out["settings_verdict"] = "trips_either_way"
 
     try:
         out["detail"] = extract_report_detail(record, summary, feeder)
@@ -783,6 +832,12 @@ def main():
                    help="Trip-delay threshold for the slow_trip flag")
     p.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 4) - 1),
                    help="Parallel worker processes")
+    p.add_argument("--settings", metavar="FILE",
+                   help="SUBNET relay settings export (.csv or .xlsx). Enables the "
+                        "normal-vs-EPSS pickup comparison that confirms ride-throughs.")
+    p.add_argument("--settings-primary", action="store_true",
+                   help="Pickups in the settings export are already primary amps "
+                        "(default: secondary, converted using CTR)")
     p.add_argument("--no-waveforms", action="store_true",
                    help="Skip waveform extraction (smaller JSON; the dashboard's "
                         "inline oscillography viewer is then unavailable)")
@@ -810,7 +865,10 @@ def main():
 
     t0 = time.time()
     wave_opts = None if args.no_waveforms else tuple(args.waveform_buckets)
-    payload = [(f, args.feeder_z, args.slow_trip_cycles, wave_opts) for f in files]
+    settings_opts = ((args.settings, args.settings_primary)
+                     if getattr(args, 'settings', None) else None)
+    payload = [(f, args.feeder_z, args.slow_trip_cycles, wave_opts, settings_opts)
+               for f in files]
     if args.jobs > 1 and len(files) > 4:
         with ProcessPoolExecutor(max_workers=args.jobs) as pool:
             results = list(pool.map(analyze_one, payload, chunksize=4))

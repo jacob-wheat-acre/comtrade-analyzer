@@ -833,7 +833,10 @@ function renderHeader() {
       ? ` · ${FLEET.parse_errors.length} unreadable` : ""}` +
     (gen ? ` · analyzed ${gen.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "");
 
-  const chips = ((FLEET.validation) ? [["", "DEMO DATA — synthetic events, not real plant"]] : []).concat([
+  const withSettings = EV.filter((e) => e.settings_eval).length;
+  const chips = ((FLEET.validation) ? [["", "DEMO DATA — synthetic events, not real plant"]] : [])
+    .concat(withSettings ? [["Settings", `${fmt(withSettings)} events matched`]] : [])
+    .concat([
     ["EPSS", "0 reclose shots"],
     ["Tiers", (SET.epss_tiers || []).join(" · ")],
     ["Response", `${fmtF(SET.response_hours, 1)} h`],
@@ -1339,8 +1342,35 @@ function detailHTML(e) {
       <p class="note">${esc(CLASS_META[e.wso_class].blurb)}</p>
       ${(() => {
         const c = (FLEET.epss_classes || []).find((x) => x.key === e.wso_class);
+        const ev = e.settings_eval;
+        // Real settings replace the "needs settings to confirm" hedge.
+        if (ev && ev.resolved && e.settings_verdict) {
+          const V = { confirmed: "Confirmed against relay settings.",
+                      ruled_out: "Ruled out against relay settings — the fault cannot reach the EPSS pickup either.",
+                      trips_either_way: "Trips on both setting groups." };
+          return `<p class="note" style="color:var(--muted)">${esc(V[e.settings_verdict] || "")}</p>`;
+        }
         return c ? `<p class="note" style="color:var(--muted)">${esc(c.confidence)}</p>` : "";
       })()}
+      ${e.settings_eval ? (() => {
+        const ev = e.settings_eval;
+        const cell = (g) => g.pickup_a === null
+          ? `<td colspan="3" class="note" style="padding:0">no pickup available</td>`
+          : `<td class="r">${fmt(g.pickup_a)} A</td><td class="r">${fmtF(g.multiple, 2)}×</td>` +
+            `<td>${g.picks_up ? "<b>picks up</b>" : "rides through"}</td>`;
+        return `
+        <p class="note" style="margin-top:10px"><b>Relay pickup — ${esc(ev.relay_name)}</b>
+          (CTR ${fmt(ev.ctr)}, measured ${fmt(ev.measured_a)} A rms)</p>
+        <table class="mini-tbl" style="max-width:420px">
+          <thead><tr><th>Group</th><th class="r">Pickup</th><th class="r">Multiple</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Normal SG${ev.normal.group ?? "—"}</td>${cell(ev.normal)}</tr>
+            <tr><td>EPSS SG${ev.epss.group ?? "—"}</td>${cell(ev.epss)}</tr>
+          </tbody>
+        </table>
+        <p class="note" style="color:var(--muted)">${esc(ev.epss_group_source)}${
+          ev.template ? ` · ${esc(ev.template)}` : ""}</p>`;
+      })() : ""}
     </div>
     <div class="detail-block">
       <h3>Measurements &amp; screens</h3>
@@ -1817,6 +1847,8 @@ function renderClasses() {
     });
   });
 
+  const confirmed = EV.filter((e) => e.settings_verdict === "confirmed").length;
+  const ruled = EV.filter((e) => e.settings_verdict === "ruled_out").length;
   const cand = TOT.epss_candidate || 0, indet = TOT.indeterminate || 0;
   $("classFoot").innerHTML =
     `EPSS does two things — it disables reclosing <em>and</em> makes the relay more ` +
@@ -1824,6 +1856,8 @@ function renderClasses() {
     (cand ? `The <b>${fmt(cand)}</b> ride-throughs are the ones worth acting on before a WSO day: ` +
             `today a fuse drops one lateral, on an EPSS day the recloser above it may drop the ` +
             `whole section. ` : "") +
+    (confirmed ? `<b>${fmt(confirmed)}</b> of them are confirmed against relay pickup settings` +
+                 (ruled ? `, and <b>${fmt(ruled)}</b> more were ruled out the same way` : "") + `. ` : "") +
     (indet ? `The <b>${fmt(indet)}</b> unknowns are records that end before any reclose could appear — ` +
              `not evidence that none happened. ` : "") +
     `The counts are clickable.`;

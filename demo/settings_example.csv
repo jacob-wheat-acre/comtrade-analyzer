@@ -1,0 +1,14 @@
+Id,Name,Feeder,TemplateDate,Template Type,ADMS Template Version,DATE_TIME,CTR,NOMINAL_SG,ACTIVE_SG,SG1_GROUND,SG1_PHASE,SG2_GROUND,SG2_PHASE,SG3_GROUND,SG3_PHASE
+guid-0000,BKR_CH-1211,Cedar Hollow 1211,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,200,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0001,RCL_CH-1212,Cedar Hollow 1212,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,400,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0002,RCL_CH-1215,Sawmill Grade 1215,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,600,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0003,BKR_RG-2104,Ridgeline 2104,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,1000,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0004,RCL_RG-2106,Ridgeline 2106,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,200,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0005,RCL_RG-2110,Bear Gulch 2110,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,400,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0006,RCL_RG-2112,Summit Tap 2112,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,600,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0007,BKR_VO-3301,Valley Oak 3301,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,1000,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0008,RCL_VO-3305,Valley Oak 3305,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,200,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0009,RCL_VO-3308,Almond Row 3308,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,400,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0010,BKR_RB-4402,Riverbend 4402,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,600,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0011,RCL_RB-4407,Riverbend 4407,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,1000,1,1,1.5,8.0,0.5,1.5,Not found,Not found
+guid-0012,RCL_RB-4411,Delta Flats 4411,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,200,1,1,1.5,8.0,0.5,1.5,Not found,Not found

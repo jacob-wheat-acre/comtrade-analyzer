@@ -21,7 +21,8 @@ Coverage:
   14. Plotting leaves the matplotlib backend to its caller
   15. Triage rules exported from triage.py, not duplicated in the page
   16. Diagnostics name the symptom, the evidence and the fix
-  17. End-to-end against the generated fixtures (skipped if not generated)
+  17. SUBNET relay settings catalog, template parsing, pickup arithmetic
+  18. End-to-end against the generated fixtures (skipped if not generated)
 """
 
 import json
@@ -1076,7 +1077,153 @@ class TestDiagnosticsCatchRealExportProblems:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 17. End to end against the generated fixtures
+# 17. The SUBNET relay settings catalog
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SETTINGS_CSV = """\
+Id,Name,Feeder,TemplateDate,Template Type,ADMS Template Version,DATE_TIME,CTR,NOMINAL_SG,ACTIVE_SG,SG1_GROUND,SG1_PHASE,SG2_GROUND,SG2_PHASE,SG3_GROUND,SG3_PHASE
+g-1,RCL_076-024,Maple 1211,SEL-651R-WF-3PhTrip3PhLoc.2,Recloser,3.1,2026-08-20 06:00:00,400,1,1,1.5,4.0,0.5,1.5,Not found,Not found
+g-2,RCL_NO-CTR,Pine 3301,SEL-651R-STD-3PhTrip.4,Recloser,2.9,2026-08-20 06:00:00,Not found,1,1,1.5,4.0,0.5,1.5,Not found,Not found
+"""
+
+
+def _catalog(tmp_path, text=_SETTINGS_CSV):
+    from comtrade_analyzer.relay_settings import load_settings
+    f = tmp_path / "settings.csv"
+    f.write_text(text, encoding="utf-8")
+    return load_settings(str(f))
+
+
+class TestTheRelayTemplateName:
+    """SEL-651R-WF-3PhTrip3PhLoc.2 carries type, application, modes, version."""
+
+    def test_it_decomposes(self):
+        from comtrade_analyzer.relay_settings import parse_template
+        t = parse_template("SEL-651R-WF-3PhTrip3PhLoc.2")
+        assert t.relay_type == "SEL-651R"
+        assert t.application == "WF"
+        assert t.trip_mode == "3PhTrip"
+        assert t.location_mode == "3PhLoc"
+        assert t.version == "2"
+        assert t.is_wildfire is True
+
+    def test_the_location_mode_does_not_swallow_the_trip_mode(self):
+        """The two modes run together with no separator; a greedy match
+        returns '3PhTrip3PhLoc' for both."""
+        from comtrade_analyzer.relay_settings import parse_template
+        t = parse_template("SEL-651R-WF-3PhTrip3PhLoc.2")
+        assert t.location_mode == "3PhLoc"
+        assert t.trip_mode != t.location_mode
+
+    def test_an_unparseable_name_is_kept_verbatim(self):
+        from comtrade_analyzer.relay_settings import parse_template
+        assert parse_template("something odd").raw == "something odd"
+
+    def test_a_null_token_yields_nothing(self):
+        from comtrade_analyzer.relay_settings import parse_template
+        assert parse_template("Not found") is None
+
+
+class TestTheSettingsCatalog:
+
+    def test_it_loads_and_is_looked_up_by_device_id(self, tmp_path):
+        cat = _catalog(tmp_path)
+        assert len(cat) == 2
+        assert cat.lookup("RCL_076-024") is not None
+
+    def test_lookup_ignores_punctuation_and_case(self, tmp_path):
+        """COMTRADE rec_dev_id rarely matches the catalog's spelling exactly."""
+        cat = _catalog(tmp_path)
+        assert cat.lookup("rcl 076 024") is not None
+        assert cat.lookup("RCL076024") is not None
+
+    def test_not_found_becomes_none(self, tmp_path):
+        cat = _catalog(tmp_path)
+        s = cat.lookup("RCL_076-024")
+        assert 3 not in s.groups                     # SG3 was "Not found"
+        assert cat.lookup("RCL_NO-CTR").ctr is None
+
+    def test_the_nominal_group_is_the_normal_day_group(self, tmp_path):
+        s = _catalog(tmp_path).lookup("RCL_076-024")
+        assert s.normal_group().number == 1
+
+    def test_the_epss_group_is_the_most_sensitive_other_group(self, tmp_path):
+        s = _catalog(tmp_path).lookup("RCL_076-024")
+        assert s.epss_group().number == 2
+        assert "inferred" in s.epss_group_source()
+
+    def test_an_explicit_epss_group_overrides_the_inference(self, tmp_path):
+        s = _catalog(tmp_path).lookup("RCL_076-024")
+        assert s.epss_group(forced=1).number == 1
+        assert "configured" in s.epss_group_source(forced=1)
+
+
+class TestPickupArithmetic:
+    """Settings are secondary amps; a COMTRADE record measures primary."""
+
+    def test_ctr_converts_secondary_to_primary(self, tmp_path):
+        s = _catalog(tmp_path).lookup("RCL_076-024")
+        assert s.primary_pickup(s.normal_group()) == pytest.approx(4.0 * 400)
+        assert s.primary_pickup(s.epss_group()) == pytest.approx(1.5 * 400)
+
+    def test_without_a_ctr_no_primary_pickup_can_be_stated(self, tmp_path):
+        s = _catalog(tmp_path).lookup("RCL_NO-CTR")
+        assert s.primary_pickup(s.normal_group()) is None
+
+    def test_a_fault_between_the_two_pickups_converts(self, tmp_path):
+        """The whole point: a fuse clears it today, EPSS trips the recloser."""
+        s = _catalog(tmp_path).lookup("RCL_076-024")
+        ev = s.evaluate(700.0)                       # normal 1600 A, EPSS 600 A
+        assert ev["normal"]["picks_up"] is False
+        assert ev["epss"]["picks_up"] is True
+        assert ev["converts_under_epss"] is True
+
+    def test_a_fault_above_both_pickups_does_not_convert(self, tmp_path):
+        s = _catalog(tmp_path).lookup("RCL_076-024")
+        ev = s.evaluate(2000.0)
+        assert ev["normal"]["picks_up"] is True
+        assert ev["converts_under_epss"] is False
+
+    def test_a_fault_below_both_pickups_does_not_convert(self, tmp_path):
+        s = _catalog(tmp_path).lookup("RCL_076-024")
+        ev = s.evaluate(200.0)
+        assert ev["epss"]["picks_up"] is False
+        assert ev["converts_under_epss"] is False
+
+    def test_an_unresolvable_relay_says_so(self, tmp_path):
+        s = _catalog(tmp_path).lookup("RCL_NO-CTR")
+        assert s.evaluate(700.0)["resolved"] is False
+
+
+class TestTheCatalogReportsItsOwnHealth:
+
+    def test_a_missing_ctr_is_flagged(self, tmp_path):
+        from comtrade_analyzer.relay_settings import sanity_check
+        codes = {f["code"] for f in sanity_check(_catalog(tmp_path))}
+        assert "settings_no_ctr" in codes
+
+    def test_an_empty_catalog_is_an_error(self, tmp_path):
+        from comtrade_analyzer.relay_settings import sanity_check
+        cat = _catalog(tmp_path, "Id,Name\n")
+        f = sanity_check(cat)[0]
+        assert f["code"] == "settings_empty" and f["level"] == "error"
+
+    def test_primary_looking_pickups_are_flagged(self, tmp_path):
+        """Multiplying already-primary pickups by CTR overstates them by CTR."""
+        from comtrade_analyzer.relay_settings import sanity_check
+        text = _SETTINGS_CSV.replace(",1.5,4.0,0.5,1.5,", ",600,1600,200,600,")
+        codes = {f["code"] for f in sanity_check(_catalog(tmp_path, text))}
+        assert "settings_units" in codes
+
+    def test_every_finding_carries_a_fix(self, tmp_path):
+        from comtrade_analyzer.relay_settings import sanity_check
+        for f in sanity_check(_catalog(tmp_path)):
+            if f["level"] != "info":
+                assert f["fix"], f"{f['code']} has no fix text"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 18. End to end against the generated fixtures
 # ─────────────────────────────────────────────────────────────────────────────
 
 _ROOT = Path(__file__).parent

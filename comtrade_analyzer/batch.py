@@ -121,7 +121,10 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
         print(f"Analyzing {len(fresh)} new event(s); {len(cached)} cached.")
 
     wave_opts = None if args.no_waveforms else tuple(args.waveform_buckets)
-    payload = [(f, args.feeder_z, args.slow_trip_cycles, wave_opts) for f in fresh]
+    settings_opts = ((args.settings, args.settings_primary)
+                     if getattr(args, 'settings', None) else None)
+    payload = [(f, args.feeder_z, args.slow_trip_cycles, wave_opts, settings_opts)
+               for f in fresh]
 
     t0 = time.time()
     results = None
@@ -286,6 +289,12 @@ examples:
                    help="Trip-delay threshold for the slow_trip flag")
 
     p.add_argument("--no-dashboard", action="store_true", help="Write JSON and CSV only")
+    p.add_argument("--settings", metavar="FILE",
+                   help="SUBNET relay settings export (.csv or .xlsx). Enables the "
+                        "normal-vs-EPSS pickup comparison that confirms ride-throughs.")
+    p.add_argument("--settings-primary", action="store_true",
+                   help="Pickups in the settings export are already primary amps "
+                        "(default: secondary, converted using CTR)")
     p.add_argument("--no-waveforms", action="store_true",
                    help="Skip waveform extraction (smaller JSON, no inline oscillography)")
     p.add_argument("--waveform-buckets", type=int, nargs=2, default=[180, 280],
@@ -326,6 +335,33 @@ def main():
               file=sys.stderr)
 
     cfg = load_config()
+
+    if args.settings:
+        if not os.path.isfile(args.settings):
+            print(f"Error: settings file not found — {args.settings}", file=sys.stderr)
+            sys.exit(1)
+        from .relay_settings import load_settings, sanity_check
+        try:
+            cat = load_settings(args.settings, pickups_are_primary=args.settings_primary)
+        except SystemExit:
+            raise
+        except Exception as exc:                   # noqa: BLE001
+            print(f"Error reading {args.settings}: {type(exc).__name__}: {exc}",
+                  file=sys.stderr)
+            sys.exit(1)
+        print(f"Settings: {len(cat)} relay(s) from {args.settings}")
+        health = sanity_check(cat)
+        for f in health:
+            if f["level"] == "info":
+                continue
+            print(f"  [{f['level'].upper()}] {f['message']}", file=sys.stderr)
+            if f["detail"]:
+                print(f"         {f['detail']}", file=sys.stderr)
+            if f["fix"]:
+                print(f"         → {f['fix']}", file=sys.stderr)
+    else:
+        print("No --settings given: ride-throughs stay unconfirmed. Pass the "
+              "SUBNET settings export to resolve them.", file=sys.stderr)
 
     if not args.watch:
         sweep(args, registry, cfg)

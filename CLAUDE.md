@@ -180,6 +180,27 @@ Any dashboard built from a set with a `fleet_truth.json` beside it shows a
 DEMO DATA badge. Ground truth only exists for generated events, so that badge
 is a reliable "this is not real plant" signal.
 
+## Relay settings
+
+`relay_settings.py` reads the SUBNET export as a **catalog**, not a native SEL
+settings file — it is a flattened table, one row per relay.
+
+- Pickups are **secondary**; `primary = pickup * CTR`. Comparisons use RMS
+  current over the fault window, never peak: peak carries DC offset and would
+  overstate the multiple.
+- The normal-day group is `NOMINAL_SG`. **The EPSS group is inferred** (most
+  sensitive populated group outside the nominal one) and every surface says so.
+  If a column ever identifies it explicitly, read that instead of inferring.
+- `TemplateDate` holds the template *name*, not a date. The trip and location
+  modes run together (`3PhTrip3PhLoc`) — keep the letter run lazy and stop it
+  crossing a digit, or the Loc match swallows the Trip mode.
+- `sanity_check()` returns diagnostics-shaped findings: missing CTR, missing
+  NOMINAL_SG, a single populated group, and pickups whose magnitude suggests
+  they are already primary.
+
+Settings turn `EPSS_CANDIDATE` from a guess into a verdict; a ride-through that
+cannot reach the EPSS pickup either is reclassified `NOT_EXPOSED`.
+
 ## Diagnostics
 
 `diagnostics.py` exists because a batch that reports "0 events analyzed" with

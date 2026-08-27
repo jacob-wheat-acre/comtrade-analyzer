@@ -188,7 +188,7 @@ fights you on a managed PC.
 *Or run the pipeline yourself*, which is the better demo because people watch
 it happen:
 ```bash
-comtrade-batch demo/events --devices demo/devices.csv
+comtrade-batch demo/events --devices demo/devices.csv --settings demo/settings_example.csv
 ```
 
 On Windows, if you did not activate the environment:
@@ -353,6 +353,39 @@ the scheduler supply the interval — the manifest makes repeat runs cheap.
 | `--no-waveforms` | Drop the inline oscillography — JSON goes from ~25 KB to ~1 KB per event |
 | `--no-dashboard` | JSON and CSV only |
 | `--jobs N` | Worker processes (defaults to CPU count - 1) |
+
+---
+
+## Relay settings (`--settings`)
+
+SUBNET exports a flattened device settings table — one row per relay, with the
+CT ratio and phase/ground pickups for up to three setting groups. Point the
+batch at it and the ride-throughs stop being guesses:
+
+```bash
+comtrade-batch ./events --devices devices.csv --settings subnet_settings.xlsx
+```
+
+| Column | Used for |
+|---|---|
+| `Name` | matched against the COMTRADE `rec_dev_id` (punctuation and case ignored) |
+| `CTR` | converts secondary pickups to the primary amps a record measures |
+| `NOMINAL_SG` | the normal-day setting group |
+| `SG1/2/3_PHASE`, `_GROUND` | pickups per group; `Not found` becomes empty |
+| `TemplateDate` | actually the template name, e.g. `SEL-651R-WF-3PhTrip3PhLoc.2`, parsed into relay type, application, trip/location mode and version |
+
+**Which group is EPSS is inferred**, not read: the most sensitive populated
+group outside the nominal one. The dashboard always states which group it used
+and that it was inferred, so it can be checked rather than trusted.
+
+Pickups are assumed **secondary** and multiplied by CTR. If your export is
+already primary, pass `--settings-primary`; either way the loader flags a
+magnitude that looks like the wrong convention.
+
+With settings loaded, each ride-through gets a verdict — *confirmed*, *ruled
+out*, or *trips either way* — with the measured RMS fault current, both
+pickups, and the multiple of each. Relays with no CTR or only one populated
+group stay unresolved and say so.
 
 ---
 
