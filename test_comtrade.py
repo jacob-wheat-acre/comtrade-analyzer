@@ -1359,3 +1359,95 @@ class TestTheRecloserFixtureEndToEnd:
         rec, fd = feeder
         out = triage_event(compute_event_summary(rec), fd)
         assert out["priority"] == 1 and "lockout" in out["flags"]
+
+
+class TestWindowsIcon:
+    """The .ico is built on a Mac and only ever consumed on Windows.
+
+    Nothing on the machine that generates it will notice it is wrong, and
+    Windows reports none of these faults — it silently draws the host
+    interpreter's icon instead. So the file is checked here.
+    """
+
+    ROOT = Path(__file__).parent
+    ICO  = ROOT / "icon.ico"
+    #: Windows asks for these: 16 title bar, 24/32 taskbar and Alt-Tab, 48
+    #: desktop, 256 the large-icon view. Missing one is a silent fallback.
+    REQUIRED = [16, 24, 32, 48, 256]
+
+    def _directory(self, path=None):
+        data = (path or self.ICO).read_bytes()
+        reserved, kind, count = struct.unpack("<HHH", data[:6])
+        assert reserved == 0 and kind == 1, "not an icon file"
+        entries, offset = [], 6
+        for _ in range(count):
+            w, h, _n, _r, _p, bpp, length, at = struct.unpack(
+                "<BBBBHHII", data[offset:offset + 16])
+            offset += 16
+            entries.append({"w": w or 256, "h": h or 256, "bpp": bpp,
+                            "png": data[at:at + 8] == b"\x89PNG\r\n\x1a\n"})
+        return entries
+
+    def test_the_icon_file_exists(self):
+        assert self.ICO.exists(), "icon.ico is missing — run make_icon.py"
+
+    def test_every_size_windows_asks_for_is_present(self):
+        """A lone 16x16 entry is what makes a tool look iconless on Windows."""
+        have = {e["w"] for e in self._directory()}
+        missing = [s for s in self.REQUIRED if s not in have]
+        assert not missing, (
+            f"icon.ico is missing {missing} px. Pillow drops any size larger "
+            "than the image being saved, so make_ico must save from the "
+            "largest frame.")
+
+    def test_small_entries_are_not_png_compressed(self):
+        """Windows reads PNG inside an .ico only at 256x256, and skips the rest.
+
+        Pillow writes every entry as PNG unless bitmap_format="bmp" is passed,
+        which produces a file that looks valid everywhere except Windows.
+        """
+        bad = [e["w"] for e in self._directory() if e["png"] and e["w"] < 256]
+        assert not bad, (
+            f"{bad} px entries are PNG-compressed; Windows will ignore them. "
+            'Pass bitmap_format="bmp" when saving.')
+
+    def test_the_icon_carries_an_alpha_channel(self):
+        assert all(e["bpp"] == 32 for e in self._directory()), \
+            "every entry should be 32bpp so the rounded corners stay transparent"
+
+    def test_the_window_asks_for_the_ico_on_windows(self):
+        """The GUI used to load only icon.png, which Windows will not use.
+
+        A PNG handed to Tk decorates nothing Windows draws from the .ico — the
+        taskbar and desktop fall back to the interpreter's icon in silence.
+        """
+        src = (self.ROOT / "comtrade_analyzer" / "app.py").read_text(encoding="utf-8")
+        assert "icon.ico" in src, "app.py must load icon.ico on Windows"
+        assert "iconbitmap" in src, "the .ico is set through iconbitmap()"
+
+    def test_the_app_claims_its_own_taskbar_identity(self):
+        """Without an AppUserModelID the taskbar shows Python's icon regardless.
+
+        The window icon and the taskbar icon are separate on Windows, and
+        fixing only the first leaves the symptom the user actually sees.
+        """
+        from comtrade_analyzer import app as app_mod
+        assert hasattr(app_mod, "_claim_windows_taskbar_identity")
+        app_mod._claim_windows_taskbar_identity()  # no-op off Windows, never raises
+
+    def test_the_icons_the_window_loads_are_findable(self):
+        """The window searches the package first, then the checkout root."""
+        from comtrade_analyzer.app import _icon_file
+        for name in ("icon.ico", "icon.png"):
+            assert _icon_file(name) is not None, f"{name} is not where the GUI looks"
+
+    def test_the_package_copies_match_the_generated_ones(self):
+        """A stale package copy wins the search and silently undoes a rebuild.
+
+        make_icon.py mirrors the root icons into the package; if these drift,
+        that step was skipped and the wheel ships the old artwork.
+        """
+        pkg = self.ROOT / "comtrade_analyzer"
+        for name in ("icon.png", "icon.ico"):
+            assert (pkg / name).read_bytes() == (self.ROOT / name).read_bytes(), \
+                f"{name} differs between the package and the root — run make_icon.py"

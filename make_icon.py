@@ -233,10 +233,30 @@ def make_icns(out: Path):
         sys.exit(1)
 
 
+def sync_package_copies() -> None:
+    """Mirror the icons the GUI loads into the package directory.
+
+    The window looks for its icon in the package first and the checkout root
+    second, so an installed wheel is decorated too. That only holds if the two
+    copies agree -- a stale package icon.png would win over a freshly generated
+    root one and the regeneration would appear to have done nothing. Copying
+    here means there is one source and no copy to forget.
+    """
+    pkg = HERE / "comtrade_analyzer"
+    if not pkg.is_dir():
+        return
+    for name in ("icon.png", "icon.ico"):
+        src = HERE / name
+        if src.exists():
+            shutil.copy2(src, pkg / name)
+            print(f"  Synced {name} → {pkg.name}/")
+
+
 if __name__ == "__main__":
     print("Generating COMTRADE Analyzer icons…")
     make_png(HERE / "icon.png")
     make_ico(HERE / "icon.ico")
     if sys.platform == "darwin":
         make_icns(HERE / "icon.icns")
+    sync_package_copies()
     print("Done.")

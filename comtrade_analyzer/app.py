@@ -22,6 +22,21 @@ matplotlib.use("Agg")
 
 _SCRIPT = Path(__file__).parent
 
+
+def _icon_file(name: str):
+    """Locate an icon by name, or return None.
+
+    make_icon.py writes the icons to the repo root and mirrors them into the
+    package, so a checkout (which is how the Windows shortcut launches this)
+    and an installed wheel both find one. Returns None rather than a path that
+    does not exist, so the caller can say which file is missing.
+    """
+    for base in (_SCRIPT, _SCRIPT.parent):
+        candidate = base / name
+        if candidate.exists():
+            return candidate
+    return None
+
 # ── Platform-appropriate fonts ────────────────────────────────────────────────
 _IS_WIN    = platform.system() == "Windows"
 _FONT_UI   = ("Segoe UI", 11)         if _IS_WIN else ("Helvetica", 11)
@@ -103,15 +118,51 @@ class COMTRADEApp(tk.Tk):
             )
 
     def _set_icon(self):
+        """Title bar, taskbar and Alt-Tab icon.
+
+        Windows wants two separate things here and reports neither when it does
+        not get them, which is why this went unnoticed while macOS looked fine:
+
+          * a multi-size DIB .ico — this window never asked for icon.ico at all
+            and handed Tk a PNG, which Windows will not use for the taskbar or
+            the desktop, so it fell back to the host interpreter's icon rather
+            than erroring;
+          * an explicit AppUserModelID — see
+            _claim_windows_taskbar_identity(), which has to run before the
+            first window is mapped and so cannot live in here.
+
+        Failures are logged rather than swallowed. The icon is cosmetic and must
+        never block startup, but "cosmetic" is not "invisible": the last time
+        this broke, nothing anywhere said so, and this tool is used on machines
+        whose files cannot be sent back for diagnosis.
+        """
+        log = _logging.getLogger(__name__)
+
+        if sys.platform == "win32":
+            ico = _icon_file("icon.ico")
+            if ico is not None:
+                try:
+                    # default= covers this window and every dialog opened from
+                    # it; without it the message boxes revert to the Tk feather.
+                    self.iconbitmap(default=str(ico))
+                    return
+                except Exception as exc:
+                    log.warning("Could not load %s (%s); falling back to the "
+                                "PNG icon.", ico.name, exc)
+            else:
+                log.warning("icon.ico is missing — run make_icon.py to rebuild it.")
+
+        # PNG path: macOS and Linux always, Windows only if the .ico would not
+        # load. Tk 8.6 reads PNG natively, so this does not require Pillow.
+        png = _icon_file("icon.png")
+        if png is None:
+            log.warning("icon.png is missing — the window will use the default icon.")
+            return
         try:
-            png = _SCRIPT / "icon.png"
-            if png.exists():
-                from PIL import Image, ImageTk
-                img = Image.open(png).resize((64, 64), Image.LANCZOS)
-                self._tk_icon = ImageTk.PhotoImage(img)
-                self.iconphoto(True, self._tk_icon)
-        except Exception:
-            pass  # icon is cosmetic
+            self._tk_icon = tk.PhotoImage(file=str(png))
+            self.iconphoto(True, self._tk_icon)
+        except Exception as exc:
+            log.warning("Could not set the window icon from %s: %s", png, exc)
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -1138,8 +1189,37 @@ class COMTRADEApp(tk.Tk):
         self._log.config(state="disabled")
 
 
+def _claim_windows_taskbar_identity() -> None:
+    """Give this app its own taskbar identity on Windows.
+
+    The taskbar groups windows by AppUserModelID and draws that group's icon.
+    A script launched through pythonw.exe -- which is exactly what "COMTRADE
+    Analyzer.bat" does -- inherits Python's ID, so the taskbar button shows the
+    Python logo no matter what icon the window itself carries. That is what
+    "the icon works on the Mac but not on Windows" looks like, and fixing the
+    window icon alone does not touch it.
+
+    Has to run before the first window is mapped, so it is called from main()
+    rather than from inside the window's own setup.
+
+    No-op everywhere else, and never fatal: an unrecognised shell32 or a locked
+    down host costs an icon, not a session.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "Protection.COMTRADEAnalyzer")
+    except Exception as exc:
+        _logging.getLogger(__name__).debug(
+            "Could not set the taskbar AppUserModelID (%s); the taskbar may "
+            "show the Python icon.", exc)
+
+
 def main():
     """Console entry point (comtrade-gui)."""
+    _claim_windows_taskbar_identity()
     app = COMTRADEApp()
     app.protocol("WM_DELETE_WINDOW", app._on_close)
     # Launched from a .app bundle or a Terminal, the window can otherwise come

@@ -31,4 +31,4 @@ comtrade-demo-fleet = "comtrade_analyzer.fleet_gen:main"
 packages = ["comtrade_analyzer"]
 
 [tool.setuptools.package-data]
-comtrade_analyzer = ["config.json", "dashboard_template.html", "devices_template.csv", "icon.png"]
+comtrade_analyzer = ["config.json", "dashboard_template.html", "devices_template.csv", "icon.png", "icon.ico"]
