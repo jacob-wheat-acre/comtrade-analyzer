@@ -962,6 +962,37 @@ class TestPlottingDoesNotForceAnInteractiveBackend:
 # 15. Triage rules are exported, not duplicated
 # ─────────────────────────────────────────────────────────────────────────────
 
+class TestTheProjectNotesStayCurrent:
+    """
+    CLAUDE.md is loaded into every session and is the first thing read before
+    touching this code. Stale guidance there is worse than none — an out-of-date
+    section once described a superseded three-class EPSS model, which would have
+    talked the next session back into the bug it documented.
+    """
+
+    _NOTES = Path(__file__).parent / "CLAUDE.md"
+
+    def test_the_module_map_lists_every_module(self):
+        notes = self._NOTES.read_text(encoding="utf-8")
+        pkg = Path(__file__).parent / "comtrade_analyzer"
+        missing = [f.name for f in sorted(pkg.glob("*.py"))
+                   if f.name != "__init__.py" and f.name not in notes]
+        assert not missing, f"CLAUDE.md module map is missing: {missing}"
+
+    def test_it_does_not_describe_a_superseded_epss_model(self):
+        notes = self._NOTES.read_text(encoding="utf-8").lower()
+        for stale in ("three-way classification",
+                      "cannot suppress a reclose that never happened",
+                      "epss can't suppress what didn't happen"):
+            assert stale not in notes, f"CLAUDE.md still says: {stale!r}"
+
+    def test_every_epss_class_is_documented(self):
+        from comtrade_analyzer.wso_impact import class_table
+        notes = self._NOTES.read_text(encoding="utf-8")
+        missing = [c["key"] for c in class_table() if c["key"] not in notes]
+        assert not missing, f"CLAUDE.md does not mention: {missing}"
+
+
 class TestTheGeneratorsGroundTruthMatchesTheClassifier:
     """
     fleet_gen writes expect_wso; wso_impact.classify_event decides the real

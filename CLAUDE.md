@@ -21,7 +21,9 @@ data_model.py        EventRecord — the one object everything passes around
 analysis.py          RMS, fault inception, trip time, DFT phasors, sequence
                      components, fault classification, DC offset
 feeder_analysis.py   Reclose sequence, fault location, HIF screen
-triage.py            Priority 1/2/3 flags
+triage.py            Priority 1/2/3 flags — _FLAGS + _TRIGGERS drive the UI
+relay_settings.py    SUBNET settings catalog, template parsing, pickup math
+diagnostics.py       Says plainly what is wrong with a real COMTRADE file
 wso_impact.py        EPSS impact — classify_event owns the three-way boundary
 plotting.py          Waveform / RMS / sequence / phasor plots
 report.py            Word (.docx) event report
@@ -57,6 +59,57 @@ EOF
 analog channels already scaled to engineering units, digital channels as int8,
 plus `samples_per_cycle()` and `line_freq()`. Everything downstream assumes
 engineering units; scaling happens once, in the parser.
+
+## Validating a change
+
+The five generators are the test suite:
+
+```bash
+python generate_test_data.py       # SLG, single trip
+python generate_test_ll.py         # A-B line-to-line, 12.47 kV
+python generate_test_llg.py        # A-B double line-to-ground
+python generate_test_3ph.py        # balanced three-phase
+python generate_test_recloser.py   # SLG, 3-shot reclose, lockout
+python main.py test_ll/test_ll.cfg --report --phasor-plot --save-plots
+```
+
+```bash
+pytest test_comtrade.py -v          # run this first
+```
+
+`test_comtrade.py` follows the pq-analyzer convention: one file, class-grouped,
+numbered sections, helpers prefixed `_`, fixture-dependent tests behind
+`skipif`. Records are built in-test via `_record()` / `_fault_record()` so the
+math tests never depend on a generated file.
+
+**Two tests are `xfail(strict=True)` and record real defects.** Strict means an
+unexpected pass fails the suite — if one flips to `XPASS`, the defect was fixed
+and the marker must come off in the same commit. Do not "fix" either by moving
+a threshold:
+
+- `test_the_slg_reference_fixture_classifies_as_slg` — see the known gap below.
+- `test_no_current_rise_is_not_flagged` — `screen_high_impedance_fault` tests
+  `0 < max_delta < threshold`, so floating-point dust on an unchanged current
+  satisfies it. A steady balanced load reports `delta 0.0 A` and
+  `hif_suspect True` at once, which reads as a Priority 1 downed conductor.
+  `compute_feeder_summary` usually masks it by passing `fault_index=None` on a
+  quiet record. The fix is a meaningful floor on `max_delta`, not `> 0`.
+
+All five generators must still classify to their expected fault types — that is
+the regression bar for anything in `analysis.py`.
+
+**Known gap:** `generate_test_data.py` (the SLG reference) currently classifies
+as **LLG**, not SLG. Its unfaulted phases are driven at 140 A against an 800 A
+faulted phase, which lands `ratio_mid` at 0.154 versus the classifier's `< 0.15`
+SLG gate — it misses by four thousandths and falls through to the LLG catch-all.
+This predates the packaging work (verified against pristine `HEAD`). The honest
+fix is the fixture, not the threshold: drop `I_FAULT_BC` from 140 to ~110 A so
+the unfaulted phases carry roughly load current, as they physically would. Do
+**not** move the 0.15 threshold to make it pass.
+
+Plots block on `plt.show()` unless `--save-plots` is passed, so headless
+regression runs need `--save-plots` and `MPLBACKEND=Agg`. There is no pytest suite; if you
+add one, `classify_fault` and the sequence math are the places it pays off.
 
 ## Magnitude conventions — read this before touching the math
 
@@ -112,93 +165,53 @@ with per-call candidate tuples in `analysis.py` (`_find_channel`,
 with unfamiliar channel names is a config/keyword problem — extend the keyword
 list; don't add another hardcoded tuple.
 
-## Validating a change
+## WSO / EPSS — what the analysis is actually for
 
-The five generators are the test suite:
+The goal is **reliability risk screening, not a filing**: find faults that ride
+through today so they can be mitigated before a WSO day.
 
-```bash
-python generate_test_data.py       # SLG, single trip
-python generate_test_ll.py         # A-B line-to-line, 12.47 kV
-python generate_test_llg.py        # A-B double line-to-ground
-python generate_test_3ph.py        # balanced three-phase
-python generate_test_recloser.py   # SLG, 3-shot reclose, lockout
-python main.py test_ll/test_ll.cfg --report --phasor-plot --save-plots
-```
+EPSS does two things — it disables reclosing *and* makes the relay more
+sensitive/faster. Both create conversions, and they are not the same:
 
-```bash
-pytest test_comtrade.py -v          # 81 tests, ~0.2 s — run this first
-```
+| Normal day | EPSS day | Class |
+|---|---|---|
+| below pickup, downstream fuse clears | trips the recloser | `EPSS_CANDIDATE` — **new** outage, whole downstream section |
+| trips, reclose succeeds | trips, no reclose | `WSO_EXPOSED` — momentary → sustained |
+| trips, locks out | same | `PERMANENT` — no change |
+| record ends before any dead time | unknowable | `INDETERMINATE` |
+| no fault current | nothing | `NOT_EXPOSED` |
 
-`test_comtrade.py` follows the pq-analyzer convention: one file, class-grouped,
-numbered sections, helpers prefixed `_`, fixture-dependent tests behind
-`skipif`. Records are built in-test via `_record()` / `_fault_record()` so the
-math tests never depend on a generated file.
+`EPSS_CANDIDATE` is the one the tool exists to surface, and it is usually the
+*larger* outage: a lateral fuse drops 30 customers, the recloser above it drops
+the whole feeder section. It cannot be confirmed without the device's normal
+and EPSS pickup settings — that work is pending a SUBNET settings export.
 
-**Two tests are `xfail(strict=True)` and record real defects.** Strict means an
-unexpected pass fails the suite — if one flips to `XPASS`, the defect was fixed
-and the marker must come off in the same commit. Do not "fix" either by moving
-a threshold:
+**Do not treat a no-trip event as a misoperation.** It was `no_trip` at
+Priority 1 with "possible relay misoperation" wording; on real rising-edge
+current triggers that would flag every healthy below-pickup record as urgent.
+It is now `Rode Through` at Priority 2, pointing at coordination review.
 
-- `test_the_slg_reference_fixture_classifies_as_slg` — see the known gap below.
-- `test_no_current_rise_is_not_flagged` — `screen_high_impedance_fault` tests
-  `0 < max_delta < threshold`, so floating-point dust on an unchanged current
-  satisfies it. A steady balanced load reports `delta 0.0 A` and
-  `hif_suspect True` at once, which reads as a Priority 1 downed conductor.
-  `compute_feeder_summary` usually masks it by passing `fault_index=None` on a
-  quiet record. The fix is a meaningful floor on `max_delta`, not `> 0`.
+`INDETERMINATE` exists because "no reclose in the record" was being read as "no
+reclose happened". In this fleet 38 of 40 such records end a median 190 ms after
+the trip, while measured dead times run 455–2050 ms — none of them could have
+shown a reclose. `_MAX_DEAD_TIME_MS` (5 s) sets the cutoff.
 
-All five generators must still classify to their expected fault types — that is
-the regression bar for anything in `analysis.py`.
+## Tuning the triage rules
 
-**Known gap:** `generate_test_data.py` (the SLG reference) currently classifies
-as **LLG**, not SLG. Its unfaulted phases are driven at 140 A against an 800 A
-faulted phase, which lands `ratio_mid` at 0.154 versus the classifier's `< 0.15`
-SLG gate — it misses by four thousandths and falls through to the LLG catch-all.
-This predates the packaging work (verified against pristine `HEAD`). The honest
-fix is the fixture, not the threshold: drop `I_FAULT_BC` from 140 to ~110 A so
-the unfaulted phases carry roughly load current, as they physically would. Do
-**not** move the 0.15 threshold to make it pass.
+`triage.py` is the single source of truth and the dashboard renders it. To
+change the scheme, edit **`_FLAGS`** (priority, label, why it matters) and
+**`_TRIGGERS`** (how it fires, which setting tunes it) side by side — they are
+adjacent on purpose. `rule_table()` joins them, `fleet_analyze`/`batch` export
+it as `triage_rules`, and the page's Triage rules card renders it. Do **not**
+re-introduce a flag→priority map in the template; a test fails if you do.
 
-Plots block on `plt.show()` unless `--save-plots` is passed, so headless
-regression runs need `--save-plots` and `MPLBACKEND=Agg`. There is no pytest suite; if you
-add one, `classify_fault` and the sequence math are the places it pays off.
+When adding a flag, also append to `evidence[...]` inside `triage_event()` so
+the per-event "Why Priority N" block can say what actually triggered it — a
+bare label without the measured value against the threshold is what made the
+priorities opaque in the first place.
 
-## The demo set
-
-`demo/` is **tracked on purpose** — 100 synthetic events, the registry, the
-ground truth, and a pre-built `demo_dashboard.html`. It exists because the tool
-had to be demonstrated before SUBNET was returning COMTRADE files, and a
-colleague's managed PC may not get the Python install working on the first try.
-The pre-built HTML is the zero-dependency fallback.
-
-Regenerate it with `fleet_gen --count 100 --seed 20260601`; the seed is what
-makes it reproducible. Rebuild the HTML after any dashboard change, or it goes
-stale against the code. `demo/analysis/` and `fleet/` stay ignored — those are
-scratch.
-
-Any dashboard built from a set with a `fleet_truth.json` beside it shows a
-DEMO DATA badge. Ground truth only exists for generated events, so that badge
-is a reliable "this is not real plant" signal.
-
-## Feedback
-
-Both the GUI (`✉ Feedback`) and the dashboard footer open a **pre-filled mail
-draft** via `mailto:` — neither sends anything. The message goes to the user's
-own mail client to read, edit and send, which matters because the address is
-outside the corporate network.
-
-Attached context is counts, versions and settings — **never device names or
-event filenames**. Those are operational data and this is the one path in the
-tool that leaves the network.
-
-## Ground truth must track the classifier
-
-`fleet_gen.expect_wso` and `wso_impact.classify_event` have to agree. When the
-model gained EPSS_CANDIDATE and INDETERMINATE the generator was not updated and
-the demo build shipped showing 60% detector agreement — the panel that exists
-to prove the tool works. `TestTheGeneratorsGroundTruthMatchesTheClassifier`
-guards it. Changing the classes means changing the generator and regenerating
-`demo/fleet_truth.json` in the same commit.
+Priority is the minimum over the flags that fired; `reasons[].decisive` marks
+which ones set it, and the page greys the rest.
 
 ## Relay settings
 
@@ -239,95 +252,27 @@ exception into a remedy. `batch.sweep` rolls findings up by code so one bad
 export setting is reported once, not ten thousand times, and the dashboard
 shows them as a banner above everything else.
 
-## WSO / EPSS — what the analysis is actually for
+## Ground truth must track the classifier
 
-The goal is **reliability risk screening, not a filing**: find faults that ride
-through today so they can be mitigated before a WSO day.
+`fleet_gen.expect_wso` and `wso_impact.classify_event` have to agree. When the
+model gained EPSS_CANDIDATE and INDETERMINATE the generator was not updated and
+the demo build shipped showing 60% detector agreement — the panel that exists
+to prove the tool works. `TestTheGeneratorsGroundTruthMatchesTheClassifier`
+guards it. Changing the classes means changing the generator and regenerating
+`demo/fleet_truth.json` in the same commit.
 
-EPSS does two things — it disables reclosing *and* makes the relay more
-sensitive/faster. Both create conversions, and they are not the same:
+## Plotting releases its figures
 
-| Normal day | EPSS day | Class |
-|---|---|---|
-| below pickup, downstream fuse clears | trips the recloser | `EPSS_CANDIDATE` — **new** outage, whole downstream section |
-| trips, reclose succeeds | trips, no reclose | `WSO_EXPOSED` — momentary → sustained |
-| trips, locks out | same | `PERMANENT` — no change |
-| record ends before any dead time | unknowable | `INDETERMINATE` |
-| no fault current | nothing | `NOT_EXPOSED` |
+Every function in `plotting.py` calls `plt.close(fig)` after `savefig` and
+returns `None`; the interactive branch (`plt.show()`) still returns the figure
+because the caller's window owns it. This is load-bearing, not tidiness:
+pyplot holds a global reference to every figure it creates, no caller uses the
+return value on the save path, and leaving them open leaked ~45 MB per event.
+A 100-event folder run through the GUI reached multiple GB, went to swap, and
+the window stopped redrawing — reported as "the app screen blacks out".
 
-`EPSS_CANDIDATE` is the one the tool exists to surface, and it is usually the
-*larger* outage: a lateral fuse drops 30 customers, the recloser above it drops
-the whole feeder section. It cannot be confirmed without the device's normal
-and EPSS pickup settings — that work is pending a SUBNET settings export.
-
-**Do not treat a no-trip event as a misoperation.** It was `no_trip` at
-Priority 1 with "possible relay misoperation" wording; on real rising-edge
-current triggers that would flag every healthy below-pickup record as urgent.
-It is now `Rode Through` at Priority 2, pointing at coordination review.
-
-`INDETERMINATE` exists because "no reclose in the record" was being read as "no
-reclose happened". In this fleet 38 of 40 such records end a median 190 ms after
-the trip, while measured dead times run 455–2050 ms — none of them could have
-shown a reclose. `_MAX_DEAD_TIME_MS` (5 s) sets the cutoff.
-
-## WSO / EPSS
-
-The three-way classification is the whole point of `wso_impact.py`:
-
-- `PERMANENT` — locked out under normal settings; already sustained, EPSS
-  changes nothing
-- `NOT_EXPOSED` — cleared with no reclose; EPSS can't suppress what didn't happen
-- `WSO_EXPOSED` — needed ≥1 automatic reclose; **becomes a sustained outage
-  under EPSS**
-
-Only the third converts. Getting this wrong overstates or understates customer
-impact in a wildfire-mitigation filing, so treat the boundaries as load-bearing.
-
-`devices.csv` is real operational data and is gitignored — only
-`devices_template.csv` is tracked. Never commit a populated registry, and don't
-put real device IDs, feeder names, or customer counts in test fixtures or commit
-messages.
-
-## Icons and desktop shortcuts
-
-Three traps here, all learned the hard way in pq-analyzer and replicated in
-`make_icon.py` / `install_shortcut.py`. They are generated on a Mac and consumed
-on Windows, so nothing on the machine that writes them notices a mistake.
-
-- **Save the .ico from the LARGEST frame.** Pillow silently drops every
-  requested size larger than the image being saved, so `frames[0].save(...)`
-  on the 16 px frame yields a one-entry 16x16 file and Windows falls back to
-  the interpreter's own icon. `_verify_ico()` reads the directory back and
-  exits non-zero if a size is missing.
-- **`bitmap_format="bmp"`.** Windows only reads PNG inside an .ico at 256x256
-  and skips — not fails, skips — smaller PNG entries.
-- **`IconLocation = '<path>,0'`, then read it back.** Without the index Windows
-  draws the target's icon, and the target is a .bat, whose icon is the generic
-  gears. `Save()` reports nothing when the shell declines a value.
-- **Delete the .lnk before recreating it**, and call `SHChangeNotify` after.
-  A rewritten .lnk keeps its cached bitmap, which looks exactly like the
-  installer not having run.
-
-`install_shortcut.py` must never write `COMTRADE Analyzer.bat`. The .bat is a
-tracked file; generating a second copy is how the two drifted apart in
-pq-analyzer, and you got whichever half depending on what you ran last.
-
-## Tuning the triage rules
-
-`triage.py` is the single source of truth and the dashboard renders it. To
-change the scheme, edit **`_FLAGS`** (priority, label, why it matters) and
-**`_TRIGGERS`** (how it fires, which setting tunes it) side by side — they are
-adjacent on purpose. `rule_table()` joins them, `fleet_analyze`/`batch` export
-it as `triage_rules`, and the page's Triage rules card renders it. Do **not**
-re-introduce a flag→priority map in the template; a test fails if you do.
-
-When adding a flag, also append to `evidence[...]` inside `triage_event()` so
-the per-event "Why Priority N" block can say what actually triggered it — a
-bare label without the measured value against the threshold is what made the
-priorities opaque in the first place.
-
-Priority is the minimum over the flags that fired; `reasons[].decisive` marks
-which ones set it, and the page greys the rest.
+`TestPlottingReleasesItsFigures` guards it. If you add a plotting function,
+close its figure on the save path.
 
 ## Dashboard cross-filtering
 
@@ -346,18 +291,16 @@ Note SVG elements have no `.click()` method, so a test harness must
 `dispatchEvent(new MouseEvent("click", {bubbles:true}))`. Real user clicks fire
 the listener normally.
 
-## Plotting releases its figures
+## The GUI is a launcher
 
-Every function in `plotting.py` calls `plt.close(fig)` after `savefig` and
-returns `None`; the interactive branch (`plt.show()`) still returns the figure
-because the caller's window owns it. This is load-bearing, not tidiness:
-pyplot holds a global reference to every figure it creates, no caller uses the
-return value on the save path, and leaving them open leaked ~45 MB per event.
-A 100-event folder run through the GUI reached multiple GB, went to swap, and
-the window stopped redrawing — reported as "the app screen blacks out".
+Folder mode runs `batch.sweep` and opens the dashboard; it renders nothing per
+event. The old per-event folder loop is what leaked figures until the window
+stopped redrawing. Single-file mode keeps the detailed plot/report path.
 
-`TestPlottingReleasesItsFigures` guards it. If you add a plotting function,
-close its figure on the save path.
+The dashboard carries everything the Word report used to show — provenance,
+per-channel peaks, phasor diagram, digital operations log, DC offset — via
+`extract_report_detail()` in `fleet_analyze.py`. The .docx is no longer the way
+anyone looks at an event; treat it as legacy output, not the deliverable.
 
 ## The GUI, matplotlib and Tk
 
@@ -403,17 +346,6 @@ Developed on macOS, run on Windows. Three things that only fail over there:
   which is not worth the fragility inside a GUI.
 - `.bat` is Windows-only, `.command` is macOS-only. Keep both in step.
 
-## The GUI is a launcher
-
-Folder mode runs `batch.sweep` and opens the dashboard; it renders nothing per
-event. The old per-event folder loop is what leaked figures until the window
-stopped redrawing. Single-file mode keeps the detailed plot/report path.
-
-The dashboard carries everything the Word report used to show — provenance,
-per-channel peaks, phasor diagram, digital operations log, DC offset — via
-`extract_report_detail()` in `fleet_analyze.py`. The .docx is no longer the way
-anyone looks at an event; treat it as legacy output, not the deliverable.
-
 ## Install instructions are platform-specific
 
 Windows PowerShell 5.1 ships with Windows and is what colleagues will use. It
@@ -427,6 +359,68 @@ The documented Windows path deliberately **skips activation** and calls
 `.\.venv\Scripts\python.exe` directly, because activation is the step most
 likely to fail and is not required. Keep it that way.
 
+## Icons and desktop shortcuts
+
+Three traps here, all learned the hard way in pq-analyzer and replicated in
+`make_icon.py` / `install_shortcut.py`. They are generated on a Mac and consumed
+on Windows, so nothing on the machine that writes them notices a mistake.
+
+- **Save the .ico from the LARGEST frame.** Pillow silently drops every
+  requested size larger than the image being saved, so `frames[0].save(...)`
+  on the 16 px frame yields a one-entry 16x16 file and Windows falls back to
+  the interpreter's own icon. `_verify_ico()` reads the directory back and
+  exits non-zero if a size is missing.
+- **`bitmap_format="bmp"`.** Windows only reads PNG inside an .ico at 256x256
+  and skips — not fails, skips — smaller PNG entries.
+- **`IconLocation = '<path>,0'`, then read it back.** Without the index Windows
+  draws the target's icon, and the target is a .bat, whose icon is the generic
+  gears. `Save()` reports nothing when the shell declines a value.
+- **Delete the .lnk before recreating it**, and call `SHChangeNotify` after.
+  A rewritten .lnk keeps its cached bitmap, which looks exactly like the
+  installer not having run.
+
+`install_shortcut.py` must never write `COMTRADE Analyzer.bat`. The .bat is a
+tracked file; generating a second copy is how the two drifted apart in
+pq-analyzer, and you got whichever half depending on what you ran last.
+
+## The demo set
+
+`demo/` is **tracked on purpose** — 100 synthetic events, the registry, the
+ground truth, and a pre-built `demo_dashboard.html`. It exists because the tool
+had to be demonstrated before SUBNET was returning COMTRADE files, and a
+colleague's managed PC may not get the Python install working on the first try.
+The pre-built HTML is the zero-dependency fallback.
+
+Regenerate it with `fleet_gen --count 100 --seed 20260601`; the seed is what
+makes it reproducible. Rebuild the HTML after any dashboard change, or it goes
+stale against the code. `demo/analysis/` and `fleet/` stay ignored — those are
+scratch.
+
+Any dashboard built from a set with a `fleet_truth.json` beside it shows a
+DEMO DATA badge. Ground truth only exists for generated events, so that badge
+is a reliable "this is not real plant" signal.
+
+## Feedback
+
+Both the GUI (`✉ Feedback`) and the dashboard footer open a **pre-filled mail
+draft** via `mailto:` — neither sends anything. The message goes to the user's
+own mail client to read, edit and send, which matters because the address is
+outside the corporate network.
+
+Attached context is counts, versions and settings — **never device names or
+event filenames**. Those are operational data and this is the one path in the
+tool that leaves the network.
+
+## Operational data
+
+`devices.csv` is real operational data and is gitignored — only
+`devices_template.csv` is tracked, plus `demo/devices.csv`, which is invented.
+Never commit a populated registry, and don't put real device IDs, feeder names
+or customer counts in test fixtures or commit messages.
+
+The one path that leaves the network is the feedback draft; it carries counts
+and settings, never device names or event filenames.
+
 ## Sharing conventions
 
 This repo follows the pq-analyzer layout for distribution to colleagues:
@@ -435,6 +429,18 @@ This repo follows the pq-analyzer layout for distribution to colleagues:
 diagnostic to run before asking anyone for help, and `.bat` launchers for
 double-click use on Windows. Keep those three in step with any change to
 installation or dependencies.
+
+## Keeping this file current
+
+Update it in the **same commit** as the change it describes, and *revise* the
+relevant section rather than appending a new one — this file drifted into two
+contradictory WSO sections that way, one of them still describing the
+superseded three-class model.
+
+`TestTheProjectNotesStayCurrent` guards the parts that can be checked: every
+module appears in the map, every EPSS class is mentioned, and the superseded
+wording stays gone. It cannot check whether the prose is *true*, so when you
+change behaviour, re-read the section that covers it.
 
 ## Conventions
 
