@@ -373,6 +373,19 @@ per-channel peaks, phasor diagram, digital operations log, DC offset — via
 `extract_report_detail()` in `fleet_analyze.py`. The .docx is no longer the way
 anyone looks at an event; treat it as legacy output, not the deliverable.
 
+## Install instructions are platform-specific
+
+Windows PowerShell 5.1 ships with Windows and is what colleagues will use. It
+rejects `&&` between commands (*"The token '&&' is not a valid statement
+separator"*), has no `source`, and blocks `Activate.ps1` under the default
+execution policy on a managed PC. A single "works everywhere" install line does
+not exist — README and GIT_GUIDE both carry separate PowerShell, cmd.exe and
+POSIX blocks, one command per line.
+
+The documented Windows path deliberately **skips activation** and calls
+`.\.venv\Scripts\python.exe` directly, because activation is the step most
+likely to fail and is not required. Keep it that way.
+
 ## Sharing conventions
 
 This repo follows the pq-analyzer layout for distribution to colleagues:

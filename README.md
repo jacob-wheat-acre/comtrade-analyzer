@@ -23,14 +23,84 @@ Designed for protection engineers reviewing fault events on 12–35 kV distribut
 
 ## Installation
 
-```bash
+Get the code first — same on every platform:
+
+```
 git clone https://github.com/jacob-wheat-acre/comtrade-analyzer.git
 cd comtrade-analyzer
-python -m venv .venv && source .venv/bin/activate   # .venv\Scripts\activate on Windows
-pip install .
 ```
 
-That installs the package and puts six commands on your PATH:
+Then follow the block for your shell. **One command per line** — do not join
+them with `&&`, which Windows PowerShell 5.1 does not accept.
+
+### Windows PowerShell
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+```
+
+That is the whole install. Note it calls the venv's Python **directly** rather
+than activating first — activation is the step that most often fails on a
+managed PC, and it is not required.
+
+Run the tool the same way:
+
+```powershell
+.\.venv\Scripts\comtrade-batch.exe demo\events --devices demo\devices.csv
+```
+
+If you would rather activate the environment so you can type `comtrade-batch`
+without the prefix:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+If that returns **"running scripts is disabled on this system"**, your
+execution policy blocks it. Allow it for this window only — this does not
+change any machine setting and lasts until you close the terminal:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+If `python` is not recognised, try `py -m venv .venv` instead — `py` is the
+launcher that Windows Python installs.
+
+### Windows Command Prompt (cmd.exe)
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install -e .
+```
+
+`cmd.exe` has no execution-policy restriction, so this is the simpler route if
+PowerShell is fighting you.
+
+### macOS / Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e .
+```
+
+### Why `-e`
+
+`-e` installs the tool **in place**, pointing at this folder, so a later
+`git pull` updates it with no reinstall. Leave it off and you would have to
+reinstall after every update.
+
+Always use `python -m pip`, never plain `pip`. On a PC with more than one
+Python, plain `pip` frequently installs into the wrong one, which looks exactly
+like nothing having installed at all.
+
+---
+
+Installing puts six commands on your PATH (inside the venv):
 
 | Command | What it does |
 |---|---|
@@ -120,7 +190,15 @@ it happen:
 ```bash
 comtrade-batch demo/events --devices demo/devices.csv
 ```
-100 events in about a second, then it opens the dashboard it just built.
+
+On Windows, if you did not activate the environment:
+
+```powershell
+.\.venv\Scripts\comtrade-batch.exe demo\events --devices demo\devices.csv
+```
+
+Either way: 100 events in about a second, then it opens the dashboard it
+just built.
 
 Every dashboard built from generated events carries a **DEMO DATA** badge in
 the header, so nobody mistakes it for real plant.

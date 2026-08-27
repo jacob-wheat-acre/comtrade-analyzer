@@ -139,11 +139,63 @@ above, move your `devices.csv` across, and delete the old folder.
 
 ## 5. Install the tool
 
-From inside the `comtrade-analyzer` folder:
+Everything below is typed inside the `comtrade-analyzer` folder, **one command
+per line**. Do not join them with `&&` — Windows PowerShell 5.1, the version
+that ships with Windows, rejects it with *"The token '&&' is not a valid
+statement separator"*.
+
+First make a private folder for the tool's libraries, so it cannot disturb any
+other Python on the machine:
 
 ```
+python -m venv .venv
+```
+
+If `python` is not recognised, use `py -m venv .venv`. `py` is the launcher
+Windows Python installs, and it is on PATH more reliably than `python`.
+
+Then install, calling that folder's Python **directly**:
+
+```
+.\.venv\Scripts\python.exe -m pip install -e .
+```
+
+That is the whole install. You do not have to "activate" anything.
+
+### Why not activate?
+
+Most guides tell you to run `.\.venv\Scripts\Activate.ps1` first so you can
+type short commands. It is convenient, and on a managed PC it is also the step
+most likely to fail:
+
+```
+.\.venv\Scripts\Activate.ps1 : File ... cannot be loaded because running
+scripts is disabled on this system.
+```
+
+That is the execution policy, set by IT. You can lift it **for the current
+window only** — this changes no machine setting and lasts until you close the
+terminal:
+
+```
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Or sidestep it entirely by prefixing commands with the venv path:
+
+```
+.\.venv\Scripts\comtrade-batch.exe demo\events --devices demo\devices.csv
+```
+
+Or use **Command Prompt** instead of PowerShell, which has no such restriction:
+
+```
+.venv\Scripts\activate.bat
 python -m pip install -e .
 ```
+
+### Two rules worth keeping
 
 Use `python -m pip`, never plain `pip`. On a PC with more than one Python,
 plain `pip` frequently installs into the wrong one, which looks exactly like
@@ -362,6 +414,15 @@ comtrade-analyze <event.cfg> --report --save-plots     one event, full report
 comtrade-gui                                           desktop interface
 ```
 
+If you did not activate the environment, prefix each `comtrade-*` command with
+`.\.venv\Scripts\` — for example:
+
+```
+.\.venv\Scripts\comtrade-batch.exe demo\events --devices demo\devices.csv
+```
+
+Never type `&&` in Windows PowerShell. One command per line.
+
 Double-clickable equivalents in the folder: `COMTRADE Analyzer.bat` opens the
 GUI, and dragging an events folder onto `Analyze Folder.bat` runs a batch.
 
@@ -378,9 +439,14 @@ brew install python git
 cd ~/Documents
 git clone https://github.com/jacob-wheat-acre/comtrade-analyzer.git
 cd comtrade-analyzer
+python3 -m venv .venv
+source .venv/bin/activate
 python3 -m pip install -e .
 python3 check_install.py
 ```
+
+On macOS and Linux `&&` between commands is fine, and `source` is the right
+way to activate. Neither is true in Windows PowerShell — see section 5.
 
 Use `python3` rather than `python` throughout.
 
