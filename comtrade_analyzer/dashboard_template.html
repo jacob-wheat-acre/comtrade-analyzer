@@ -295,6 +295,16 @@ tr.detail > td { background: var(--surface-2); padding: 0; border-bottom: 1px so
 .wave-plot svg { cursor: crosshair; }
 .wave-foot { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
 
+.feedback { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--grid); }
+.feedback a {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 13px; border-radius: var(--r-md); text-decoration: none;
+  background: var(--surface-2); border: 1px solid var(--hairline);
+  color: var(--ink); font-size: 12.5px;
+}
+.feedback a:hover { border-color: var(--baseline); }
+.feedback p { font-size: 11.5px; color: var(--muted); margin: 7px 0 0; max-width: 62ch; }
+
 /* ---- Data-quality banner ------------------------------------------------- */
 .dq { border-radius: var(--r-lg); border: 1px solid var(--hairline);
       background: var(--surface); box-shadow: var(--shadow);
@@ -511,6 +521,7 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
       <h2>Detector agreement</h2>
       <p id="verifyIntro"></p>
       <div class="verify" id="verify"></div>
+      <div class="feedback" id="feedback"></div>
     </div>
   </footer>
 </div>
@@ -1902,6 +1913,39 @@ function renderRules() {
     `thresholds marked above are set in <span class="mono">config.json</span>.`;
 }
 
+const FEEDBACK_TO = "jacobbyronwhitaker@gmail.com";
+
+function renderFeedback() {
+  const host = $("feedback");
+  if (!host) return;
+  const t = TOT, s = SET;
+  // Counts and settings, never device names or event filenames — this leaves
+  // the network the moment it is sent.
+  const ctx = [
+    "", "", "---",
+    `Events: ${fmt(t.events)}` +
+      (FLEET.parse_errors && FLEET.parse_errors.length
+        ? `, ${fmt(FLEET.parse_errors.length)} unreadable` : ""),
+    `Classes: ${CLASS_ORDER.map((k) => `${k} ${AGG.by_wso_class[k] || 0}`).join(", ")}`,
+    `Priority 1/2/3: ${t.priority_1}/${t.priority_2}/${t.priority_3}`,
+    `Settings: EPSS tiers ${(s.epss_tiers || []).join("+")}, slow trip > ${s.slow_trip_cycles} cyc, feeder Z ${s.feeder_z_ohm_per_mile}`,
+    `Analyzed: ${esc(FLEET.generated_at || "—")}`,
+    FLEET.data_quality && FLEET.data_quality.length
+      ? `Data quality: ${FLEET.data_quality.map((f) => f.code).join(", ")}` : "",
+  ].filter((l) => l !== null).join("\n");
+
+  const href = "mailto:" + FEEDBACK_TO
+    + "?subject=" + encodeURIComponent("COMTRADE Analyzer Feedback")
+    + "&body=" + encodeURIComponent(
+        "What happened, what you expected, or what would help:\n" + ctx);
+
+  host.innerHTML =
+    `<a href="${href}">✉ Send feedback</a>` +
+    `<p>Opens a draft in your mail app with the run's counts and settings attached — ` +
+    `no device names or event filenames. Nothing is sent until you send it, and the ` +
+    `address is outside the corporate network, so do not paste customer data.</p>`;
+}
+
 function renderFooter() {
   $("methodText").innerHTML =
     `Each record is parsed to IEEE C37.111, then screened for fault inception, trip time, ` +
@@ -1948,7 +1992,7 @@ function renderFooter() {
    --------------------------------------------------------------------------- */
 function init() {
   renderHeader(); renderHero(); renderUnits(); renderTiles(); renderCharts();
-  renderFilters(); renderHead(); renderBody(); renderDataQuality(); renderClasses(); renderRules(); renderFooter();
+  renderFilters(); renderHead(); renderBody(); renderDataQuality(); renderClasses(); renderRules(); renderFooter(); renderFeedback();
 }
 
 let resizeTimer;

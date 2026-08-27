@@ -11,6 +11,7 @@ import platform
 import subprocess
 import sys
 import threading
+import webbrowser
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -332,6 +333,13 @@ class COMTRADEApp(tk.Tk):
         tk.Button(
             btn_frame, text="? Help",
             command=self._show_help,
+            font=_FONT_UI, relief="flat", cursor="hand2",
+            bg=_BG, fg="#555555", padx=12, pady=8,
+        ).pack(side="right")
+
+        tk.Button(
+            btn_frame, text="✉ Feedback",
+            command=self._show_feedback,
             font=_FONT_UI, relief="flat", cursor="hand2",
             bg=_BG, fg="#555555", padx=12, pady=8,
         ).pack(side="right")
@@ -841,6 +849,103 @@ class COMTRADEApp(tk.Tk):
         self._run_btn.config(state="normal", text="Run Analysis")
         self._open_btn.config(state="normal")
         self._running = False
+
+    # ── Feedback dialog ───────────────────────────────────────────────────────
+
+    FEEDBACK_TO = "jacobbyronwhitaker@gmail.com"
+
+    def _show_feedback(self):
+        """
+        Open a pre-filled mail draft rather than sending anything ourselves.
+
+        Nothing is transmitted from here — the message goes to the user's own
+        mail client, where they can read it, edit it and decide whether to
+        send. That matters because this tool handles operational data and the
+        address is outside the corporate network.
+        """
+        import urllib.parse
+
+        win = tk.Toplevel(self)
+        win.title("Send Feedback")
+        win.configure(bg=_BG)
+        win.resizable(False, False)
+        win.grab_set()
+
+        hdr = tk.Frame(win, bg=_BTN_RUN)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="Send Feedback", bg=_BTN_RUN, fg=_BTN_TXT,
+                 font=_FONT_UI_B, pady=10, padx=16).pack(anchor="w")
+
+        body = tk.Frame(win, bg=_BG)
+        body.pack(fill="both", expand=True, padx=16, pady=12)
+
+        tk.Label(body, text="What happened, what you expected, or what would help:",
+                 bg=_BG, fg=_LABEL_FG, font=_FONT_UI).pack(anchor="w")
+
+        txt = tk.Text(body, width=62, height=9, font=_FONT_MONO,
+                      relief="solid", bd=1, padx=6, pady=4, wrap="word")
+        txt.pack(fill="both", expand=True, pady=(4, 0))
+        txt.focus_set()
+
+        include_ctx = tk.BooleanVar(value=True)
+        tk.Checkbutton(
+            body, variable=include_ctx, bg=_BG, fg=_LABEL_FG, font=_FONT_UI_S,
+            activebackground=_BG, selectcolor="white", anchor="w",
+            text="Attach version, platform and the folder being analysed",
+        ).pack(anchor="w", pady=(6, 0))
+
+        tk.Label(body,
+                 text="This opens a draft in your mail app — nothing is sent until you send it.\n"
+                      "The address is outside the corporate network, so do not paste customer data.",
+                 bg=_BG, fg="#888888", font=_FONT_UI_S, justify="left").pack(anchor="w", pady=(2, 8))
+
+        btn_row = tk.Frame(body, bg=_BG)
+        btn_row.pack(fill="x")
+
+        def _send():
+            note = txt.get("1.0", "end").strip()
+            body_text = note
+            if include_ctx.get():
+                body_text += "\n\n---\n" + self._feedback_context()
+            params = urllib.parse.urlencode(
+                {"subject": "COMTRADE Analyzer Feedback", "body": body_text},
+                quote_via=urllib.parse.quote)
+            try:
+                webbrowser.open(f"mailto:{self.FEEDBACK_TO}?{params}")
+            except Exception as exc:               # noqa: BLE001
+                messagebox.showerror(
+                    "Could not open your mail app",
+                    f"{exc}\n\nEmail {self.FEEDBACK_TO} directly instead.")
+            win.destroy()
+
+        tk.Button(btn_row, text="Open Email Draft", command=_send,
+                  font=_FONT_UI, relief="flat", cursor="hand2",
+                  bg=_BTN_RUN, fg=_BTN_TXT, padx=14, pady=6).pack(side="left")
+        tk.Button(btn_row, text="Cancel", command=win.destroy,
+                  font=_FONT_UI, relief="flat", cursor="hand2",
+                  bg=_BG, fg="#555555", padx=14, pady=6).pack(side="left", padx=(8, 0))
+
+    def _feedback_context(self) -> str:
+        """
+        The handful of facts that make a report actionable.
+
+        Deliberately the folder path and counts, not device names or event
+        filenames — those are operational data and this is leaving the network.
+        """
+        import platform as _plat
+        from . import __version__
+
+        lines = [
+            f"COMTRADE Analyzer {__version__}",
+            f"Python {sys.version.split()[0]} on {_plat.system()} {_plat.release()} ({_plat.machine()})",
+        ]
+        path = self._file_var.get().strip()
+        if path:
+            lines.append(f"Target: {path}")
+        last = getattr(self, "_last_dashboard", None)
+        if last:
+            lines.append(f"Last dashboard: {last}")
+        return "\n".join(lines)
 
     # ── Help window ───────────────────────────────────────────────────────────
 

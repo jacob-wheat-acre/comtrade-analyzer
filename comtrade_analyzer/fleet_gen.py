@@ -409,6 +409,10 @@ _TEMPLATE_WEIGHTS = {
     "reclose_1_perm":      7,   # reclosed, faulted again, record ends mid-sequence
 }
 
+# expect_wso mirrors wso_impact.classify_event. A single trip whose record ends
+# a few hundred ms later cannot show whether a reclose followed, so it is
+# INDETERMINATE; a fault the device rode through is an EPSS_CANDIDATE. Keep these
+# in step with that function or the detector-agreement panel goes red.
 _FAULT_WEIGHTS = [("SLG", 66), ("LL", 13), ("LLG", 13), ("3PH", 8)]
 _SLG_PHASES = [("A",), ("B",), ("C",)]
 _PAIR_PHASES = [("A", "B"), ("B", "C"), ("A", "C")]
@@ -463,13 +467,13 @@ def build_scenario(idx: int, rng: random.Random, devices: List[Device],
         op = fast_ms()
         shots.append(Shot(t_f1, t_f1 + op, _ground_element(ftype, True), None))
         t_total = t_f1 + op + rng.uniform(0.12, 0.25)
-        expect_wso = "NOT_EXPOSED"
+        expect_wso = "INDETERMINATE"
 
     elif template == "slow_trip":
         op = slow_ms()
         shots.append(Shot(t_f1, t_f1 + op, _ground_element(ftype, False), None))
         t_total = t_f1 + op + rng.uniform(0.12, 0.25)
-        expect_wso = "NOT_EXPOSED"
+        expect_wso = "INDETERMINATE"
         expect_flags.append("slow_trip")
 
     elif template == "no_trip":
@@ -477,14 +481,14 @@ def build_scenario(idx: int, rng: random.Random, devices: List[Device],
         clear = t_f1 + rng.uniform(0.05, 0.12)
         shots.append(Shot(t_f1, None, "", None, t_clear=clear))
         t_total = clear + rng.uniform(0.15, 0.30)
-        expect_wso = "NOT_EXPOSED"
+        expect_wso = "EPSS_CANDIDATE"
         expect_flags.append("no_trip")
 
     elif template == "hif":
         op = slow_ms()
         shots.append(Shot(t_f1, t_f1 + op, "51G", None))
         t_total = t_f1 + op + rng.uniform(0.15, 0.30)
-        expect_wso = "NOT_EXPOSED"
+        expect_wso = "INDETERMINATE"
         expect_flags.append("hif_suspect")
         if op * 1000 > 10 * (1000 / F0):
             expect_flags.append("slow_trip")

@@ -389,6 +389,18 @@ group stay unresolved and say so.
 
 ---
 
+## Feedback
+
+The GUI has an **✉ Feedback** button and every dashboard has a **Send feedback**
+link in the footer. Both open a pre-filled draft in your mail client addressed
+to the maintainer — nothing is sent until you send it.
+
+The draft carries the run's counts, versions and settings so a report is
+actionable, and deliberately carries **no device names or event filenames**.
+The address is outside the corporate network; don't paste customer data in.
+
+---
+
 ## Handling operational data
 
 Real event files, and everything derived from them, contain device IDs, feeder

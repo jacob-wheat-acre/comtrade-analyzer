@@ -180,6 +180,26 @@ Any dashboard built from a set with a `fleet_truth.json` beside it shows a
 DEMO DATA badge. Ground truth only exists for generated events, so that badge
 is a reliable "this is not real plant" signal.
 
+## Feedback
+
+Both the GUI (`✉ Feedback`) and the dashboard footer open a **pre-filled mail
+draft** via `mailto:` — neither sends anything. The message goes to the user's
+own mail client to read, edit and send, which matters because the address is
+outside the corporate network.
+
+Attached context is counts, versions and settings — **never device names or
+event filenames**. Those are operational data and this is the one path in the
+tool that leaves the network.
+
+## Ground truth must track the classifier
+
+`fleet_gen.expect_wso` and `wso_impact.classify_event` have to agree. When the
+model gained EPSS_CANDIDATE and INDETERMINATE the generator was not updated and
+the demo build shipped showing 60% detector agreement — the panel that exists
+to prove the tool works. `TestTheGeneratorsGroundTruthMatchesTheClassifier`
+guards it. Changing the classes means changing the generator and regenerating
+`demo/fleet_truth.json` in the same commit.
+
 ## Relay settings
 
 `relay_settings.py` reads the SUBNET export as a **catalog**, not a native SEL

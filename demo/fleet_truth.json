@@ -19,7 +19,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "hif_suspect",
         "slow_trip"
@@ -110,7 +110,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 66.5,
       "i_fault_peak_a": 1638.3
@@ -132,7 +132,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "hif_suspect",
         "slow_trip"
@@ -157,7 +157,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 126.7,
       "i_fault_peak_a": 1789.8
@@ -179,7 +179,7 @@
       "expect_fault": "LL",
       "faulted_phases": "BC",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 112.2,
       "i_fault_peak_a": 1458.5
@@ -201,7 +201,7 @@
       "expect_fault": "LLG",
       "faulted_phases": "AC",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "llg_fault",
         "slow_trip"
@@ -248,7 +248,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "hif_suspect",
         "slow_trip"
@@ -273,7 +273,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "hif_suspect",
         "slow_trip"
@@ -320,7 +320,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "slow_trip"
       ],
@@ -480,7 +480,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 128.6,
       "i_fault_peak_a": 1935.1
@@ -502,7 +502,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "hif_suspect",
         "slow_trip"
@@ -527,7 +527,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "C",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "slow_trip"
       ],
@@ -597,7 +597,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 156.9,
       "i_fault_peak_a": 1518.4
@@ -641,7 +641,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "C",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 147.4,
       "i_fault_peak_a": 2255.1
@@ -687,7 +687,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "slow_trip"
       ],
@@ -711,7 +711,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "C",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 84.7,
       "i_fault_peak_a": 1847.8
@@ -781,7 +781,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 101.5,
       "i_fault_peak_a": 1202.5
@@ -828,7 +828,7 @@
       "expect_fault": "LLG",
       "faulted_phases": "BC",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "llg_fault",
         "slow_trip"
@@ -877,7 +877,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "C",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 81.9,
       "i_fault_peak_a": 1344.7
@@ -948,7 +948,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "slow_trip"
       ],
@@ -1040,7 +1040,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "hif_suspect",
         "slow_trip"
@@ -1113,7 +1113,7 @@
       "expect_fault": "LLG",
       "faulted_phases": "AC",
       "expect_shots": 0,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "EPSS_CANDIDATE",
       "expect_flags": [
         "llg_fault",
         "no_trip"
@@ -1204,7 +1204,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 146.1,
       "i_fault_peak_a": 2277.7
@@ -1226,7 +1226,7 @@
       "expect_fault": "LLG",
       "faulted_phases": "AB",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "llg_fault"
       ],
@@ -1344,7 +1344,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 73.7,
       "i_fault_peak_a": 1666.3
@@ -1366,7 +1366,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 96.4,
       "i_fault_peak_a": 2243.5
@@ -1388,7 +1388,7 @@
       "expect_fault": "LLG",
       "faulted_phases": "AB",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "llg_fault"
       ],
@@ -1528,7 +1528,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "hif_suspect",
         "slow_trip"
@@ -1553,7 +1553,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 0,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "EPSS_CANDIDATE",
       "expect_flags": [
         "no_trip"
       ],
@@ -1577,7 +1577,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "slow_trip"
       ],
@@ -1648,7 +1648,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "C",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 125.1,
       "i_fault_peak_a": 1338.5
@@ -1856,7 +1856,7 @@
       "expect_fault": "LL",
       "faulted_phases": "AC",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 80.2,
       "i_fault_peak_a": 1697.2
@@ -1900,7 +1900,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "slow_trip"
       ],
@@ -1970,7 +1970,7 @@
       "expect_fault": "LL",
       "faulted_phases": "AB",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 96.6,
       "i_fault_peak_a": 2311.5
@@ -2014,7 +2014,7 @@
       "expect_fault": "LLG",
       "faulted_phases": "AB",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "llg_fault",
         "slow_trip"
@@ -2039,7 +2039,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 162.5,
       "i_fault_peak_a": 1887.0
@@ -2110,7 +2110,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "slow_trip"
       ],
@@ -2202,7 +2202,7 @@
       "expect_fault": "LL",
       "faulted_phases": "AC",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [],
       "i_load_peak_a": 129.7,
       "i_fault_peak_a": 2202.0
@@ -2224,7 +2224,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "A",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "slow_trip"
       ],
@@ -2292,7 +2292,7 @@
       "expect_fault": "SLG",
       "faulted_phases": "B",
       "expect_shots": 1,
-      "expect_wso": "NOT_EXPOSED",
+      "expect_wso": "INDETERMINATE",
       "expect_flags": [
         "slow_trip"
       ],

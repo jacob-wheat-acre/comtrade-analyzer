@@ -962,6 +962,41 @@ class TestPlottingDoesNotForceAnInteractiveBackend:
 # 15. Triage rules are exported, not duplicated
 # ─────────────────────────────────────────────────────────────────────────────
 
+class TestTheGeneratorsGroundTruthMatchesTheClassifier:
+    """
+    fleet_gen writes expect_wso; wso_impact.classify_event decides the real
+    answer. When the classification model gained EPSS_CANDIDATE and
+    INDETERMINATE the generator was not updated, and the dashboard's own
+    detector-agreement panel dropped to 60% — on the demo build that ships to
+    show the tool working.
+    """
+
+    def test_every_expected_class_is_a_real_class(self):
+        import re
+        from comtrade_analyzer.wso_impact import class_table
+        src = (Path(__file__).parent / "comtrade_analyzer" / "fleet_gen.py").read_text(
+            encoding="utf-8")
+        used = set(re.findall(r'expect_wso = "(\w+)"', src))
+        known = {c["key"] for c in class_table()}
+        assert used <= known, f"fleet_gen expects classes that do not exist: {used - known}"
+
+    def test_a_single_trip_is_expected_to_be_indeterminate(self):
+        """Its record ends long before any dead time — the generator must not
+        claim EPSS changes nothing."""
+        import re
+        src = (Path(__file__).parent / "comtrade_analyzer" / "fleet_gen.py").read_text(
+            encoding="utf-8")
+        block = re.search(r'if template == "single_trip":(.*?)elif template', src, re.S)
+        assert block and 'expect_wso = "INDETERMINATE"' in block.group(1)
+
+    def test_a_ride_through_is_expected_to_be_a_candidate(self):
+        import re
+        src = (Path(__file__).parent / "comtrade_analyzer" / "fleet_gen.py").read_text(
+            encoding="utf-8")
+        block = re.search(r'elif template == "no_trip":(.*?)elif template', src, re.S)
+        assert block and 'expect_wso = "EPSS_CANDIDATE"' in block.group(1)
+
+
 class TestTriageRulesAreASingleSourceOfTruth:
     """
     The dashboard used to carry its own copy of the flag → priority map in JS.
