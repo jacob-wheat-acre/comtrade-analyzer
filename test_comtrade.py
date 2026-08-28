@@ -2500,8 +2500,9 @@ class TestTheFeederPageWalksTheSystem:
     def test_the_feeders_page_is_scoped_to_one_substation(self):
         tpl = self.TPL.read_text(encoding="utf-8")
         assert 'id="feedersSub"' in tpl
-        assert "let olStation" in tpl
-        assert "all.filter((s) => s.station === olStation)" in tpl
+        # the shared scope, not one of its own
+        assert "let station = ALL_STATIONS;" in tpl
+        assert "all.filter((s) => s.station === station)" in tpl
 
     def test_feeders_sort_by_circuit_number_in_both_views(self):
         """
@@ -2539,7 +2540,7 @@ class TestTheFeederPageWalksTheSystem:
     def test_following_a_tie_switches_substation_when_it_has_to(self):
         tpl = self.TPL.read_text(encoding="utf-8")
         assert "function olStationOf(" in tpl
-        assert "if (st && st !== olStation) { olStation = st; }" in tpl
+        assert "if (st && station !== ALL_STATIONS && st !== station) applyStation(st);" in tpl
 
     def test_the_far_end_is_revealed_not_just_navigated_to(self):
         """Landing on a page of feeders with nothing marked is no better."""
@@ -2650,8 +2651,12 @@ class TestScopingByStation:
         review's tiles on whatever they were — two controls for the same idea,
         disagreeing with each other.
         """
+        import re
         tpl = self.TPL.read_text(encoding="utf-8")
-        assert "olStation" not in tpl, "the feeders page still keeps its own scope"
+        # `olStationOf()` is a helper and contains the same prefix — match the
+        # variable itself, not any identifier starting with it.
+        assert not re.search(r"\bolStation\b", tpl), \
+            "the feeders page still keeps its own scope"
         # both controls drive, and are driven by, the same one
         assert 'sel.onchange = () => applyStation(sel.value);' in tpl
         assert '["fStation", "feedersSub"].forEach((id) => {' in tpl
