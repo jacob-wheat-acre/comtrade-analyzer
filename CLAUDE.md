@@ -511,12 +511,19 @@ Three things that are easy to miss:
   selection index and the displayed value snaps back to the first option — the
   control looks stuck. `fillSelect()` rebuilds only when the option list
   actually changed, and otherwise just moves the value.
+- **Feeder names are matched on a normalised key** (`fkey()` / `feederAgg()`),
+  not character-for-character. The dropdown is labelled from `topology.csv`; the
+  per-feeder totals and the events are keyed by the feeder in the COMTRADE
+  header. Those are typed by different people at different times, and a
+  mismatch **splits the page in half**: the panels that count events themselves
+  narrow, the ones that read an aggregate do not. That is what "clearing time
+  changes but reclose shots doesn't" means — go and check the names.
+  `topology.validate()` reports it as `feeder_name_mismatch` so it surfaces at
+  the CSV rather than in a browser.
 - **A scope pick is never refused.** `applyFeederScope` used to drop any feeder
-  with no entry in `BY_FEEDER`. The option values come from `topology.csv`
-  while `BY_FEEDER` is keyed by the feeder on each *event*, out of the COMTRADE
-  header — any disagreement between those spellings made every selection snap
-  back with nothing said about why. The pick now always applies; the tiles fall
-  back to the wider aggregate and the scope note says so.
+  with no aggregate under that name, so the control looked stuck. The pick now
+  always applies; the tiles fall back to the wider aggregate and the note names
+  the split.
 - **A panel that filters `EV` itself keeps showing the fleet while everything
   around it narrows.** `renderUnits()` and the clearing-time histogram in
   `renderTrip()` each did exactly that, and the histogram is the one nobody

@@ -482,6 +482,24 @@ def validate(net: Network, registry: Optional[dict] = None) -> List[dict]:
                     "Add it to devices.csv to give it a zone, risk tier and "
                     "customer count. Until then it has no events and no "
                     "customers attached."))
+        # Feeder names have to agree, not just device ids. The dashboard keys
+        # its per-feeder totals by the feeder in the event header and labels
+        # its dropdown from this file; a mismatch splits the page in half,
+        # narrowing the panels that count events and not the ones that read a
+        # total.
+        reg_feeders = {d.get("feeder", "").strip().lower()
+                       for d in registry.values() if d.get("feeder")}
+        if reg_feeders:
+            for feeder in net.feeders():
+                if feeder.strip().lower() not in reg_feeders:
+                    out.append(_finding(
+                        "warning", "feeder_name_mismatch",
+                        f"feeder {feeder!r} is not a feeder name in the registry",
+                        ", ".join(sorted(reg_feeders)[:4]) + " ...",
+                        "The dashboard groups per-feeder totals by the feeder "
+                        "name in the event header, and labels its picker from "
+                        "this file. Spell them the same or the two disagree."))
+
         for key, dev in registry.items():
             if key not in net:
                 out.append(_finding(

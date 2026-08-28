@@ -687,6 +687,16 @@ const SET  = FLEET.settings || {};
    is how the numbers on this page would start disagreeing with the CSV. */
 const BY_STATION = FLEET.aggregates_by_station || {};
 const BY_FEEDER  = FLEET.aggregates_by_feeder || {};
+
+/* The dropdown's names come from topology.csv; the aggregates and the events
+   are keyed by the feeder in the COMTRADE header. Those are typed by different
+   people at different times, so match them on a normalised key rather than
+   character-for-character. Getting this wrong splits the page in half: the
+   panels that count events themselves narrow, and the ones that read an
+   aggregate do not. */
+const fkey = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+const FEEDER_AGG = new Map(Object.entries(BY_FEEDER).map(([k, v]) => [fkey(k), v]));
+const feederAgg = (name) => FEEDER_AGG.get(fkey(name));
 const ALL_STATIONS = "All substations";
 const ALL_FEEDERS  = "";          /* "" = do not narrow past the substation */
 let station = ALL_STATIONS;
@@ -708,7 +718,7 @@ function setStation(name) {
      name the tiles fall back to the wider scope rather than the selection
      being refused — the table and the one-line still narrow, and the note
      below says which. */
-  AGG = (scopeFeeder && BY_FEEDER[scopeFeeder])
+  AGG = (scopeFeeder && feederAgg(scopeFeeder))
      || BY_STATION[station] || FLEET.aggregates || {};
   TOT = AGG.totals || {};
 }
@@ -734,7 +744,10 @@ function fillSelect(sel, html, value) {
    while everything around them narrows — which is exactly what the clearing
    time histogram and the unit grid each did. */
 function scopedEvents() {
-  if (scopeFeeder) return EV.filter((e) => e.feeder === scopeFeeder);
+  if (scopeFeeder) {
+    const k = fkey(scopeFeeder);
+    return EV.filter((e) => fkey(e.feeder) === k);
+  }
   if (station !== ALL_STATIONS) return EV.filter((e) => e.station === station);
   return EV;
 }
@@ -1425,7 +1438,7 @@ function currentRows() {
         p = $("fPrio").value, c = $("fClass").value,
         q = $("fSearch").value.trim().toLowerCase();
   return EV.filter((e) => {
-    if (scopeFeeder && e.feeder !== scopeFeeder) return false;
+    if (scopeFeeder && fkey(e.feeder) !== fkey(scopeFeeder)) return false;
     if (station !== ALL_STATIONS && e.station !== station) return false;
     if (drill && !drill.test(e)) return false;
     if (z && e.zone !== z) return false;
@@ -2011,14 +2024,15 @@ function applyStation(name) {
     const what = scopeFeeder
       || (station === ALL_STATIONS
           ? `all ${Object.keys(BY_STATION).length - 1} substations` : station);
-    if (scopeFeeder && !BY_FEEDER[scopeFeeder]) {
+    if (scopeFeeder && !feederAgg(scopeFeeder)) {
       /* Say it rather than quietly showing the wider numbers under a feeder
          heading. The usual cause is topology.csv naming a feeder differently
          from the COMTRADE headers. */
       note.textContent =
-        `Table and one-line cover ${scopeFeeder}; the tiles and charts cover the `
-        + `wider scope — no per-feeder totals were found under that name. Check `
-        + `the feeder column in topology.csv matches the event headers.`;
+        `No per-feeder totals under "${scopeFeeder}", so the tiles and the fault, `
+        + `priority and reclose-shot charts still cover the wider scope while the `
+        + `table, clearing time and one-line cover this feeder. The feeder column `
+        + `in topology.csv does not match the feeder name in the event headers.`;
     } else {
       note.textContent = scopeFeeder || station !== ALL_STATIONS
         ? `Every tile, chart and table below covers ${what} only — pick a feeder `

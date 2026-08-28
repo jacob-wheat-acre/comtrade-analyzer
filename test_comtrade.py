@@ -1634,6 +1634,30 @@ class TestTheTopologyModel:
         f.write_text("feeder,node_id,kind,parent,tie_to\n" + text, encoding="utf-8")
         return {v["code"] for v in validate(load_topology(str(f)))}
 
+    def test_a_feeder_named_differently_from_the_registry_is_reported(self):
+        """
+        The dashboard keys per-feeder totals by the feeder in the event header
+        and labels its picker from topology.csv. A mismatch splits the page in
+        half, so it is worth catching at the CSV rather than in the browser.
+        """
+        from comtrade_analyzer.topology import load_topology, validate
+        from comtrade_analyzer.wso_impact import load_registry
+        import csv as _csv, tempfile
+        src = (self.ROOT / "demo" / "topology.csv").read_text(encoding="utf-8")
+        d = Path(tempfile.mkdtemp()) / "t.csv"
+        d.write_text(src.replace("Cedar Hollow 1211", "Cedar Holow 1211"),
+                     encoding="utf-8")
+        registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
+        codes = [f["code"] for f in validate(load_topology(str(d)), registry)]
+        assert "feeder_name_mismatch" in codes
+
+    def test_matching_feeder_names_raise_nothing(self):
+        from comtrade_analyzer.topology import validate
+        from comtrade_analyzer.wso_impact import load_registry
+        registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
+        codes = [f["code"] for f in validate(self._net(), registry)]
+        assert "feeder_name_mismatch" not in codes
+
     def test_the_validator_catches_spreadsheet_mistakes(self, tmp_path):
         cases = {
             "duplicate_node":       "F,S,source,,\nF,A,recloser,S,\nF,A,recloser,S,\n",
@@ -1648,6 +1672,30 @@ class TestTheTopologyModel:
         }
         for code, rows in cases.items():
             assert code in self._codes(rows, tmp_path), f"{code} not reported"
+
+    def test_a_feeder_named_differently_from_the_registry_is_reported(self):
+        """
+        The dashboard keys per-feeder totals by the feeder in the event header
+        and labels its picker from topology.csv. A mismatch splits the page in
+        half, so it is worth catching at the CSV rather than in the browser.
+        """
+        from comtrade_analyzer.topology import load_topology, validate
+        from comtrade_analyzer.wso_impact import load_registry
+        import csv as _csv, tempfile
+        src = (self.ROOT / "demo" / "topology.csv").read_text(encoding="utf-8")
+        d = Path(tempfile.mkdtemp()) / "t.csv"
+        d.write_text(src.replace("Cedar Hollow 1211", "Cedar Holow 1211"),
+                     encoding="utf-8")
+        registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
+        codes = [f["code"] for f in validate(load_topology(str(d)), registry)]
+        assert "feeder_name_mismatch" in codes
+
+    def test_matching_feeder_names_raise_nothing(self):
+        from comtrade_analyzer.topology import validate
+        from comtrade_analyzer.wso_impact import load_registry
+        registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
+        codes = [f["code"] for f in validate(self._net(), registry)]
+        assert "feeder_name_mismatch" not in codes
 
     def test_every_finding_carries_a_fix(self, tmp_path):
         """Same bar as diagnostics.py: symptom, evidence, fix."""
@@ -2697,11 +2745,11 @@ class TestScopingByStation:
         tpl = self.TPL.read_text(encoding="utf-8")
         assert "function applyFeederScope(" in tpl
         assert "sel.onchange = () => { olIncident = null; applyFeederScope(sel.value); };" in tpl
-        assert 'if (scopeFeeder && e.feeder !== scopeFeeder) return false;' in tpl
+        assert 'if (scopeFeeder && fkey(e.feeder) !== fkey(scopeFeeder)) return false;' in tpl
 
     def test_the_narrowest_scope_wins(self):
         tpl = self.TPL.read_text(encoding="utf-8")
-        assert ("AGG = (scopeFeeder && BY_FEEDER[scopeFeeder])\n"
+        assert ("AGG = (scopeFeeder && feederAgg(scopeFeeder))\n"
                 "     || BY_STATION[station] || FLEET.aggregates || {};") in tpl
 
     def test_panels_that_count_events_themselves_go_through_the_scope(self):
@@ -2730,7 +2778,7 @@ class TestScopingByStation:
         assert "scopeFeeder = feeder || ALL_FEEDERS;" in tpl
         assert "BY_FEEDER[feeder] ? feeder : ALL_FEEDERS" not in tpl
         # and it says so rather than showing wider numbers under a feeder heading
-        assert "no per-feeder totals were found under that name" in tpl
+        assert 'No per-feeder totals under "${scopeFeeder}"' in tpl
 
     def test_a_select_is_not_rebuilt_inside_its_own_change_handler(self):
         """
@@ -2745,3 +2793,17 @@ class TestScopingByStation:
             block = tpl[i:i + 700]
             assert "sel.innerHTML =" not in block, f"{sel} still rebuilt directly"
             assert "fillSelect(sel," in block
+
+    def test_feeder_names_are_matched_tolerantly(self):
+        """
+        The dropdown is labelled from topology.csv; the per-feeder totals are
+        keyed by the feeder in the COMTRADE header. Typed by different people
+        at different times, so match on a normalised key. Getting it wrong
+        splits the page: panels that count events narrow, panels that read a
+        total do not — which is exactly how it was reported.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "const fkey = (v) =>" in tpl
+        assert "const feederAgg = (name) =>" in tpl
+        assert "BY_FEEDER[scopeFeeder]" not in tpl, "raw keyed lookup is back"
+        assert "fkey(e.feeder) === k" in tpl, "scopedEvents still matches exactly"
