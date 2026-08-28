@@ -2748,9 +2748,12 @@ class TestScopingByStation:
         assert 'if (scopeFeeder && fkey(e.feeder) !== fkey(scopeFeeder)) return false;' in tpl
 
     def test_the_narrowest_scope_wins(self):
+        """Feeder, else substation, else fleet — and never a wider aggregate
+        under a narrower caption."""
         tpl = self.TPL.read_text(encoding="utf-8")
-        assert ("AGG = (scopeFeeder && feederAgg(scopeFeeder))\n"
-                "     || BY_STATION[station] || FLEET.aggregates || {};") in tpl
+        assert "AGG = feederAgg(scopeFeeder) || deriveAggregate(scopedEvents());" in tpl
+        assert "AGG = BY_STATION[station] || deriveAggregate(scopedEvents());" in tpl
+        assert "AGG = FLEET.aggregates || {};" in tpl
 
     def test_panels_that_count_events_themselves_go_through_the_scope(self):
         """
@@ -2778,7 +2781,7 @@ class TestScopingByStation:
         assert "scopeFeeder = feeder || ALL_FEEDERS;" in tpl
         assert "BY_FEEDER[feeder] ? feeder : ALL_FEEDERS" not in tpl
         # and it says so rather than showing wider numbers under a feeder heading
-        assert 'No per-feeder totals under "${scopeFeeder}"' in tpl
+        assert "which saved no per-feeder " in tpl
 
     def test_a_select_is_not_rebuilt_inside_its_own_change_handler(self):
         """
@@ -2807,3 +2810,30 @@ class TestScopingByStation:
         assert "const feederAgg = (name) =>" in tpl
         assert "BY_FEEDER[scopeFeeder]" not in tpl, "raw keyed lookup is back"
         assert "fkey(e.feeder) === k" in tpl, "scopedEvents still matches exactly"
+
+    def test_the_page_counts_for_itself_when_a_run_has_no_aggregate_at_scope(self):
+        """
+        A run written before per-feeder aggregates existed still opens. Falling
+        back to the WIDER aggregate put fleet numbers under a caption naming one
+        feeder — reported as "clearing time changes but reclose shots doesn't",
+        because the panels that count events narrowed and the ones reading an
+        aggregate did not. Now it counts the scoped events instead.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "function deriveAggregate(" in tpl
+        assert "AGG = feederAgg(scopeFeeder) || deriveAggregate(scopedEvents());" in tpl
+        assert "BY_STATION[station] || deriveAggregate(scopedEvents());" in tpl
+
+    def test_the_derived_aggregate_is_marked_and_owns_up(self):
+        """
+        Customer-hours need registry maths that lives in Python. Reporting them
+        as unavailable is honest; carrying the fleet's figure would not be.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        i = tpl.index("function deriveAggregate(")
+        body = tpl[i:tpl.index("/* Fill a <select>", i)]
+        assert "derived: true," in body
+        assert "est_customer_hours_per_wso_day: null," in body
+        assert "customers_covered: null," in body
+        # and the page says so where it is always visible
+        assert "saved no per-feeder" in tpl

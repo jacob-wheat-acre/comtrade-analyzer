@@ -713,13 +713,89 @@ function setStation(name) {
   if (scopeFeeder && olStationOf(scopeFeeder) !== station && station !== ALL_STATIONS) {
     scopeFeeder = ALL_FEEDERS;
   }
-  /* Narrowest aggregate available. With no per-feeder aggregate under this
-     name the tiles fall back to the wider scope rather than the selection
-     being refused — the table and the one-line still narrow, and the note
-     below says which. */
-  AGG = (scopeFeeder && feederAgg(scopeFeeder))
-     || BY_STATION[station] || FLEET.aggregates || {};
+  /* Narrowest aggregate available; failing that, count it here. Falling back
+     to the WIDER aggregate is what put fleet numbers under a caption naming
+     one feeder — the page has to be consistent with its own heading. */
+  if (scopeFeeder) {
+    AGG = feederAgg(scopeFeeder) || deriveAggregate(scopedEvents());
+  } else if (station !== ALL_STATIONS) {
+    AGG = BY_STATION[station] || deriveAggregate(scopedEvents());
+  } else {
+    AGG = FLEET.aggregates || {};
+  }
   TOT = AGG.totals || {};
+}
+
+/* Count an aggregate from the events in scope.
+
+   The tiles and the count charts read a precomputed aggregate. When the run
+   predates per-feeder aggregates — an older fleet_analysis.json re-rendered
+   rather than re-analysed — there is nothing to hand them, and the page used
+   to leave them on the fleet's numbers under a caption saying it covered one
+   feeder. Deriving the counts here keeps the page internally consistent.
+
+   Only counts. Customer-hours and the zone rollup depend on registry maths
+   that belongs in Python, so they are reported as unavailable rather than
+   guessed at, and `derived` marks the whole thing so the page can say so. */
+function deriveAggregate(rows) {
+  const tally = (get) => {
+    const m = {};
+    rows.forEach((e) => { const k = get(e); if (k !== null && k !== undefined) m[k] = (m[k] || 0) + 1; });
+    return m;
+  };
+  const n = (pred) => rows.filter(pred).length;
+  const trips = rows.map((e) => e.trip_delay_ms)
+                    .filter((v) => v !== null && v !== undefined).sort((a, b) => a - b);
+  const median = trips.length
+    ? (trips.length % 2 ? trips[(trips.length - 1) / 2]
+       : (trips[trips.length / 2 - 1] + trips[trips.length / 2]) / 2)
+    : null;
+
+  const byFlag = {};
+  rows.forEach((e) => (e.flags || []).forEach((f) => { byFlag[f] = (byFlag[f] || 0) + 1; }));
+
+  const devices = {};
+  rows.forEach((e) => {
+    const k = e.device_id || e.file;
+    if (!devices[k]) devices[k] = { device_id: e.device_id || "", feeder: e.feeder || "",
+                                    zone: e.zone || "", customers_affected: e.customers_affected || 0,
+                                    events: 0, wso_exposed: 0, permanent: 0, priority_1: 0 };
+    const d = devices[k];
+    d.events += 1;
+    if (e.wso_class === "WSO_EXPOSED") d.wso_exposed += 1;
+    if (e.wso_class === "PERMANENT") d.permanent += 1;
+    if (e.priority === 1) d.priority_1 += 1;
+  });
+
+  return {
+    derived: true,
+    totals: {
+      events: rows.length,
+      priority_1: n((e) => e.priority === 1),
+      priority_2: n((e) => e.priority === 2),
+      priority_3: n((e) => e.priority === 3),
+      permanent: n((e) => e.wso_class === "PERMANENT"),
+      wso_exposed: n((e) => e.wso_class === "WSO_EXPOSED"),
+      not_exposed: n((e) => e.wso_class === "NOT_EXPOSED"),
+      epss_candidate: n((e) => e.wso_class === "EPSS_CANDIDATE"),
+      indeterminate: n((e) => e.wso_class === "INDETERMINATE"),
+      locked_out: n((e) => e.locked_out),
+      hif_suspect: n((e) => e.hif_suspect),
+      no_trip: n((e) => (e.flags || []).includes("no_trip")),
+      median_trip_delay_ms: median,
+      customers_covered: null,
+      est_customer_hours_per_wso_day: null,
+    },
+    by_fault_type: tally((e) => e.fault_type),
+    by_wso_class:  tally((e) => e.wso_class),
+    by_priority:   tally((e) => e.priority),
+    by_shots:      tally((e) => e.total_shots),
+    by_flag:       byFlag,
+    by_faulted_phase: tally((e) => e.faulted_phase),
+    by_day:        tally((e) => (e.timestamp || "").slice(0, 10)),
+    zones: {},
+    devices: Object.values(devices).sort((a, b) => b.events - a.events),
+  };
 }
 
 /* Fill a <select> without destroying it.
@@ -2023,15 +2099,17 @@ function applyStation(name) {
     const what = scopeFeeder
       || (station === ALL_STATIONS
           ? `all ${Object.keys(BY_STATION).length - 1} substations` : station);
-    if (scopeFeeder && !feederAgg(scopeFeeder)) {
-      /* Say it rather than quietly showing the wider numbers under a feeder
-         heading. The usual cause is topology.csv naming a feeder differently
-         from the COMTRADE headers. */
+    if (AGG.derived) {
+      /* Counted in the page because the run carries no aggregate at this
+         scope. Everything here is a count of the events in scope and is
+         correct; the customer-hour figures need the registry maths that lives
+         in Python, so they read as unavailable until the folder is analysed
+         again. */
       note.textContent =
-        `No per-feeder totals under "${scopeFeeder}", so the tiles and the fault, `
-        + `priority and reclose-shot charts still cover the wider scope while the `
-        + `table, clearing time and one-line cover this feeder. The feeder column `
-        + `in topology.csv does not match the feeder name in the event headers.`;
+        `Showing ${what}. This run has no saved totals at that scope, so the `
+        + `counts below are taken from the events themselves and the `
+        + `customer-hour figures are unavailable — re-run the analysis on this `
+        + `folder to restore them.`;
     } else {
       note.textContent = scopeFeeder || station !== ALL_STATIONS
         ? `Every tile, chart and table below covers ${what} only — pick a feeder `
@@ -2475,9 +2553,14 @@ function olDrawDiagram() {
   $("onelineNote").textContent =
     `${L.devices.length} device${L.devices.length === 1 ? "" : "s"}, ` +
     `${L.ties.length} tie${L.ties.length === 1 ? "" : "s"} · ${fmt(shown)} record(s) in view`;
+  /* The scope bar is hidden when a run carries no per-station totals, so any
+     caveat has to appear here too — this footer is always visible. */
   $("onelineFoot").textContent =
     (scopeFeeder
       ? `Every tile and chart above covers ${olFeeder} only. `
+        + (AGG.derived
+           ? "Counted from the events in this run, which saved no per-feeder "
+             + "totals — the customer-hour figures need a re-analysis. " : "")
       : `Showing ${olFeeder}; the tiles and charts above cover the wider scope `
         + `until you pick a feeder here. `)
     + "Mainline connectivity only — no laterals, fuses or impedance. Click a "

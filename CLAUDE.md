@@ -520,6 +520,15 @@ Three things that are easy to miss:
   changes but reclose shots doesn't" means — go and check the names.
   `topology.validate()` reports it as `feeder_name_mismatch` so it surfaces at
   the CSV rather than in a browser.
+- **Never hand a panel a WIDER aggregate than its own caption.** A run written
+  before per-feeder aggregates existed has nothing at that scope, and falling
+  back to the fleet's put 207-event numbers under a heading naming one feeder.
+  The give-away is a *split* page: clearing time, the unit grid and the table
+  narrow (they count events), while reclose shots, fault mix, the triage
+  backlog and the tiles do not (they read an aggregate). `deriveAggregate()`
+  counts the scoped events in the page instead. It does counts only —
+  customer-hours need registry maths that belongs in Python, so it reports them
+  as unavailable and marks itself `derived: true` so the page can say why.
 - **A scope pick is never refused.** `applyFeederScope` used to drop any feeder
   with no aggregate under that name, so the control looked stuck. The pick now
   always applies; the tiles fall back to the wider aggregate and the note names
