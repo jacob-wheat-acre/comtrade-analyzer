@@ -39,8 +39,8 @@ from typing import Optional
 
 from . import __version__
 from .fleet_analyze import (
-    DEFAULT_FEEDER_Z, _find_cfg, aggregate, analyze_one, load_config,
-    load_network, print_summary, validate, write_csv,
+    ALL_STATIONS, DEFAULT_FEEDER_Z, _find_cfg, aggregate_by_station,
+    analyze_one, load_config, load_network, print_summary, validate, write_csv,
 )
 from .incidents import clock_suspects, group_events
 from .fleet_dashboard import render as render_dashboard
@@ -206,7 +206,9 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
     window = getattr(args, "incident_window_s", None) or 2.0
     incidents = group_events(events, net, window)
     skew = clock_suspects(events, net, window)
-    aggregates = aggregate(events, registry, args.epss_tiers, args.response_hours, net)
+    by_station = aggregate_by_station(events, registry, args.epss_tiers,
+                                      args.response_hours, net)
+    aggregates = by_station[ALL_STATIONS]
     truth = os.path.join(os.path.dirname(events_dir.rstrip("/")), "fleet_truth.json")
     validation = validate(events, truth) if os.path.isfile(truth) else None
 
@@ -221,6 +223,7 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
                       for n in net.nodes()] if net is not None else []),
         "incidents": incidents,
         "clock_suspects": skew,
+        "aggregates_by_station": by_station,
         "tool_version": __version__,
         "settings": {
             "feeder_z_ohm_per_mile": args.feeder_z,

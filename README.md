@@ -253,6 +253,18 @@ python main.py reclose_event.cfg \
 
 ---
 
+### Scoping to one substation
+
+A **Showing** dropdown at the top of the review scopes the entire page — tiles,
+hero, charts, event table and one-line — to a single substation, or to all of
+them. Each substation's aggregate is computed alongside the fleet's, so the
+scoped numbers are the same arithmetic, not a second implementation of it.
+
+The other filters (zone, fault, priority, EPSS class, search) narrow the event
+table and the one-line but leave the headline tiles on the substation scope.
+
+---
+
 ## Event Triage (Priority System)
 
 Every event is automatically assigned a review priority:

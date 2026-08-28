@@ -483,6 +483,33 @@ A device can back up more than one feeder; laid out as children, the second and
 later ties fall to their own rows like any other sibling, which is what keeps
 their labels apart.
 
+## Scoping the review to one substation
+
+`#fStation` scopes the whole review page. The tiles, hero and charts render a
+**precomputed aggregate**, so scoping them means handing them a different one —
+`fleet_analyze.aggregate_by_station()` runs `aggregate()` once per substation
+plus once for the fleet, and the page swaps `AGG`/`TOT`. Re-deriving those sums
+in JavaScript is how the page and `fleet_events.csv` would start disagreeing.
+
+`applyStation()` must redraw **every** panel that reads `AGG` — hero, units,
+tiles, charts — plus the table and the one-line, which read `currentRows()`. A
+scope that moves the table and leaves the tiles showing the fleet is worse than
+no scope: the numbers are simply wrong. A test lists the calls.
+
+Three things that are easy to miss:
+
+- `renderUnits()` read `EV` directly, so the one-cell-per-event grid ignored the
+  scope. It filters now.
+- The one-line offers **only that substation's feeders** when scoped, or it
+  sits on a feeder with nothing in view and reads as empty.
+- Following a tie to another substation calls `applyStation()`, and that must
+  set `$("fStation").value` — the dropdown was left naming the old substation
+  while every panel below it showed the new one.
+
+Other filters (zone, fault, priority, class, search) still drive only the table
+and the one-line. Making the tiles follow those too needs per-combination
+aggregates or client-side arithmetic; neither is worth it yet.
+
 ## Dashboard cross-filtering
 
 Chart marks carry `data-click` and are registered through `clickRef()` /

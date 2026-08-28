@@ -2563,3 +2563,83 @@ class TestTheFeederPageWalksTheSystem:
         body = body[:body.index("/* Devices.")]
         assert 'olDevice("recloser", x, y, RAD, col, col' in body
         assert "var(--surface)" not in body, "the tie box is still hollow"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 26. Scoping the whole review to one substation
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestScopingByStation:
+    """
+    The tiles, hero and charts render a precomputed aggregate, so scoping them
+    to a substation means handing them a DIFFERENT aggregate — not re-deriving
+    the arithmetic in JavaScript, which is how the page and the CSV would start
+    disagreeing.
+    """
+
+    ROOT = Path(__file__).parent
+    TPL = ROOT / "comtrade_analyzer" / "dashboard_template.html"
+
+    def _events(self):
+        f = self.ROOT / "demo" / "analysis" / "fleet_analysis.json"
+        if not f.is_file():
+            pytest.skip("run fleet_analyze on demo/ first")
+        return json.loads(f.read_text(encoding="utf-8"))
+
+    def test_one_aggregate_per_substation_plus_the_whole_fleet(self):
+        d = self._events()
+        by = d.get("aggregates_by_station")
+        assert by, "analysis carries no per-station aggregates"
+        from comtrade_analyzer.fleet_analyze import ALL_STATIONS
+        assert ALL_STATIONS in by
+        stations = {e["station"] for e in d["events"] if e.get("station")}
+        assert set(by) == stations | {ALL_STATIONS}
+
+    def test_the_substations_account_for_the_whole_fleet(self):
+        """A scoped view that loses events is worse than no scoping."""
+        from comtrade_analyzer.fleet_analyze import ALL_STATIONS
+        by = self._events()["aggregates_by_station"]
+        parts = sum(v["totals"]["events"] for k, v in by.items() if k != ALL_STATIONS)
+        assert parts == by[ALL_STATIONS]["totals"]["events"]
+
+    def test_a_scoped_aggregate_is_smaller_than_the_fleet(self):
+        from comtrade_analyzer.fleet_analyze import ALL_STATIONS
+        by = self._events()["aggregates_by_station"]
+        whole = by[ALL_STATIONS]["totals"]
+        for name, agg in by.items():
+            if name == ALL_STATIONS:
+                continue
+            assert 0 < agg["totals"]["events"] < whole["events"]
+            assert agg["totals"]["priority_1"] <= whole["priority_1"]
+
+    def test_batch_produces_them_too(self):
+        """batch.py is the entry point the docs recommend."""
+        src = (self.ROOT / "comtrade_analyzer" / "batch.py").read_text(encoding="utf-8")
+        assert "aggregate_by_station" in src
+        assert '"aggregates_by_station"' in src
+
+    def test_every_panel_that_reads_the_aggregate_is_redrawn(self):
+        """
+        Scoping that moves the table but leaves the tiles showing the fleet is
+        worse than not scoping at all — the numbers would simply be wrong.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        body = tpl[tpl.index("function applyStation("):]
+        body = body[:body.index("\nfunction renderScope")]
+        for fn in ("renderHero", "renderUnits", "renderTiles", "renderCharts",
+                   "renderBody", "renderOneline"):
+            assert fn in body, f"applyStation does not redraw {fn}"
+
+    def test_the_table_and_the_one_line_follow_the_scope(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "if (station !== ALL_STATIONS && e.station !== station) return false;" in tpl
+        # and the unit grid, which read the whole fleet
+        assert "station === ALL_STATIONS\n    ? EV : EV.filter((e) => e.station === station)" in tpl
+
+    def test_the_control_shows_what_happened(self):
+        """
+        Following a tie out of the scoped substation changes the scope. The
+        dropdown was left reading the old one while the page showed the new.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "if (sel && sel.value !== station) sel.value = station;" in tpl

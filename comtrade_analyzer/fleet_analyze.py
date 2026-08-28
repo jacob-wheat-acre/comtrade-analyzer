@@ -521,6 +521,27 @@ def _counter(events, key) -> dict:
     return dict(Counter(e[key] for e in events if e.get(key) is not None))
 
 
+ALL_STATIONS = "All substations"
+
+
+def aggregate_by_station(events: list, registry: dict, epss_tiers: list,
+                         response_hours: float, net=None) -> dict:
+    """
+    One aggregate per substation, plus one for the whole fleet.
+
+    The dashboard's tiles, hero and charts render an aggregate; scoping them to
+    a substation means handing them a different one, not re-deriving the maths
+    in JavaScript. Run `aggregate` over the full set first — it is what stamps
+    zone and customers_affected onto each event.
+    """
+    out = {ALL_STATIONS: aggregate(events, registry, epss_tiers,
+                                   response_hours, net)}
+    for station in sorted({e.get("station", "") for e in events if e.get("station")}):
+        subset = [e for e in events if e.get("station") == station]
+        out[station] = aggregate(subset, registry, epss_tiers, response_hours, net)
+    return out
+
+
 def aggregate(events: list, registry: dict, epss_tiers: list,
               response_hours: float, net=None) -> dict:
     """
@@ -1026,8 +1047,9 @@ def main():
     events.sort(key=lambda e: (e.get("timestamp") or "", e["event_id"]))
     incidents = group_events(events, net, args.incident_window_s)
     skew = clock_suspects(events, net, args.incident_window_s)
-    aggregates = aggregate(events, registry, args.epss_tiers,
-                           args.response_hours, net)
+    by_station = aggregate_by_station(events, registry, args.epss_tiers,
+                                      args.response_hours, net)
+    aggregates = by_station[ALL_STATIONS]
     validation = validate(events, truth_path) if truth_path else None
 
     result = {
@@ -1043,6 +1065,7 @@ def main():
                       for n in net.nodes()] if net is not None else []),
         "incidents": incidents,
         "clock_suspects": skew,
+        "aggregates_by_station": by_station,
         "settings": {
             "feeder_z_ohm_per_mile": args.feeder_z,
             "epss_tiers": args.epss_tiers,

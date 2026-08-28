@@ -437,6 +437,13 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 
   <div id="pageReview">
 
+  <div class="scopebar" id="scopeBar" hidden>
+    <label class="fld"><span>Showing</span>
+      <select id="fStation"></select>
+    </label>
+    <span class="scope-note" id="scopeNote"></span>
+  </div>
+
   <section class="hero">
     <div>
       <div class="eyebrow">EPSS exposure</div>
@@ -594,6 +601,14 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
    still shows but has no listeners reads as a dead control. Settle it once. */
 [hidden] { display: none !important; }
 
+/* ---- Scope bar ------------------------------------------------------------ */
+.scopebar { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+            margin: 0 0 16px; padding: 10px 14px; background: var(--surface);
+            border: 1px solid var(--hairline); border-radius: var(--r-md);
+            box-shadow: var(--shadow); }
+.scopebar select { font-size: 13px; font-weight: 600; }
+.scope-note { font-size: 11.5px; color: var(--muted); padding-bottom: 5px; }
+
 /* ---- Page switcher -------------------------------------------------------- */
 .pagenav { display: inline-flex; gap: 2px; margin: 0 0 18px; padding: 3px;
            background: var(--surface-2); border: 1px solid var(--hairline);
@@ -663,9 +678,24 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 const FLEET = __FLEET_DATA__;
 
 const EV   = FLEET.events || [];
-const AGG  = FLEET.aggregates || {};
-const TOT  = AGG.totals || {};
 const SET  = FLEET.settings || {};
+
+/* One aggregate per substation, computed in Python. Scoping the page to a
+   substation hands the tiles, hero and charts a different aggregate rather
+   than re-deriving the arithmetic here — two implementations of the same sums
+   is how the numbers on this page would start disagreeing with the CSV. */
+const BY_STATION = FLEET.aggregates_by_station || {};
+const ALL_STATIONS = "All substations";
+let station = ALL_STATIONS;
+
+let AGG = FLEET.aggregates || {};
+let TOT = AGG.totals || {};
+
+function setStation(name) {
+  station = BY_STATION[name] ? name : ALL_STATIONS;
+  AGG = BY_STATION[station] || FLEET.aggregates || {};
+  TOT = AGG.totals || {};
+}
 
 /* ---------------------------------------------------------------------------
    Vocabulary — every class and priority carries a label and an icon, so no
@@ -1008,7 +1038,11 @@ function renderHero() {
 
 function renderUnits() {
   const grid = $("unitGrid");
-  const sorted = EV.slice().sort((a, b) =>
+  /* One cell per event IN SCOPE — the grid read the whole fleet and so did not
+     move when the page was scoped to a substation. */
+  const scoped = station === ALL_STATIONS
+    ? EV : EV.filter((e) => e.station === station);
+  const sorted = scoped.slice().sort((a, b) =>
     (CLASS_META[a.wso_class].order - CLASS_META[b.wso_class].order) ||
     String(a.timestamp).localeCompare(String(b.timestamp)));
   const n = sorted.length;
@@ -1334,6 +1368,7 @@ function currentRows() {
         p = $("fPrio").value, c = $("fClass").value,
         q = $("fSearch").value.trim().toLowerCase();
   return EV.filter((e) => {
+    if (station !== ALL_STATIONS && e.station !== station) return false;
     if (drill && !drill.test(e)) return false;
     if (z && e.zone !== z) return false;
     if (f && e.fault_type !== f) return false;
@@ -1895,6 +1930,42 @@ function focusEvent(id) {
   tr.focus({ preventScroll: true });
 }
 
+/* Every panel that reads AGG has to be redrawn, plus the table and the
+   one-line, which read currentRows(). */
+function applyStation(name) {
+  setStation(name);
+  /* The control has to show what happened. Following a tie out of the scoped
+     substation changes the scope, and the dropdown was left reading the old
+     one while every panel below it showed the new. */
+  const sel = $("fStation");
+  if (sel && sel.value !== station) sel.value = station;
+  expanded = null;
+  renderHero(); renderUnits(); renderTiles(); renderCharts();
+  renderBody(); renderOneline();
+  const note = $("scopeNote");
+  if (note) {
+    note.textContent = station === ALL_STATIONS
+      ? `Everything below covers all ${Object.keys(BY_STATION).length - 1} substations.`
+      : `Everything below — tiles, charts, table and one-line — covers ${station} only.`;
+  }
+}
+
+function renderScope() {
+  const bar = $("scopeBar");
+  const names = Object.keys(BY_STATION);
+  if (!bar || names.length < 3) return;   /* nothing to scope to */
+  bar.hidden = false;
+  const rest = names.filter((n) => n !== ALL_STATIONS).sort();
+  const sel = $("fStation");
+  sel.innerHTML = [ALL_STATIONS, ...rest].map((n) => {
+    const c = (BY_STATION[n].totals || {}).events || 0;
+    return `<option value="${esc(n)}"${n === station ? " selected" : ""}>` +
+           `${esc(n)} \u00b7 ${fmt(c)} event${c === 1 ? "" : "s"}</option>`;
+  }).join("");
+  sel.onchange = () => applyStation(sel.value);
+  applyStation(station);
+}
+
 function renderFilters() {
   const opts = (el, values, labeller) => {
     $(el).innerHTML = `<option value="">All</option>` +
@@ -2256,15 +2327,22 @@ function renderOneline() {
   if (!TOPO.length) { card.hidden = true; return; }
   card.hidden = false;
 
-  if (!olFeeder || !OL_FEEDERS.includes(olFeeder)) {
-    /* Open on the feeder carrying the most events — the one worth looking at. */
+  /* Scoped to a substation, only its feeders are on offer — otherwise the
+     diagram sits on a feeder with nothing in view and reads as empty. */
+  const groups = olStations().filter((st) =>
+    station === ALL_STATIONS || st.station === station);
+  const choices = groups.flatMap((st) => st.feeders);
+
+  if (!olFeeder || !choices.includes(olFeeder)) {
+    /* Open on the feeder carrying the most events in scope. */
     const tally = new Map();
     EV.forEach((e) => tally.set(e.feeder, (tally.get(e.feeder) || 0) + 1));
-    olFeeder = OL_FEEDERS.slice().sort((a, b) => (tally.get(b) || 0) - (tally.get(a) || 0))[0];
+    olFeeder = choices.slice().sort((a, b) => (tally.get(b) || 0) - (tally.get(a) || 0))[0];
+    olIncident = null;
   }
 
   const sel = $("olFeeder");
-  sel.innerHTML = olStations().map((st) =>
+  sel.innerHTML = groups.map((st) =>
     `<optgroup label="${esc(st.station)}">` +
     st.feeders.map((f) =>
       `<option value="${esc(f)}"${f === olFeeder ? " selected" : ""}>${esc(f)}</option>`
@@ -2580,8 +2658,16 @@ function olJumpThroughTie(tieId, fromFeeder) {
     renderFeederPage();
     olRevealTie(far.feeder, tieId);
   } else {
+    /* The far feeder may be at another substation, which the page is scoped
+       away from — widen the scope rather than switching to a feeder that is
+       not on offer. */
+    const st = olStationOf(far.feeder);
     olFeeder = far.feeder;
     olIncident = null;
+    if (station !== ALL_STATIONS && st && st !== station) {
+      applyStation(st);
+      olFeeder = far.feeder;
+    }
     renderOneline();
     olRevealTie(null, tieId);
   }
@@ -2703,8 +2789,8 @@ function renderFeederPage() {
    --------------------------------------------------------------------------- */
 function init() {
   renderHeader(); renderHero(); renderUnits(); renderTiles(); renderCharts();
-  renderFilters(); renderHead(); renderBody(); renderOneline(); renderDataQuality();
-  renderClasses(); renderRules(); renderFooter(); renderFeedback();
+  renderFilters(); renderHead(); renderBody(); renderOneline(); renderScope();
+  renderDataQuality(); renderClasses(); renderRules(); renderFooter(); renderFeedback();
 
   if (TOPO.length) {
     $("pageNav").hidden = false;
