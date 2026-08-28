@@ -2515,8 +2515,9 @@ class TestTheDeviceSymbols:
         tpl = self.TPL.read_text(encoding="utf-8")
         assert "two open switches in series" in tpl
         assert "depth: depth + 1" in tpl, "ties are not placed one column out"
-        # real devices are walked first so the mainline keeps the parent's row
-        assert "ties last" in tpl
+        # a tie is laid out with the other children, not as a stub on its device
+        assert "all.push({ tie: item" not in tpl
+        assert "isTie: true" in tpl
 
     def test_a_tie_is_never_counted_as_a_mainline_device(self):
         """`devices` and `ties` are separate, or the counts and the record
@@ -3063,6 +3064,10 @@ class TestPmhCabinets:
     def test_the_page_draws_the_ways_inside_an_enclosure(self):
         tpl = (self.ROOT / "comtrade_analyzer" / "dashboard_template.html").read_text(
             encoding="utf-8")
-        assert 'pmh: "P"' in tpl
-        assert "PMH enclosures, behind their ways" in tpl
-        assert "p.n.cabinet" in tpl, "ways are not grouped into an enclosure"
+        # a way position is a switch and is lettered S; the enclosure around
+        # the ways is what says it is a cabinet
+        assert 'pmh: "S"' in tpl
+        assert "PMH enclosures" in tpl
+        assert "p.cluster" in tpl, "ways are not grouped into an enclosure"
+        # and they sit in a block on an internal bus, not strung along the line
+        assert "Internal bus" in tpl

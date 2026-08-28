@@ -345,11 +345,27 @@ clear faults, so it leaves no oscillography and is *not* in `RECORDING_KINDS` �
 `SWITCHING_KINDS` and in the registry, because it carries customers and it
 matters for N-1. A cabinet with events would be a bug, and a test says so.
 
-On the drawing each way is a box with a **P** labelled by its way number, and
-the enclosure is a dashed box drawn behind them carrying the cabinet name and
-model. The enclosure is drawn *before* the ties and devices so it sits behind
-them — and it is inside the region the "every conductor is the same grey" test
-scans, so that test stops at the enclosure comment rather than at the ties.
+**A cabinet takes ONE position on the feeder and its ways cluster inside it** —
+a tight two-column block on a short internal bus, which is how this gear is
+drawn on a print. `olLayout` gathers a cabinet's ways into one placement with a
+`slot` number, and lays out the children of *all* the ways together so they do
+not land on each other. `PT` is the position map: every draw call reads it, and
+cluster slots are the only thing that shifts a node off `X(depth), Y(row)`.
+
+- A way position is a **switch**, lettered `S`. The enclosure is what says it is
+  a cabinet, so the boxes do not repeat it.
+- A way's number sits **outside its row** — above the top row, below the bottom
+  — because the internal bus runs between them.
+- The enclosure caption goes **above** the box. Below, it lands in the next row
+  on top of the following device.
+- A way inside a cluster draws no incoming conductor; the internal bus feeds it.
+- `H` must allow for `clusterDrop`: a cabinet's lower row, the enclosure and its
+  labels all extend below the row the cabinet sits on.
+
+**A text-vs-text sweep is not enough here.** It passed while the enclosure
+caption sat on top of a tie's box. Check labels against device glyphs too, and
+exclude the count badges — badge text sits inside its own pill by design, so
+including them reports every device as a collision.
 
 ## Relay settings
 

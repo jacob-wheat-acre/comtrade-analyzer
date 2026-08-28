@@ -2462,7 +2462,9 @@ function olSubtree(id) {
    R recloser, S sectionalizer, P automatic PMH cabinet. That is the drawing
    convention in use at the utility this is for — no circles, and a tie is a
    recloser like any other, so it gets a box with an R too. */
-const OL_LETTER = { breaker: "B", recloser: "R", sectionalizer: "S", pmh: "P" };
+/* A PMH way position is a switch, and is lettered S. The enclosure around the
+   ways is what says it is a cabinet, so the boxes do not need to repeat it. */
+const OL_LETTER = { breaker: "B", recloser: "R", sectionalizer: "S", pmh: "S" };
 
 function olDevice(kind, x, y, r, fill, stroke, sw = 1.8) {
   /* Every box is filled with its state colour and carries a black letter.
@@ -2504,13 +2506,38 @@ function olLayout(feeder) {
   const placed = [];
   const ties = [];
   let row = 0;
+
+  /* A cabinet occupies ONE position on the feeder and its ways cluster inside
+     it — that is how a PMH is drawn: a tight block on a short internal bus,
+     not a string of devices spread along the line. So every way of a cabinet
+     shares its depth and row and carries a slot number, and the children of
+     ALL the ways are laid out together so they do not land on each other. */
   const walk = (n, depth) => {
-    placed.push({ n, depth, row });
-    /* Real devices first so the mainline keeps the parent's row; ties last,
-       because the tie is where the line ends, not where it continues. */
-    const kids = olKids(n.node_id).filter(inFeeder);
-    const mine = grafted.get(nkey(n.node_id)) || [];
-    const all = [...kids.map((k) => ({ dev: k })), ...mine.map((t) => ({ tie: t }))];
+    const cluster = [n];
+    if (n.kind === "pmh" && n.cabinet) {
+      const collect = (m) => olKids(m.node_id).forEach((k) => {
+        if (k.kind === "pmh" && k.cabinet === n.cabinet && inFeeder(k)) {
+          cluster.push(k);
+          collect(k);
+        }
+      });
+      collect(n);
+    }
+    cluster.forEach((c, i) => placed.push({
+      n: c, depth, row, cluster: cluster.length > 1 ? n.cabinet : "", slot: i,
+      ways: cluster.length,
+    }));
+
+    const inCluster = new Set(cluster.map((c) => nkey(c.node_id)));
+    const all = [];
+    cluster.forEach((c) => {
+      olKids(c.node_id).forEach((k) => {
+        if (!inCluster.has(nkey(k.node_id)) && inFeeder(k)) all.push({ dev: k });
+      });
+      (grafted.get(nkey(c.node_id)) || []).forEach((t) =>
+        all.push({ tie: t, anchor: c }));
+    });
+
     all.forEach((item, i) => {
       if (i > 0) row += 1;
       if (item.dev) {
@@ -2518,12 +2545,13 @@ function olLayout(feeder) {
       } else {
         const rec = { n: item.tie.tie, depth: depth + 1, row,
                       other: item.tie.other, isTie: true,
-                      anchorId: n.node_id };
+                      anchorId: item.anchor.node_id };
         placed.push(rec);
         ties.push(rec);
       }
     });
   };
+
   heads.forEach((h, i) => { if (i > 0) row += 1; walk(h, 1); });
 
   const at = new Map(placed.map((p) => [nkey(p.n.node_id), p]));
@@ -2678,12 +2706,19 @@ function olDraw(host, feeder, opts = {}) {
   const W = widthOf(host, 620);
   /* padR clears the last device's centred name; padT clears the count badge
      that now sits above every device. */
-  const padL = 82, padR = 86, padT = 52;
+  const padL = 82, padR = 86, padT = 66;
   const colW = Math.max(140, (W - padL - padR) / Math.max(1, L.depth - 1 || 1));
+  const RAD = 15;
+  const WDX = 2.5 * RAD, WDY = 2.4 * RAD;
+  /* A cabinet's ways drop below its own row, and the enclosure and its label
+     drop below them again — the canvas has to allow for the deepest one. */
+  const clusterDrop = Math.max(0, ...L.placed.map(
+    (p) => (p.cluster ? Math.floor(p.slot / 2) : 0))) * WDY;
+
   /* A tie carries a second line naming the feeder it backfeeds from, so every
      row has to clear two. */
   const rowH = 96;
-  const H = padT + (L.rows - 1) * rowH + 80;
+  const H = padT + (L.rows - 1) * rowH + 80 + (clusterDrop ? clusterDrop + 40 : 0);
 
   /* A tie's label is far wider than the box it sits under. Centre it, but pull
      it inside the canvas at the ends rather than letting it run off. */
@@ -2696,7 +2731,19 @@ function olDraw(host, feeder, opts = {}) {
   };
   const X = (d) => padL + (d - 1) * colW;
   const Y = (r) => padT + r * rowH;
-  const RAD = 15;
+  /* Where a node actually sits. Cabinet ways are offset into a two-column
+     block from the cabinet's own position, so the whole enclosure takes one
+     slot on the feeder instead of one per way. */
+  const PT = new Map();
+  L.placed.forEach((p) => {
+    let x = X(p.depth), y = Y(p.row);
+    if (p.cluster) {
+      x += (p.slot % 2) * WDX;
+      y += Math.floor(p.slot / 2) * WDY;
+    }
+    PT.set(nkey(p.n.node_id), { x, y });
+  });
+  const at = (id) => PT.get(nkey(id)) || { x: 0, y: 0 };
 
   let g = "";
 
@@ -2712,42 +2759,67 @@ function olDraw(host, feeder, opts = {}) {
        the anchor it was actually laid out under. */
     const par = L.at.get(nkey(p.n.parent))
              || (p.isTie ? L.at.get(nkey(p.anchorId)) : null);
-    const x2 = X(p.depth), y2 = Y(p.row);
-    const x1 = par ? X(par.depth) : busX, y1 = par ? Y(par.row) : y2;
+    const me = at(p.n.node_id);
+    const x2 = me.x, y2 = me.y;
+    const pp = par ? at(par.n.node_id) : null;
+    const x1 = pp ? pp.x : busX, y1 = pp ? pp.y : y2;
     const mid = par ? x1 + (x2 - x1) / 2 : x1 + 22;
     /* One grey for every conductor. Line is line — what is open is said by
-       the device on it, not by the wire leading to it. */
+       the device on it, not by the wire leading to it. A way inside a cabinet
+       is fed by the enclosure's own bus, drawn with the enclosure. */
+    if (p.cluster && p.slot > 0) return;
     g += `<path d="M${x1} ${y1} H${mid} V${y2} H${x2}" fill="none" ` +
          `stroke="var(--baseline)" stroke-width="2"/>`;
   });
 
-  /* PMH enclosures, behind their ways. Each way is its own switch — any one
-     of them can be the one that opens — so the cabinet is drawn as the box
-     around them rather than as a device in its own right. */
+  /* PMH enclosures. The ways sit in a two-column block joined by a short
+     internal bus — the way this gear is drawn on a print, rather than strung
+     out along the feeder as separate devices. */
   const cabs = new Map();
-  L.devices.forEach((p) => {
-    if (!p.n.cabinet) return;
-    if (!cabs.has(p.n.cabinet)) cabs.set(p.n.cabinet, []);
-    cabs.get(p.n.cabinet).push(p);
+  L.placed.forEach((p) => {
+    if (!p.cluster) return;
+    if (!cabs.has(p.cluster)) cabs.set(p.cluster, []);
+    cabs.get(p.cluster).push(p);
   });
   cabs.forEach((ways, name) => {
-    const xs = ways.map((p) => X(p.depth)), ys = ways.map((p) => Y(p.row));
-    const pad = RAD + 13;
-    const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad;
-    const y0 = Math.min(...ys) - pad - 6, y1 = Math.max(...ys) + pad + 8;
-    g += `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" rx="8" ` +
-         `fill="var(--surface-2)" stroke="var(--baseline)" stroke-width="1.5" ` +
-         `stroke-dasharray="5 4"/>`;
+    const pts = ways.map((p) => at(p.n.node_id));
+    const xs = pts.map((q) => q.x), ys = pts.map((q) => q.y);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    const y0 = Math.min(...ys), y1 = Math.max(...ys);
+
+    /* Internal bus: a bar between the columns, and a stub from every way to
+       it. With a single row the bar simply joins the two ways. */
+    const yBus = y1 > y0 ? (y0 + y1) / 2 : y0;
+    g += `<path d="M${x0} ${yBus} H${x1}" fill="none" stroke="var(--ink-2)" ` +
+         `stroke-width="2"/>`;
+    pts.forEach((q) => {
+      if (q.y !== yBus) {
+        g += `<path d="M${q.x} ${q.y} V${yBus}" fill="none" ` +
+             `stroke="var(--ink-2)" stroke-width="2"/>`;
+      }
+    });
+
+    /* Wide enough to contain the way numbers, which sit outside their boxes. */
+    const pad = RAD + 24;
+    g += `<rect x="${x0 - pad}" y="${y0 - pad}" width="${x1 - x0 + 2 * pad}" ` +
+         `height="${y1 - y0 + 2 * pad}" rx="7" fill="none" ` +
+         `stroke="var(--baseline)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
     const model = (ways.find((p) => p.n.model) || { n: {} }).n.model || "";
-    g += `<text x="${x0 + 8}" y="${y0 - 5}" class="ol-tie-label">` +
-         `${esc(name)}${model ? " \u00b7 " + esc(model) : ""}</text>`;
+    const cap = `${name}${model ? " \u00b7 " + model : ""}`;
+    /* Caption ABOVE the enclosure. Below it lands in the next row, where the
+       following device sits — and a text-vs-text sweep does not catch a label
+       sitting on a box. */
+    const cp = clamped((x0 + x1) / 2, cap);
+    g += `<text x="${cp.x}" y="${y0 - pad - 7}" text-anchor="${cp.anchor}" ` +
+         `class="ol-tie-name" fill="var(--ink-2)">${esc(cap)}</text>`;
   });
 
   /* Ties, drawn where the layout put them: at the end of the line, one column
      out from the device they hang off. Same box as any other recloser, green
      because it is normally open, with the run to it dashed until it closes. */
   L.ties.forEach((t) => {
-    const x = X(t.depth), y = Y(t.row);
+    const tp = at(t.n.node_id);
+    const x = tp.x, y = tp.y;
     const far = t.other;
     const farTxt = far ? `${far.node_id} \u00b7 ${far.feeder}` : t.n.tie_to;
     const closed = backfeed.has(nkey(t.n.node_id))
@@ -2795,7 +2867,8 @@ function olDraw(host, feeder, opts = {}) {
     const evs = byDev.get(nkey(id)) || [];
     const worst = evs.length ? Math.min(...evs.map((e) => e.priority)) : null;
     const meta = worst ? PRIO_META[worst] : null;
-    const x = X(p.depth), y = Y(p.row);
+    const dp = at(id);
+    const x = dp.x, y = dp.y;
 
     const dim = (incDevices.size && !incDevices.has(nkey(id)))
              || (cont && !dark.has(nkey(id)));
@@ -2855,11 +2928,19 @@ function olDraw(host, feeder, opts = {}) {
        reading the page rather than looking at it. */
     /* Inside an enclosure the cabinet name is already on the box, so a way
        is labelled by its way number alone. */
-    const label = p.n.cabinet && id.startsWith(p.n.cabinet)
+    const label = p.cluster && id.startsWith(p.n.cabinet)
       ? id.slice(p.n.cabinet.length).replace(/^[_-]/, "") || id
       : id;
+    /* A way's number goes on the outside of its row — above the top row,
+       below the bottom one. The enclosure's internal bus runs between them,
+       and a label on the wrong side lands on it. Ways carry no event badge, so
+       there is nothing above them to clash with. */
     const nm = clamped(x, label);
-    g += `<text x="${nm.x}" y="${y + RAD + 17}" text-anchor="${nm.anchor}" ` +
+    const wayTop = p.cluster && Math.floor(p.slot / 2) === 0;
+    const labelY = p.cluster ? (wayTop ? y - RAD - 6 : y + RAD + 14)
+                             : y + RAD + 17;
+    g += `<text x="${nm.x}" y="${labelY}" ` +
+         `text-anchor="${nm.anchor}" ` +
          `class="ol-name"${open ? ` fill="${col}" style="font-weight:700"` : ""}>` +
          `${esc(label)}</text>`;
     g += `</g>`;
