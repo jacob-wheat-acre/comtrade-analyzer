@@ -461,8 +461,9 @@ every draw clobbered the last one's caption and the review page's own count
 came out as an em dash.
 
 **Two pages, one drawer.** `#pageNav` switches between the fleet review and
-`#pageFeeders`, which shows **one substation at a time** (`#feedersSub`,
-`olStation`) — thirteen feeders at once is a scroll, not a view. The list comes
+`#pageFeeders`, which follows the same substation scope as the review
+(`#feedersSub`) — thirteen feeders at once is a scroll, not a view, though
+"All substations" still offers it. The list comes
 from `olStations()`, read off the tree, so a substation added to `topology.csv`
 appears with no code change.
 
@@ -505,6 +506,12 @@ Three things that are easy to miss:
 - Following a tie to another substation calls `applyStation()`, and that must
   set `$("fStation").value` — the dropdown was left naming the old substation
   while every panel below it showed the new one.
+
+**There is ONE substation scope**, the `station` variable, shared by both pages.
+`#fStation` on the review and `#feedersSub` on the feeders page both call
+`applyStation()`, and it syncs both controls. They used to hold separate state,
+so picking a substation on the feeders page left the review's tiles on whatever
+they were — two controls for the same idea, quietly disagreeing.
 
 Other filters (zone, fault, priority, class, search) still drive only the table
 and the one-line. Making the tiles follow those too needs per-combination

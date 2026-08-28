@@ -1937,11 +1937,14 @@ function applyStation(name) {
   /* The control has to show what happened. Following a tie out of the scoped
      substation changes the scope, and the dropdown was left reading the old
      one while every panel below it showed the new. */
-  const sel = $("fStation");
-  if (sel && sel.value !== station) sel.value = station;
+  ["fStation", "feedersSub"].forEach((id) => {
+    const sel = $(id);
+    if (sel && sel.value !== station) sel.value = station;
+  });
   expanded = null;
   renderHero(); renderUnits(); renderTiles(); renderCharts();
   renderBody(); renderOneline();
+  if (olPage === "feeders") renderFeederPage();
   const note = $("scopeNote");
   if (note) {
     note.textContent = station === ALL_STATIONS
@@ -2626,7 +2629,9 @@ function olDrawIncidents() {
    system look like — and it does not fit in a dropdown.
    --------------------------------------------------------------------------- */
 let olPage = "review";
-let olStation = null;     /* substation shown on the all-feeders page */
+/* There is ONE substation scope, `station`, shared by both pages. The feeders
+   page used to keep its own, so picking a substation there left the review's
+   tiles on whatever they were — two controls for the same idea, disagreeing. */
 
 /* Which substation a feeder belongs to, from the tree. */
 function olStationOf(feeder) {
@@ -2654,8 +2659,8 @@ function olJumpThroughTie(tieId, fromFeeder) {
 
   if (olPage === "feeders") {
     const st = olStationOf(far.feeder);
-    if (st && st !== olStation) { olStation = st; }
-    renderFeederPage();
+    if (st && station !== ALL_STATIONS && st !== station) applyStation(st);
+    else renderFeederPage();
     olRevealTie(far.feeder, tieId);
   } else {
     /* The far feeder may be at another substation, which the page is scoped
@@ -2721,21 +2726,20 @@ function renderFeederPage() {
   const rows = currentRows();
   const byDev = olEventsByDevice(rows);
 
-  if (!olStation || !all.some((s) => s.station === olStation)) {
-    /* Open on the substation carrying the most events. */
-    const tally = new Map();
-    EV.forEach((e) => tally.set(e.station, (tally.get(e.station) || 0) + 1));
-    olStation = all.slice().sort((a, b) =>
-      (tally.get(b.station) || 0) - (tally.get(a.station) || 0))[0].station;
-  }
-  const stations = all.filter((s) => s.station === olStation);
+  const stations = station === ALL_STATIONS
+    ? all : all.filter((s) => s.station === station);
 
   const sel = $("feedersSub");
-  sel.innerHTML = all.map((s) =>
-    `<option value="${esc(s.station)}"${s.station === olStation ? " selected" : ""}>` +
-    `${esc(s.station)} \u00b7 ${s.feeders.length} feeder${s.feeders.length === 1 ? "" : "s"}` +
-    `</option>`).join("");
-  sel.onchange = () => { olStation = sel.value; renderFeederPage(); };
+  const total = all.reduce((a, s) => a + s.feeders.length, 0);
+  sel.innerHTML =
+    `<option value="${esc(ALL_STATIONS)}"${station === ALL_STATIONS ? " selected" : ""}>` +
+    `${esc(ALL_STATIONS)} \u00b7 ${total} feeders</option>` +
+    all.map((s) =>
+      `<option value="${esc(s.station)}"${s.station === station ? " selected" : ""}>` +
+      `${esc(s.station)} \u00b7 ${s.feeders.length} feeder${s.feeders.length === 1 ? "" : "s"}` +
+      `</option>`).join("");
+  /* Same scope the review uses, so the two controls cannot disagree. */
+  sel.onchange = () => applyStation(sel.value);
   $("feedersLegend").innerHTML = $("olLegend").innerHTML;
 
   const incByFeeder = new Map();

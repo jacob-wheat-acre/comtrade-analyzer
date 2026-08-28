@@ -2643,3 +2643,27 @@ class TestScopingByStation:
         """
         tpl = self.TPL.read_text(encoding="utf-8")
         assert "if (sel && sel.value !== station) sel.value = station;" in tpl
+
+    def test_there_is_one_substation_scope_not_one_per_page(self):
+        """
+        The feeders page kept its own substation, so picking one there left the
+        review's tiles on whatever they were — two controls for the same idea,
+        disagreeing with each other.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "olStation" not in tpl, "the feeders page still keeps its own scope"
+        # both controls drive, and are driven by, the same one
+        assert 'sel.onchange = () => applyStation(sel.value);' in tpl
+        assert '["fStation", "feedersSub"].forEach((id) => {' in tpl
+
+    def test_the_feeders_page_can_still_show_every_substation(self):
+        """Scoping must not remove the survey view it was added to."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "station === ALL_STATIONS\n    ? all : all.filter" in tpl
+        assert 'value="${esc(ALL_STATIONS)}"' in tpl
+
+    def test_changing_the_scope_redraws_the_feeders_page_when_it_is_showing(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        body = tpl[tpl.index("function applyStation("):]
+        body = body[:body.index("\nfunction renderScope")]
+        assert 'if (olPage === "feeders") renderFeederPage();' in body
