@@ -138,9 +138,18 @@ _PMH = [
 ]
 
 
+# Cabinets are numbered in their own band so a way never collides with a
+# trunk, branch or tie number on the same circuit.
+_PMH_OFFSET = 70
+
+
 def _pmh_id(feeder: str) -> str:
-    """The enclosure's name. Its ways are this plus a way number."""
-    return f"PMH_{_abbr(feeder)}{_feeder_number(feeder)}"
+    """
+    The enclosure's grid reference: PMH_121-270. Same convention as a
+    recloser, since it is the same kind of thing — gear at a location. Its
+    ways are this plus a way number.
+    """
+    return f"PMH_{_grid_num(_feeder_number(feeder), _PMH_OFFSET)}"
 
 
 def _pmh_way_id(feeder: str, way: int) -> str:
@@ -222,15 +231,20 @@ def _breaker_id(feeder: str) -> str:
     return f"BKR_{_abbr(feeder)}{_feeder_number(feeder)}"
 
 
-def _grid_id(circuit: str, offset: int) -> str:
+def _grid_num(circuit: str, offset: int) -> str:
     """
-    A recloser is named for its six-digit grid reference: RCL_330-101.
+    A device's six-digit grid reference, formatted 123-456.
 
     Derived from the circuit number so the numbers are stable and unique
     without a global counter — insert a device and nothing else renumbers.
     """
     n = int(circuit) * 100 + offset
-    return f"RCL_{n // 1000:03d}-{n % 1000:03d}"
+    return f"{n // 1000:03d}-{n % 1000:03d}"
+
+
+def _grid_id(circuit: str, offset: int) -> str:
+    """A recloser carries its grid reference: RCL_330-101."""
+    return f"RCL_{_grid_num(circuit, offset)}"
 
 
 def _split_customers(total: int, n_sections: int) -> List[int]:

@@ -15,11 +15,11 @@ feeder,node_id,kind,parent,tie_to,cabinet,model
 Maple Ave Sub,BUS_MAPLE,source,,,,
 Maple Ave Feeder,BKR_FEED1234,breaker,BUS_MAPLE,,,
 Maple Ave Feeder,RCL_123-456,recloser,BKR_FEED1234,,,
-Maple Ave Feeder,PMH_MAPLE01_W1,pmh,RCL_123-456,,PMH_MAPLE01,PMH-11
-Maple Ave Feeder,PMH_MAPLE01_W2,pmh,PMH_MAPLE01_W1,,PMH_MAPLE01,PMH-11
-Maple Ave Feeder,PMH_MAPLE01_W3,pmh,PMH_MAPLE01_W1,,PMH_MAPLE01,PMH-11
-Maple Ave Feeder,RCL_123-789,recloser,PMH_MAPLE01_W2,,,
+Maple Ave Feeder,PMH_123-970_W1,pmh,RCL_123-456,,PMH_123-970,PMH-11
+Maple Ave Feeder,PMH_123-970_W2,pmh,PMH_123-970_W1,,PMH_123-970,PMH-11
+Maple Ave Feeder,PMH_123-970_W3,pmh,PMH_123-970_W1,,PMH_123-970,PMH-11
+Maple Ave Feeder,RCL_123-789,recloser,PMH_123-970_W2,,,
 Pine Ridge Sub,BUS_PINE,source,,,,
 Pine Ridge Feeder,BKR_FEED5678,breaker,BUS_PINE,,,
 Pine Ridge Feeder,RCL_555-001,recloser,BKR_FEED5678,,,
-Maple Ave Feeder,RCL_123-950,tie,PMH_MAPLE01_W3,RCL_555-001,,
+Maple Ave Feeder,RCL_123-950,tie,PMH_123-970_W3,RCL_555-001,,

@@ -296,10 +296,12 @@ The utility's convention, and the generator follows it:
 
 - **Breakers**: `BKR_<four letters of the feeder name><circuit>` — Valley Oak
   3301 → `BKR_VALL3301`. `_breaker_id()`.
-- **Reclosers**: `RCL_###-###`, a six-digit grid reference. `_grid_id()` derives
-  it from `circuit * 100 + offset`, so numbers are unique and stable without a
-  global counter — inserting a device renumbers nothing else. Offsets: 0 head,
-  1..n trunk, 20+ branch limbs, 50+ ties.
+- **Reclosers**: `RCL_###-###`, a six-digit grid reference. `_grid_num()`
+  derives it from `circuit * 100 + offset`, so numbers are unique and stable
+  without a global counter — inserting a device renumbers nothing else.
+  Offsets: 0 head, 1..n trunk, 20+ branch limbs, 50+ ties, 70 cabinets.
+- **PMH cabinets**: `PMH_###-###` on the same grid convention — it is the same
+  kind of thing, gear at a location. Its ways are that plus `_W1`, `_W2`, …
 - **Ties are reclosers** and are named like them. There is no `TIE_` prefix.
 
 **A feeder sits on the bus it is named for.** Sawmill Grade, Summit Tap,
@@ -354,6 +356,9 @@ cluster slots are the only thing that shifts a node off `X(depth), Y(row)`.
 
 - A way position is a **switch**, lettered `S`. The enclosure is what says it is
   a cabinet, so the boxes do not repeat it.
+- The enclosure caption is the **cabinet name only**. The model is what the way
+  count is validated against, not something anyone reads off a drawing — the
+  ways are right there to be counted.
 - A way's number sits **outside its row** — above the top row, below the bottom
   — because the internal bus runs between them.
 - The enclosure caption goes **above** the box. Below, it lands in the next row

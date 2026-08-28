@@ -328,8 +328,9 @@ Maple Ave Feeder,   TIE_MAPLE_PINE,tie,      RCL_123-456,   RCL_555-001
 - **feeder** — the feeder this node is on; the *station* name on a `source` row
 - **node_id** — matches `device_id` in `devices.csv` for anything that records
   events. Breakers are `BKR_VALL3301` (feeder abbreviation plus circuit),
-  reclosers are `RCL_123-456` (six-digit grid reference); a tie is a recloser
-  and is named like one
+  reclosers are `RCL_123-456` (six-digit grid reference), PMH cabinets
+  `PMH_123-456` with ways `PMH_123-456_W1`; a tie is a recloser and is named
+  like one
 - **kind** — `source`, `breaker`, `recloser`, `sectionalizer`, `pmh` or `tie`
 - **cabinet**, **model** — on `pmh` rows. A PMH is **one row per switch way**,
   not one per cabinet: any way can be the one that opens. Give every way of an

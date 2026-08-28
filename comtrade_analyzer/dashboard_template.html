@@ -2803,8 +2803,10 @@ function olDraw(host, feeder, opts = {}) {
     g += `<rect x="${x0 - pad}" y="${y0 - pad}" width="${x1 - x0 + 2 * pad}" ` +
          `height="${y1 - y0 + 2 * pad}" rx="7" fill="none" ` +
          `stroke="var(--baseline)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
-    const model = (ways.find((p) => p.n.model) || { n: {} }).n.model || "";
-    const cap = `${name}${model ? " \u00b7 " + model : ""}`;
+    /* The cabinet's name only. Its model is what the way count is checked
+       against, not something anyone reads off the drawing — the ways are
+       right there to be counted. */
+    const cap = name;
     /* Caption ABOVE the enclosure. Below it lands in the next row, where the
        following device sits — and a text-vs-text sweep does not catch a label
        sitting on a box. */
