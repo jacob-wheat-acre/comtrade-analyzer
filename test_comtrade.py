@@ -2718,3 +2718,30 @@ class TestScopingByStation:
                  if re.search(r"\bEV\.(filter|slice|forEach)\b", ln)]
         assert not stray, ("these count the whole fleet regardless of scope:\n  "
                            + "\n  ".join(stray))
+
+    def test_a_feeder_pick_is_never_silently_refused(self):
+        """
+        The option values come from topology.csv; the per-feeder aggregates are
+        keyed by the feeder on each event, out of the COMTRADE header. Gating
+        the pick on those two spellings matching meant any disagreement made
+        the dropdown look stuck, with nothing said about why.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "scopeFeeder = feeder || ALL_FEEDERS;" in tpl
+        assert "BY_FEEDER[feeder] ? feeder : ALL_FEEDERS" not in tpl
+        # and it says so rather than showing wider numbers under a feeder heading
+        assert "no per-feeder totals were found under that name" in tpl
+
+    def test_a_select_is_not_rebuilt_inside_its_own_change_handler(self):
+        """
+        These handlers re-render the page, and the render rebuilds the select
+        that fired the event. Replacing its options mid-event invalidates the
+        browser's selection index and the value snaps back to the first option.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "function fillSelect(" in tpl
+        for sel in ('$("olFeeder")', '$("feedersSub")', '$("fStation")'):
+            i = tpl.index(f"const sel = {sel};")
+            block = tpl[i:i + 700]
+            assert "sel.innerHTML =" not in block, f"{sel} still rebuilt directly"
+            assert "fillSelect(sel," in block

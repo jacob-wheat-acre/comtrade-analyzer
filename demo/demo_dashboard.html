@@ -704,9 +704,29 @@ function setStation(name) {
   if (scopeFeeder && olStationOf(scopeFeeder) !== station && station !== ALL_STATIONS) {
     scopeFeeder = ALL_FEEDERS;
   }
+  /* Narrowest aggregate available. With no per-feeder aggregate under this
+     name the tiles fall back to the wider scope rather than the selection
+     being refused — the table and the one-line still narrow, and the note
+     below says which. */
   AGG = (scopeFeeder && BY_FEEDER[scopeFeeder])
      || BY_STATION[station] || FLEET.aggregates || {};
   TOT = AGG.totals || {};
+}
+
+/* Fill a <select> without destroying it.
+
+   These handlers re-render the page, and the render rebuilds the very select
+   that fired the event. Replacing a select's options from inside its own
+   change handler invalidates the browser's selection index and the displayed
+   value snaps back to the first option — the control looks stuck. Rebuild only
+   when the option list actually changed; otherwise just move the value. */
+function fillSelect(sel, html, value) {
+  if (!sel) return;
+  if (sel.dataset.sig !== html) {
+    sel.innerHTML = html;
+    sel.dataset.sig = html;
+  }
+  if (sel.value !== value) sel.value = value;
 }
 
 /* The events the scope covers. Panels that count rows themselves rather than
@@ -719,9 +739,16 @@ function scopedEvents() {
   return EV;
 }
 
-/* Called when the one-line's feeder dropdown moves. */
+/* Called when the one-line's feeder dropdown moves.
+
+   The pick is ALWAYS honoured. It used to be dropped unless BY_FEEDER had an
+   aggregate under exactly that name — and the option values come from
+   topology.csv while BY_FEEDER is keyed by the feeder on each event, out of
+   the COMTRADE header. Any disagreement between those two spellings and every
+   selection silently snapped back to "All feeders", with no way to tell why.
+   The demo has them agreeing, so it never showed. */
 function applyFeederScope(feeder) {
-  scopeFeeder = BY_FEEDER[feeder] ? feeder : ALL_FEEDERS;
+  scopeFeeder = feeder || ALL_FEEDERS;
   if (scopeFeeder) olFeeder = scopeFeeder;
   applyStation(station);
 }
@@ -1973,6 +2000,8 @@ function applyStation(name) {
     const sel = $(id);
     if (sel && sel.value !== station) sel.value = station;
   });
+  const fsel = $("olFeeder");
+  if (fsel && fsel.value !== scopeFeeder) fsel.value = scopeFeeder;
   expanded = null;
   renderHero(); renderUnits(); renderTiles(); renderCharts();
   renderBody(); renderOneline();
@@ -1982,11 +2011,21 @@ function applyStation(name) {
     const what = scopeFeeder
       || (station === ALL_STATIONS
           ? `all ${Object.keys(BY_STATION).length - 1} substations` : station);
-    note.textContent = scopeFeeder || station !== ALL_STATIONS
-      ? `Every tile, chart and table below covers ${what} only — pick a feeder `
-        + `in the one-line to narrow it further.`
-      : `Everything below covers ${what}. Pick one, or a feeder in the one-line, `
-        + `to scope the whole page.`;
+    if (scopeFeeder && !BY_FEEDER[scopeFeeder]) {
+      /* Say it rather than quietly showing the wider numbers under a feeder
+         heading. The usual cause is topology.csv naming a feeder differently
+         from the COMTRADE headers. */
+      note.textContent =
+        `Table and one-line cover ${scopeFeeder}; the tiles and charts cover the `
+        + `wider scope — no per-feeder totals were found under that name. Check `
+        + `the feeder column in topology.csv matches the event headers.`;
+    } else {
+      note.textContent = scopeFeeder || station !== ALL_STATIONS
+        ? `Every tile, chart and table below covers ${what} only — pick a feeder `
+          + `in the one-line to narrow it further.`
+        : `Everything below covers ${what}. Pick one, or a feeder in the one-line, `
+          + `to scope the whole page.`;
+    }
   }
 }
 
@@ -1997,11 +2036,11 @@ function renderScope() {
   bar.hidden = false;
   const rest = names.filter((n) => n !== ALL_STATIONS).sort();
   const sel = $("fStation");
-  sel.innerHTML = [ALL_STATIONS, ...rest].map((n) => {
+  fillSelect(sel, [ALL_STATIONS, ...rest].map((n) => {
     const c = (BY_STATION[n].totals || {}).events || 0;
-    return `<option value="${esc(n)}"${n === station ? " selected" : ""}>` +
-           `${esc(n)} \u00b7 ${fmt(c)} event${c === 1 ? "" : "s"}</option>`;
-  }).join("");
+    return `<option value="${esc(n)}">${esc(n)} \u00b7 ` +
+           `${fmt(c)} event${c === 1 ? "" : "s"}</option>`;
+  }).join(""), station);
   sel.onchange = () => applyStation(sel.value);
   applyStation(station);
 }
@@ -2387,14 +2426,13 @@ function renderOneline() {
      "reclose shots per event" or "clearing time" says anything. */
   const sel = $("olFeeder");
   const wider = station === ALL_STATIONS ? "the whole fleet" : station;
-  sel.innerHTML =
-    `<option value=""${scopeFeeder ? "" : " selected"}>` +
-    `All feeders \u00b7 ${esc(wider)}</option>` +
+  fillSelect(sel,
+    `<option value="">All feeders \u00b7 ${esc(wider)}</option>` +
     groups.map((st) =>
       `<optgroup label="${esc(st.station)}">` +
-      st.feeders.map((f) =>
-        `<option value="${esc(f)}"${f === scopeFeeder ? " selected" : ""}>${esc(f)}</option>`
-      ).join("") + `</optgroup>`).join("");
+      st.feeders.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join("") +
+      `</optgroup>`).join(""),
+    scopeFeeder);
   sel.onchange = () => { olIncident = null; applyFeederScope(sel.value); };
 
   const legendBox = (letter, fill, stroke, sw, ink) =>
@@ -2780,13 +2818,12 @@ function renderFeederPage() {
 
   const sel = $("feedersSub");
   const total = all.reduce((a, s) => a + s.feeders.length, 0);
-  sel.innerHTML =
-    `<option value="${esc(ALL_STATIONS)}"${station === ALL_STATIONS ? " selected" : ""}>` +
-    `${esc(ALL_STATIONS)} \u00b7 ${total} feeders</option>` +
+  fillSelect(sel,
+    `<option value="${esc(ALL_STATIONS)}">${esc(ALL_STATIONS)} \u00b7 ${total} feeders</option>` +
     all.map((s) =>
-      `<option value="${esc(s.station)}"${s.station === station ? " selected" : ""}>` +
-      `${esc(s.station)} \u00b7 ${s.feeders.length} feeder${s.feeders.length === 1 ? "" : "s"}` +
-      `</option>`).join("");
+      `<option value="${esc(s.station)}">${esc(s.station)} \u00b7 ` +
+      `${s.feeders.length} feeder${s.feeders.length === 1 ? "" : "s"}</option>`).join(""),
+    station);
   /* Same scope the review uses, so the two controls cannot disagree. */
   sel.onchange = () => applyStation(sel.value);
   $("feedersLegend").innerHTML = $("olLegend").innerHTML;
