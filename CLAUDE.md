@@ -367,13 +367,23 @@ machine.
   follows the current filter, which is why `olRefresh()` hangs off every filter
   change and off `applyDrill`.
 - **State is never colour alone.** Red/green is the worst pair for
-  deuteranopia: an open device draws hollow with a heavy ring, a tie's blade
-  stands clear of its second terminal, and both carry the word OPEN or CLOSED.
+  deuteranopia: an open device draws hollow with a heavy border, an open tie's
+  run to the far feeder is dashed and goes solid once closed, and both spell
+  out OPEN or CLOSED.
 - With no incident selected the drawing is the **normal state** of the system —
   every protective device closed, every tie open. Selecting an incident opens
   the device that locked out and closes the tie that restored the section.
-- A breaker is square, a recloser round, a sectionalizer a diamond, so the
-  symbol carries the kind without reading the legend.
+- **Every device is a box, and the letter inside says what it is** — `B`
+  breaker, `R` recloser, `S` sectionalizer (`OL_LETTER` / `olDevice`). No
+  circles anywhere, including the incident-role rings: this is the drawing
+  convention in use at the utility, and a circle would read as a different
+  *kind* of thing rather than the same thing annotated.
+- **A tie is a recloser**, so it draws as a box with an `R` like any other,
+  green because it is normally open. It carries its own name and `OPEN`/
+  `CLOSED`, because a tie is a device somebody can operate.
+- The letter is black on a filled box — both the light and dark state reds are
+  light enough to carry it — and follows `--ink` on a hollow (open) box, or it
+  would vanish against a dark background.
 - A tie is drawn as the **open-switch symbol** — two terminals with the blade
   hinged at the first and standing clear of the second — and carries **its own
   name and state**, because a tie *is* a device: a motor-operated switch

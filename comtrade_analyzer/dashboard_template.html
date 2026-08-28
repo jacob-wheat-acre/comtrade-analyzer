@@ -634,6 +634,7 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 .ol-key { display: inline-flex; align-items: center; gap: 4px; }
 .ol-name { font-family: var(--mono); font-size: 10px; fill: var(--ink-2); }
 .ol-badge { font-size: 10px; font-weight: 700; font-family: var(--sans); }
+.ol-letter { font-family: var(--sans); font-size: 13px; font-weight: 700; }
 .ol-tie-name { font-family: var(--mono); font-size: 9.5px; font-weight: 600; }
 .ol-tie-label { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
 .ol-dim { opacity: .28; }
@@ -2132,15 +2133,21 @@ const OL_FEEDERS = [...new Set(TOPO.filter((n) => n.kind !== "source" && n.feede
 let olFeeder = null;      /* selected feeder name */
 let olIncident = null;    /* selected incident id, or null */
 
-/* Device glyphs. A breaker is drawn square and a recloser round, the way they
-   are on a real one-line, so the symbol carries the kind without a legend. */
-function olGlyph(kind, x, y, r, fill, stroke, sw = 1.5) {
-  const common = `fill="${fill}" stroke="${stroke}" stroke-width="${sw}"`;
-  if (kind === "breaker")
-    return `<rect x="${x - r}" y="${y - r}" width="${2 * r}" height="${2 * r}" rx="2" ${common}/>`;
-  if (kind === "sectionalizer")
-    return `<polygon points="${x},${y - r} ${x + r},${y} ${x},${y + r} ${x - r},${y}" ${common}/>`;
-  return `<circle cx="${x}" cy="${y}" r="${r}" ${common}/>`;
+/* Every device is a box; the letter inside says what it is. B breaker,
+   R recloser, S sectionalizer. That is the drawing convention in use at the
+   utility this is for — no circles, and a tie is a recloser like any other, so
+   it gets a box with an R too. */
+const OL_LETTER = { breaker: "B", recloser: "R", sectionalizer: "S" };
+
+function olDevice(kind, x, y, r, fill, stroke, sw = 1.8, open = false) {
+  /* The letter is black on a filled box — both the light and dark state reds
+     are light enough to carry it. On a hollow (open) box it follows the theme's
+     ink, or it would vanish against a dark background. */
+  const ink = open ? "var(--ink)" : "#111";
+  return `<rect x="${x - r}" y="${y - r}" width="${2 * r}" height="${2 * r}" rx="2.5" ` +
+         `fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>` +
+         `<text x="${x}" y="${y + 4.4}" text-anchor="middle" class="ol-letter" ` +
+         `fill="${ink}">${OL_LETTER[kind] || "R"}</text>`;
 }
 
 /* Lay the feeder out left to right: substation at the left, mainline running
@@ -2223,31 +2230,19 @@ function renderOneline() {
     `<option value="${esc(f)}"${f === olFeeder ? " selected" : ""}>${esc(f)}</option>`).join("");
   sel.onchange = () => { olFeeder = sel.value; olIncident = null; renderOneline(); };
 
+  const legendBox = (letter, fill, stroke, sw, ink) =>
+    `<svg width="20" height="16" viewBox="0 0 20 16" aria-hidden="true">
+       <rect x="3" y="1.5" width="13" height="13" rx="2.5" fill="${fill}"
+             stroke="${stroke}" stroke-width="${sw}"/>
+       <text x="9.5" y="12.4" text-anchor="middle" class="ol-letter"
+             style="font-size:10px" fill="${ink}">${letter}</text></svg>`;
+
   $("olLegend").innerHTML =
-    `<span class="ol-key">
-       <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
-         <circle cx="6" cy="6" r="4.6" fill="var(--sw-closed)" stroke="var(--sw-closed)"
-                 stroke-width="1.8"/></svg>closed</span>`
-  + `<span class="ol-key">
-       <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
-         <circle cx="6" cy="6" r="4.6" fill="var(--surface)" stroke="var(--sw-open)"
-                 stroke-width="3"/></svg>open</span>`
-  + `<span class="ol-key">
-       <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
-         <rect x="1.6" y="1.6" width="8.8" height="8.8" rx="1.5" fill="none"
-               stroke="var(--ink-2)" stroke-width="1.6"/></svg>breaker</span>`
-  + `<span class="ol-key">
-       <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
-         <circle cx="6" cy="6" r="4.4" fill="none" stroke="var(--ink-2)"
-                 stroke-width="1.6"/></svg>recloser</span>`
-  + `<span class="ol-key">
-       <svg width="36" height="14" viewBox="0 0 36 14" aria-hidden="true">
-         <path d="M0 9 H4" stroke="var(--sw-open)" stroke-width="2" stroke-dasharray="3 3"/>
-         <path d="M4 9 L15 2" stroke="var(--sw-open)" stroke-width="2" stroke-linecap="round"/>
-         <circle cx="4" cy="9" r="2.6" fill="var(--surface)" stroke="var(--sw-open)" stroke-width="2"/>
-         <circle cx="22" cy="9" r="2.6" fill="var(--surface)" stroke="var(--sw-open)" stroke-width="2"/>
-         <path d="M24.6 9 H36" stroke="var(--sw-open)" stroke-width="2" stroke-dasharray="3 3"/>
-       </svg>tie (normally open)</span>`
+    `<span class="ol-key">${legendBox("B", "var(--sw-closed)", "var(--sw-closed)", 1.8, "#111")}breaker</span>`
+  + `<span class="ol-key">${legendBox("R", "var(--sw-closed)", "var(--sw-closed)", 1.8, "#111")}recloser</span>`
+  + `<span class="ol-key" style="color:var(--sw-closed)">closed</span>`
+  + `<span class="ol-key">${legendBox("R", "var(--surface)", "var(--sw-open)", 2.4, "var(--ink)")}</span>`
+  + `<span class="ol-key" style="color:var(--sw-open)">open \u00b7 ties are reclosers, normally open</span>`
   + `<span class="ol-key" style="color:var(--muted)">badge = records \u00b7 ${
        Object.values(PRIO_META).map((m) => `<b style="color:var(${m.v})">${m.icon}</b>`).join(" ")
      } priority</span>`;
@@ -2311,47 +2306,37 @@ function olDraw(host, feeder, opts = {}) {
          `stroke="var(--baseline)" stroke-width="2"/>`;
   });
 
-  /* Normally-open ties. Green because they are open — the utility's
-     convention, red closed / green open — and drawn as the open-switch symbol
-     with the tie's own name on it, because a tie IS a device: a motor-operated
-     switch somebody can close. Colour never carries it alone; the blade stands
-     visibly clear of the second terminal. */
+  /* Ties. At this utility a tie is a recloser, so it is drawn exactly like
+     one: a box with an R, green because it is normally open. State is not left
+     to colour — the run to the far feeder is dashed while the tie is open and
+     solid once it has closed, and the label spells it out. */
   L.ties.forEach((t) => {
-    /* Drop starts below the device's own name, not beside it — the two labels
-       were landing on each other. */
     const x = X(t.anchor.depth), y = Y(t.anchor.row) + RAD + 20;
-    const yEnd = y + 16 + (t.slot || 0) * tieDrop;
+    const yBox = y + 18 + (t.slot || 0) * tieDrop;
     const far = t.other;
     const farTxt = far ? `${far.node_id} \u00b7 ${far.feeder}` : t.tie.tie_to;
 
-    /* A tie the selected incident closed to restore the section is no longer
-       open, and is drawn closed. */
-    const closed = inc && inc.restored && far
-                   && incDevices.has(nkey(far.node_id));
+    /* A tie the selected incident closed to restore the section is not open. */
+    const closed = inc && inc.restored && far && incDevices.has(nkey(far.node_id));
     const col = `var(${closed ? "--sw-closed" : "--sw-open"})`;
-    const wide = incDevices.size && !closed && !(far && incDevices.has(nkey(far.node_id)))
-                 ? 1.6 : 2.1;
+    const R2 = RAD - 2;
 
-    const flip = x + 40 + farTxt.length * 5.6 > W - 4;
+    const flip = x + 44 + farTxt.length * 5.6 > W - 4;
     const d = flip ? -1 : 1;
-    const t2 = x + d * 20;
 
-    g += `<path d="M${x} ${y} V${yEnd}" fill="none" stroke="${col}" ` +
-         `stroke-width="${wide}" stroke-dasharray="4 3"/>`;
-    /* Blade, hinged at the first terminal. Standing open unless closed. */
-    const bx = closed ? t2 : x + d * 13, by = closed ? yEnd : yEnd - 9;
-    g += `<path d="M${x} ${yEnd} L${bx} ${by}" fill="none" stroke="${col}" ` +
-         `stroke-width="${wide}" stroke-linecap="round"/>`;
-    [x, t2].forEach((cx) => {
-      g += `<circle cx="${cx}" cy="${yEnd}" r="2.8" fill="var(--surface)" ` +
-           `stroke="${col}" stroke-width="${wide}"/>`;
-    });
-    g += `<path d="M${t2} ${yEnd} H${t2 + d * 7}" fill="none" stroke="${col}" ` +
-         `stroke-width="${wide}" stroke-dasharray="3 3"/>`;
-    g += `<text x="${t2 + d * 11}" y="${yEnd - 4}" class="ol-tie-name" ` +
-         `fill="${col}" text-anchor="${flip ? "end" : "start"}">` +
+    /* Drop from the device it hangs off, then the run onward to the far feeder. */
+    g += `<path d="M${x} ${y} V${yBox - R2}" fill="none" stroke="${col}" ` +
+         `stroke-width="2" ${closed ? "" : 'stroke-dasharray="4 3"'}/>`;
+    g += `<path d="M${x + d * R2} ${yBox} H${x + d * (R2 + 12)}" fill="none" ` +
+         `stroke="${col}" stroke-width="2" ${closed ? "" : 'stroke-dasharray="4 3"'}/>`;
+    g += olDevice("recloser", x, yBox, R2,
+                  closed ? col : "var(--surface)", col, closed ? 1.8 : 3, !closed);
+
+    const tx = x + d * (R2 + 16);
+    g += `<text x="${tx}" y="${yBox - 5}" class="ol-tie-name" fill="${col}" ` +
+         `text-anchor="${flip ? "end" : "start"}">` +
          `${esc(t.tie.node_id)} \u00b7 ${closed ? "CLOSED" : "OPEN"}</text>`;
-    g += `<text x="${t2 + d * 11}" y="${yEnd + 10}" class="ol-tie-label" ` +
+    g += `<text x="${tx}" y="${yBox + 11}" class="ol-tie-label" ` +
          `text-anchor="${flip ? "end" : "start"}">\u2192 ${esc(farTxt)}</text>`;
   });
 
@@ -2374,13 +2359,16 @@ function olDraw(host, feeder, opts = {}) {
     const open = inc && inc.locked_out && clearing;
     const col = `var(${open ? "--sw-open" : "--sw-closed"})`;
 
+    /* Incident role, drawn as a box around the box — everything on this
+       diagram is square, so a circle here would read as a different kind of
+       thing rather than an annotation on the same one. */
+    const rr = RAD + 6;
+    const ringBox = (stroke, sw, dash) =>
+      `<rect x="${x - rr}" y="${y - rr}" width="${2 * rr}" height="${2 * rr}" rx="4" ` +
+      `fill="none" stroke="${stroke}" stroke-width="${sw}"${dash}/>`;
     let ring = "";
-    if (clearing)
-      ring = `<circle cx="${x}" cy="${y}" r="${RAD + 6}" fill="none" ` +
-             `stroke="var(--chrome-2)" stroke-width="2.5"/>`;
-    else if (held)
-      ring = `<circle cx="${x}" cy="${y}" r="${RAD + 6}" fill="none" ` +
-             `stroke="var(--ink-2)" stroke-width="1.8" stroke-dasharray="3 3"/>`;
+    if (clearing) ring = ringBox("var(--chrome-2)", 2.5, "");
+    else if (held) ring = ringBox("var(--ink-2)", 1.8, ' stroke-dasharray="3 3"');
 
     const tip = tipRef(tipHTML(esc(id), [
       `${esc(p.n.kind)} \u00b7 ${esc(p.n.feeder)}`,
@@ -2401,8 +2389,8 @@ function olDraw(host, feeder, opts = {}) {
          `aria-label="${esc(id)}, ${open ? "open" : "closed"}, ` +
          `${evs.length} record${evs.length === 1 ? "" : "s"}">`;
     g += ring;
-    g += olGlyph(p.n.kind, x, y, RAD,
-                 open ? "var(--surface)" : col, col, open ? 3 : 1.8);
+    g += olDevice(p.n.kind, x, y, RAD,
+                  open ? "var(--surface)" : col, col, open ? 3 : 1.8, open);
     /* Record count and its priority, above the device so the state colour
        underneath stays unambiguous. */
     if (evs.length) {

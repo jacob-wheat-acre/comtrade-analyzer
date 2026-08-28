@@ -332,8 +332,9 @@ comtrade-topology topology.csv --quiet          # validation findings only
 
 With a topology present, `comtrade-batch` also draws a **feeder one-line** in
 the dashboard: devices placed by the tree, normally-open ties dashed across to
-their neighbours, each device coloured by switch state — **red closed, green open**, the standard
-utility convention — with a badge above it carrying its record count and worst
+their neighbours, every device drawn as a box with its type lettered inside (**B** breaker,
+**R** recloser — a tie is a recloser too) and coloured by switch state —
+**red closed, green open**, the standard utility convention — with a badge above it carrying its record count and worst
 priority, and an incident list beside it. With nothing selected the diagram is
 the normal state of the system: every protective device closed, every tie open. Picking an incident rings the device that
 cleared it, marks the ones that saw it and held, and filters the table to those

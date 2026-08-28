@@ -2258,23 +2258,45 @@ class TestBranchingFeeders:
             assert got == want, f"{feeder}: {got} devices, expected {want}"
 
 
-class TestTheTieSymbol:
+class TestTheDeviceSymbols:
     """
-    A tie was a small circle on a dashed stub, which read as just another
-    device. It is now the open-switch symbol a one-line actually uses: two
-    terminals with the blade standing clear of the second.
+    The utility's drawing convention: every device is a box, and the letter
+    inside says what it is — B breaker, R recloser. No circles. A tie is a
+    recloser like any other, so it is a box with an R too.
     """
 
     TPL = Path(__file__).parent / "comtrade_analyzer" / "dashboard_template.html"
 
-    def test_the_tie_is_drawn_as_an_open_switch(self):
+    def _drawer(self):
         tpl = self.TPL.read_text(encoding="utf-8")
-        assert "Blade, hinged at the first terminal" in tpl
+        return tpl[tpl.index("function olDraw("):tpl.index("\nfunction olRefresh")]
+
+    def test_every_device_is_a_box_with_a_letter(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert '{ breaker: "B", recloser: "R"' in tpl
+        assert "function olDevice(" in tpl
+        assert "<rect" in tpl[tpl.index("function olDevice("):][:600]
+
+    def test_nothing_on_the_diagram_is_drawn_as_a_circle(self):
+        """The old breaker-square / recloser-circle split is gone."""
+        body = self._drawer()
+        assert "<circle" not in body, "a device is still drawn as a circle"
+
+    def test_a_tie_is_drawn_as_a_recloser(self):
+        body = self._drawer()
+        i = body.index("/* Ties.")
+        j = body.index("/* Devices.")
+        assert 'olDevice("recloser"' in body[i:j]
+
+    def test_the_tie_is_named_and_carries_its_state(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
         assert "ol-tie-name" in tpl, "the tie is not drawn as a named device"
+        assert '"CLOSED" : "OPEN"' in tpl or '"OPEN"' in tpl
 
     def test_the_legend_draws_the_symbols_rather_than_naming_them(self):
         tpl = self.TPL.read_text(encoding="utf-8")
         assert tpl.count('class="ol-key"') >= 3
+        assert "legendBox" in tpl, "the legend no longer draws the lettered box"
 
     def test_the_drawer_never_writes_a_fixed_caption(self):
         """
@@ -2298,9 +2320,9 @@ class TestTheTieSymbol:
         assert "--sw-closed" in tpl and "--sw-open" in tpl
         assert "red closed, green open" in tpl
         # a tie is open in its normal state, so it draws with the open token
-        i = tpl.index("Normally-open ties")
+        i = tpl.index("/* Ties.")
         j = tpl.index("/* Devices.", i)
-        assert '--sw-open' in tpl[i:j]
+        assert "--sw-open" in tpl[i:j]
 
     def test_state_is_never_carried_by_colour_alone(self):
         """
@@ -2310,8 +2332,9 @@ class TestTheTieSymbol:
         """
         tpl = self.TPL.read_text(encoding="utf-8")
         assert '"OPEN" : "CLOSED"' in tpl or '"CLOSED"' in tpl
-        assert "Blade, hinged at the first terminal" in tpl
+        # an open device is hollow; an open tie's run to the far feeder is dashed
         assert 'open ? "var(--surface)" : col' in tpl
+        assert 'closed ? "" : \'stroke-dasharray="4 3"\'' in tpl
 
     def test_priority_moved_off_the_device_fill(self):
         """
@@ -2324,9 +2347,9 @@ class TestTheTieSymbol:
         body = tpl[i:j]
         assert "ol-badge" in body
         assert "meta.icon" in body
-        # the glyph fill must be the state colour, not the priority colour
-        assert 'olGlyph(p.n.kind, x, y, RAD,' in body
-        assert "meta.v}\")" not in body.split("olGlyph")[1].split(";")[0]
+        # the box fill must be the state colour, not the priority colour
+        assert "olDevice(p.n.kind, x, y, RAD," in body
+        assert "meta.v" not in body.split("olDevice(p.n.kind")[1].split(";")[0]
 
     def test_ties_stagger_by_row_not_by_device(self):
         """
