@@ -1,6 +1,6 @@
-device_id,station,feeder,zone,risk_tier,customers_served
-RCL_123-456,Maple Ave Sub,Maple Ave Feeder,ZONE_A,2,1240
-RCL_789-012,Maple Ave Sub,Maple Ave Feeder Tie,ZONE_A,2,860
-BKR_FEED1234,Oak St Sub,Oak St Feeder,ZONE_A,3,890
-RCL_555-001,Pine Ridge Sub,Pine Ridge Feeder,ZONE_B,2,430
-BKR_FEED5678,Pine Ridge Sub,Pine Ridge Feeder 2,ZONE_B,1,310
+device_id,station,feeder,zone,risk_tier,customers_served,aliases
+RCL_123-456,Maple Ave Sub,Maple Ave Feeder,ZONE_A,2,1240,"RECLOSER 5; SEL351_A"
+RCL_789-012,Maple Ave Sub,Maple Ave Feeder Tie,ZONE_A,2,860,
+BKR_FEED1234,Oak St Sub,Oak St Feeder,ZONE_A,3,890,"OAK ST BKR"
+RCL_555-001,Pine Ridge Sub,Pine Ridge Feeder,ZONE_B,2,430,
+BKR_FEED5678,Pine Ridge Sub,Pine Ridge Feeder 2,ZONE_B,1,310,

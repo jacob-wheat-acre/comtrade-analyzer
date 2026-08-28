@@ -3188,3 +3188,99 @@ class TestTheTopologyBuilder:
                 n = pg.evaluate("""(m) => { rows = []; addCabinet(m, "CAB", "", "F");
                     return rows.length; }""", model)
                 assert n == ways, f"{model}: builder made {n} rows, model has {ways} ways"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 30. Binding real events to devices
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestEventsBindToDevices:
+    """
+    An event's device id is whatever was typed into the relay — CFG line 1,
+    field 2 — and on a real export that is rarely the name the device has on a
+    one-line. `aliases` in devices.csv is the crosswalk, and resolving through
+    it has to happen BEFORE anything keys on device_id.
+    """
+
+    ROOT = Path(__file__).parent
+
+    def _registry(self, tmp_path, aliases=""):
+        from comtrade_analyzer.wso_impact import load_registry
+        f = tmp_path / "devices.csv"
+        f.write_text(
+            "device_id,station,feeder,zone,risk_tier,customers_served,aliases\n"
+            f'RCL_121-101,Oak Sub,Oak 1201,ZONE_A,2,340,"{aliases}"\n'
+            "RCL_121-102,Oak Sub,Oak 1201,ZONE_A,2,120,\n", encoding="utf-8")
+        return load_registry(str(f))
+
+    def test_an_alias_reaches_the_device(self, tmp_path):
+        from comtrade_analyzer.wso_impact import lookup_device
+        reg = self._registry(tmp_path, "RECLOSER 5; SEL351_A|OAK-R5")
+        for probe in ("RECLOSER 5", "sel351_a", "OAK-R5", "recloser5"):
+            got = lookup_device(reg, probe)
+            assert got and got["device_id"] == "RCL_121-101", probe
+
+    def test_the_canonical_id_still_matches(self, tmp_path):
+        """Adding aliases must not break events that already name the device."""
+        from comtrade_analyzer.wso_impact import lookup_device
+        reg = self._registry(tmp_path, "RECLOSER 5")
+        assert lookup_device(reg, "RCL_121-101")["device_id"] == "RCL_121-101"
+
+    def test_events_are_rewritten_to_the_canonical_id(self, tmp_path):
+        """
+        The rewrite matters more than the lookup: incident grouping, the
+        topology and the one-line all key on device_id, so an event left under
+        the relay's own spelling is invisible to every one of them.
+        """
+        from comtrade_analyzer.fleet_analyze import resolve_devices
+        reg = self._registry(tmp_path, "SEL351_A")
+        events = [{"device_id": "SEL351_A", "station": "Oak Sub"}]
+        assert resolve_devices(events, reg) == []
+        assert events[0]["device_id"] == "RCL_121-101"
+        assert events[0]["device_id_raw"] == "SEL351_A"
+
+    def test_an_unmatched_device_is_reported_with_the_string_to_add(self, tmp_path):
+        from comtrade_analyzer.fleet_analyze import resolve_devices
+        reg = self._registry(tmp_path)
+        events = [{"device_id": "SEL351-99", "station": "Nowhere"} for _ in range(4)]
+        found = resolve_devices(events, reg)
+        assert found and found[0]["code"] == "device_not_in_registry"
+        assert found[0]["level"] == "error"
+        assert "SEL351-99" in found[0]["detail"], "the string to paste is not shown"
+        assert "aliases" in found[0]["fix"]
+
+    def test_an_alias_cannot_mean_two_devices(self, tmp_path):
+        from comtrade_analyzer.wso_impact import load_registry
+        from comtrade_analyzer.fleet_analyze import resolve_devices
+        f = tmp_path / "d.csv"
+        f.write_text(
+            "device_id,station,feeder,zone,risk_tier,customers_served,aliases\n"
+            'RCL_1,S,F,Z,2,10,"SHARED"\n'
+            'RCL_2,S,F,Z,2,10,"SHARED"\n', encoding="utf-8")
+        reg = load_registry(str(f))
+        codes = [x["code"] for x in resolve_devices([], reg)]
+        assert "alias_claimed_twice" in codes
+        # and the first row keeps it, rather than whichever was read last
+        from comtrade_analyzer.wso_impact import lookup_device
+        assert lookup_device(reg, "SHARED")["device_id"] == "RCL_1"
+
+    def test_both_entry_points_resolve_before_grouping(self):
+        """
+        Grouping keys on device_id. Resolving after it would leave incidents
+        split on the relay's spelling — quietly, since every count still adds
+        up.
+        """
+        import re
+        for name in ("fleet_analyze.py", "batch.py"):
+            src = (self.ROOT / "comtrade_analyzer" / name).read_text(encoding="utf-8")
+            assert "resolve_devices(events, registry)" in src, name
+            assert (src.index("resolve_devices(events, registry)")
+                    < src.index("group_events(events")), f"{name}: resolves too late"
+
+    def test_the_template_shows_the_column(self):
+        import csv as _csv
+        f = self.ROOT / "comtrade_analyzer" / "devices_template.csv"
+        with open(f, newline="", encoding="utf-8-sig") as fh:
+            rows = list(_csv.DictReader(fh))
+        assert "aliases" in rows[0]
+        assert any(r["aliases"] for r in rows), "no example alias to copy"

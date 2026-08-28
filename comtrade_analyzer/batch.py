@@ -41,7 +41,7 @@ from . import __version__
 from .fleet_analyze import (
     ALL_STATIONS, DEFAULT_FEEDER_Z, _find_cfg, aggregate_by_feeder,
     aggregate_by_station, analyze_one, load_config, load_network, print_summary,
-    validate, write_csv,
+    resolve_devices, validate, write_csv,
 )
 from .incidents import clock_suspects, group_events
 from .fleet_dashboard import render as render_dashboard
@@ -194,6 +194,9 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
     events = ok_new + cached
     events.sort(key=lambda e: (e.get("timestamp") or "", e["event_id"]))
 
+    # Bind events to registry devices before anything keys on device_id.
+    binding = resolve_devices(events, registry)
+
     # The one-line and the incident grouping both hang off this. Without it
     # the dashboard still renders, minus the feeder pages.
     # getattr, like settings above: sweep has two callers and the GUI builds a
@@ -247,7 +250,8 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
         "epss_classes":  class_table(),
         "files_found": len(files),
         "parse_errors": parse_errors,
-        "data_quality": [{"code": c, "count": n, **sample[c]} for c, n in tally.most_common()],
+        "data_quality": ([{"code": c, "count": n, **sample[c]}
+                          for c, n in tally.most_common()] + binding),
         "elapsed_s": round(elapsed, 2),
         "events": events,
         "aggregates": aggregates,

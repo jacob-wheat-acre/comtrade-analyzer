@@ -923,6 +923,72 @@ def print_summary(result: dict) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+def resolve_devices(events: list, registry: dict) -> list:
+    """
+    Bind every event to a device in the registry, and say so when one will not.
+
+    An event's device id is whatever was typed into the relay — CFG line 1,
+    field 2 — and on real exports that is rarely the name the device carries on
+    a one-line. The registry's `aliases` column is the crosswalk; this resolves
+    each event through it and rewrites `device_id` to the **canonical** name,
+    keeping the original in `device_id_raw`.
+
+    Rewriting matters more than the lookup does: incident grouping, the
+    topology and the one-line all key on device_id, so an event left under the
+    relay's own spelling is not just unlabelled — it is invisible to every one
+    of them.
+
+    Returns data-quality findings, worst first.
+    """
+    if not registry:
+        return []
+
+    unmatched = Counter()
+    stations = {}
+    for e in events:
+        raw = e.get("device_id", "")
+        dev = lookup_device(registry, raw, e.get("station", ""))
+        e["device_id_raw"] = raw
+        if dev:
+            e["device_id"] = dev["device_id"]
+        elif raw or e.get("station"):
+            key = raw or e.get("station", "")
+            unmatched[key] += 1
+            stations.setdefault(key, e.get("station", ""))
+
+    out = []
+    if unmatched:
+        listed = ", ".join(f"{k!r} ({n})" for k, n in unmatched.most_common(6))
+        more = len(unmatched) - 6
+        out.append({
+            "level": "error",
+            "code": "device_not_in_registry",
+            "message": (f"{sum(unmatched.values())} event(s) name a device the "
+                        f"registry does not have"),
+            "detail": listed + (f", and {more} more" if more > 0 else ""),
+            "fix": ("Those strings come from the relay settings, not from your "
+                    "one-line. Add each one to the `aliases` column of the "
+                    "matching row in devices.csv, separated by ';'. Until then "
+                    "these events have no feeder, no customers, and do not "
+                    "appear on any one-line."),
+        })
+    conflicts = {}
+    for entry in registry.values():
+        for name, other in entry.get("alias_conflicts", []):
+            conflicts[name] = (entry["device_id"], other)
+    if conflicts:
+        out.append({
+            "level": "error",
+            "code": "alias_claimed_twice",
+            "message": f"{len(conflicts)} alias(es) claimed by two devices",
+            "detail": ", ".join(f"{n!r}: {a} and {b}" for n, (a, b) in
+                                list(conflicts.items())[:5]),
+            "fix": ("An alias can only mean one device. The first row in "
+                    "devices.csv keeps it; fix the duplicate."),
+        })
+    return out
+
+
 def find_sidecar(folder: str, names: tuple) -> Optional[str]:
     """
     Find a file that belongs to a set of events but does not live among them.
@@ -1060,6 +1126,8 @@ def main():
         print(f"  ERROR {r['file']}: {r['error']}", file=sys.stderr)
 
     events.sort(key=lambda e: (e.get("timestamp") or "", e["event_id"]))
+    # Before anything keys on device_id: bind each event to a registry device.
+    binding = resolve_devices(events, registry)
     incidents = group_events(events, net, args.incident_window_s)
     skew = clock_suspects(events, net, args.incident_window_s)
     by_station = aggregate_by_station(events, registry, args.epss_tiers,
@@ -1087,6 +1155,7 @@ def main():
                       for n in net.nodes()] if net is not None else []),
         "incidents": incidents,
         "clock_suspects": skew,
+        "data_quality": binding,
         "aggregates_by_station": by_station,
         "aggregates_by_feeder": by_feeder,
         "settings": {

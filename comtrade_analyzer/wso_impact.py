@@ -26,6 +26,7 @@ Usage
 
 import argparse
 import csv
+import re
 import glob
 import json
 import os
@@ -54,9 +55,17 @@ def load_registry(csv_path: str) -> dict:
     Load devices.csv into a dict keyed by normalized device_id.
 
     Required columns : device_id, zone, risk_tier
-    Optional columns : station, feeder, customers_served
+    Optional columns : station, feeder, customers_served, aliases
+
+    `aliases` is how real events reach a device. An event's device id is
+    whatever was typed into the relay's settings — CFG line 1, field 2 — and it
+    is rarely the name the device has on a one-line. List those strings here,
+    separated by `;` or `|`, and every one of them resolves to this device.
+    Aliases are indexed alongside the id itself, so an event that already
+    carries the canonical name still matches.
     """
     registry = {}
+    claimed = {}
     with open(csv_path, newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
@@ -64,15 +73,32 @@ def load_registry(csv_path: str) -> dict:
             did = row.get("device_id", "").strip()
             if not did:
                 continue
-            registry[_normalize(did)] = {
+            entry = {
                 "device_id":        did,
                 "station":          row.get("station", ""),
                 "feeder":           row.get("feeder", ""),
                 "zone":             row.get("zone", "UNKNOWN"),
                 "risk_tier":        int(row.get("risk_tier", 0) or 0),
                 "customers_served": int(row.get("customers_served", 0) or 0),
+                "aliases":          _split_aliases(row.get("aliases", "")),
             }
+            for name in [did, *entry["aliases"]]:
+                key = _normalize(name)
+                if not key:
+                    continue
+                # Two devices claiming one alias would silently send events to
+                # whichever was read last. First wins, and it is reported.
+                if key in registry and claimed.get(key) != did:
+                    entry.setdefault("alias_conflicts", []).append(
+                        (name, claimed.get(key, "")))
+                    continue
+                registry[key] = entry
+                claimed[key] = did
     return registry
+
+
+def _split_aliases(raw: str) -> list:
+    return [a.strip() for a in re.split(r"[;|]", raw or "") if a.strip()]
 
 
 def lookup_device(registry: dict, device_id: str, station: str = "") -> Optional[dict]:

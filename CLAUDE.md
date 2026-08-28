@@ -409,6 +409,30 @@ settings file — it is a flattened table, one row per relay.
 Settings turn `EPSS_CANDIDATE` from a guess into a verdict; a ride-through that
 cannot reach the EPSS pickup either is reclassified `NOT_EXPOSED`.
 
+## Binding real events to devices
+
+**An event's device id is CFG line 1, field 2 (`rec_dev_id`) — whatever was
+typed into the relay.** On a real export that is almost never the name the
+device has on a one-line. `devices.csv` has an **`aliases`** column for exactly
+this: the strings the relays emit, separated by `;` or `|`, indexed alongside
+the canonical id so an event already carrying the real name still matches.
+
+`fleet_analyze.resolve_devices()` runs it, and **must run before
+`group_events`** — a test asserts the ordering in both entry points. It rewrites
+`device_id` to the canonical name and keeps the original in `device_id_raw`.
+
+**The rewrite is the point, not the lookup.** Incident grouping, the topology
+and the one-line all key on `device_id`. An event left under the relay's
+spelling is not merely unlabelled — it is invisible to all three, and the damage
+is quiet: on the demo renamed to relay-style ids, grouping degraded from 115
+incidents to 123 because `on_same_path` could not resolve a single device, and
+every count still added up.
+
+Unmatched ids are an **error-level** data-quality finding listing the exact
+strings and their counts, because those strings are what you paste into
+`aliases`. An alias claimed by two devices is also an error; the first row in
+`devices.csv` keeps it rather than whichever was read last.
+
 ## Diagnostics
 
 `diagnostics.py` exists because a batch that reports "0 events analyzed" with

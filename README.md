@@ -305,7 +305,13 @@ RCL_123-456, Maple Ave Sub,  Maple Ave Feeder,  ZONE_A,  2,         1240
 BKR_FEED1234,Oak St Sub,     Oak St Feeder,     ZONE_A,  3,         890
 ```
 
-- **device_id** — must match the `rec_dev_id` field in the COMTRADE CFG file (check line 1, field 2)
+- **device_id** — the device's name on your one-line, and what `topology.csv`
+  refers to
+- **aliases** — the strings your relays actually put in the CFG (line 1, field
+  2), separated by `;`. This is the crosswalk: a relay emitting `SEL351-07`
+  binds to the device you call `RCL_121-101`. Without it those events have no
+  feeder, no customers, and appear on no one-line — the run reports each
+  unmatched string so you can paste it straight in
 - **zone** — WSO deployment zone name
 - **risk_tier** — fire risk tier (1, 2, or 3); tiers 2 and 3 receive EPSS treatment by default
 - **customers_served** — used for customer-hour estimates
