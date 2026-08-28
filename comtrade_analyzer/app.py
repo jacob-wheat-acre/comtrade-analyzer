@@ -654,6 +654,12 @@ class COMTRADEApp(tk.Tk):
             slow_trip_cycles=cfg.get("triage", {}).get("slow_trip_cycles", 10.0),
             epss_tiers=cfg.get("wso", {}).get("epss_tiers", [2, 3]),
             response_hours=cfg.get("wso", {}).get("avg_response_hours", 2.0),
+            # Found beside the events when absent. Drives the feeder one-line
+            # pages in the dashboard this opens.
+            topology=None,
+            incident_window_s=cfg.get("incidents", {}).get("window_s", 2.0),
+            settings=None,
+            settings_primary=False,
             # Serial on purpose. A process pool uses spawn, which re-imports
             # the main module in every worker — the only mode Windows has, and
             # a poor fit inside a GUI. 100 events take ~1.2 s single-threaded

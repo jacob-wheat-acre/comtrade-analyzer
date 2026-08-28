@@ -195,13 +195,17 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
 
     # The one-line and the incident grouping both hang off this. Without it
     # the dashboard still renders, minus the feeder pages.
-    net, topo_path = load_network(events_dir, args.topology)
+    # getattr, like settings above: sweep has two callers and the GUI builds a
+    # SimpleNamespace by hand, so anything added here is missing there until
+    # someone remembers. A test now checks the two agree.
+    net, topo_path = load_network(events_dir, getattr(args, "topology", None))
     if net is not None:
         print(f"Topology: {len(net.feeders())} feeder(s), {len(net.ties())} tie(s) "
               f"from {topo_path}")
 
-    incidents = group_events(events, net, args.incident_window_s)
-    skew = clock_suspects(events, net, args.incident_window_s)
+    window = getattr(args, "incident_window_s", None) or 2.0
+    incidents = group_events(events, net, window)
+    skew = clock_suspects(events, net, window)
     aggregates = aggregate(events, registry, args.epss_tiers, args.response_hours, net)
     truth = os.path.join(os.path.dirname(events_dir.rstrip("/")), "fleet_truth.json")
     validation = validate(events, truth) if os.path.isfile(truth) else None

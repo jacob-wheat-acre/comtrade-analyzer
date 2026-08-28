@@ -2122,3 +2122,72 @@ class TestSidecarsAreFoundFromTheEventsFolder:
         bad.write_text("not,a,topology\n", encoding="utf-8")
         net, _ = load_network(str(tmp_path))
         assert net is None or len(net) == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 23. The GUI builds sweep's arguments by hand
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTheGuiAndTheCliAgreeOnSweepsArguments:
+    """
+    batch.sweep has two callers: argparse in batch.main, and a SimpleNamespace
+    the GUI assembles field by field. Adding an option to the parser leaves the
+    GUI short of it, and "Run analysis" then dies with AttributeError on a
+    thread — which surfaces as the button doing nothing.
+    """
+
+    ROOT = Path(__file__).parent
+
+    def _sweep_reads(self):
+        import ast
+        src = (self.ROOT / "comtrade_analyzer" / "batch.py").read_text(encoding="utf-8")
+        fn = next(n for n in ast.walk(ast.parse(src))
+                  if isinstance(n, ast.FunctionDef) and n.name == "sweep")
+        plain, guarded = set(), set()
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "getattr" and len(node.args) >= 2
+                    and isinstance(node.args[0], ast.Name) and node.args[0].id == "args"
+                    and isinstance(node.args[1], ast.Constant)):
+                guarded.add(node.args[1].value)
+            if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                    and node.value.id == "args"):
+                plain.add(node.attr)
+        return plain, guarded
+
+    def _gui_supplies(self):
+        import ast
+        src = (self.ROOT / "comtrade_analyzer" / "app.py").read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(src)):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "SimpleNamespace"):
+                return {kw.arg for kw in node.keywords if kw.arg}
+        raise AssertionError("the GUI no longer builds a SimpleNamespace for sweep")
+
+    def test_the_gui_supplies_every_argument_sweep_requires(self):
+        reads, guarded = self._sweep_reads()
+        missing = sorted(reads - guarded - self._gui_supplies())
+        assert not missing, (
+            "batch.sweep reads args the GUI never sets: " + ", ".join(missing)
+            + " — add them to the SimpleNamespace in app.py, or read them "
+              "with getattr(args, name, default).")
+
+    def test_sweep_survives_a_namespace_built_before_the_new_options(self, tmp_path):
+        """
+        Anything optional must be read defensively, so an older caller — or a
+        script someone wrote against the previous signature — still runs.
+        """
+        from types import SimpleNamespace
+        from comtrade_analyzer.batch import sweep
+        from comtrade_analyzer.fleet_analyze import load_config
+        events = self.ROOT / "demo" / "incident_events"
+        if not events.is_dir():
+            pytest.skip("demo corpus not present")
+        args = SimpleNamespace(
+            folder=str(events), devices=None, out=str(tmp_path),
+            rebuild=True, always_write=True, no_dashboard=True, no_waveforms=True,
+            waveform_buckets=[180, 280], feeder_z=0.4, slow_trip_cycles=10.0,
+            epss_tiers=[2, 3], response_hours=2.0, jobs=1,
+        )
+        result = sweep(args, {}, load_config(), quiet=True)
+        assert result and result["aggregates"]["totals"]["events"] > 0

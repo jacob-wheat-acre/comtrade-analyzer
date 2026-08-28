@@ -408,6 +408,14 @@ the listener normally.
 
 ## The GUI is a launcher
 
+**`batch.sweep` has two callers.** `batch.main` builds its args with argparse;
+the GUI assembles a `SimpleNamespace` by hand in `app.py`. Add an option to the
+parser and the GUI is silently short of it, and "Run analysis" dies with
+`AttributeError` on the worker thread — which the user sees as the button doing
+nothing. Read optional args as `getattr(args, name, default)`, the way
+`settings` already is. `TestTheGuiAndTheCliAgreeOnSweepsArguments` walks both
+files and fails on any bare `args.X` the GUI does not set.
+
 Folder mode runs `batch.sweep` and opens the dashboard; it renders nothing per
 event. The old per-event folder loop is what leaked figures until the window
 stopped redrawing. Single-file mode keeps the detailed plot/report path.
