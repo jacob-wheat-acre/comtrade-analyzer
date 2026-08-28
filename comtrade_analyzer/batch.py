@@ -40,8 +40,9 @@ from typing import Optional
 from . import __version__
 from .fleet_analyze import (
     DEFAULT_FEEDER_Z, _find_cfg, aggregate, analyze_one, load_config,
-    print_summary, validate, write_csv,
+    load_network, print_summary, validate, write_csv,
 )
+from .incidents import clock_suspects, group_events
 from .fleet_dashboard import render as render_dashboard
 from .triage import rule_table
 from .wso_impact import class_table, load_registry
@@ -192,7 +193,16 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
     events = ok_new + cached
     events.sort(key=lambda e: (e.get("timestamp") or "", e["event_id"]))
 
-    aggregates = aggregate(events, registry, args.epss_tiers, args.response_hours)
+    # The one-line and the incident grouping both hang off this. Without it
+    # the dashboard still renders, minus the feeder pages.
+    net, topo_path = load_network(events_dir, args.topology)
+    if net is not None:
+        print(f"Topology: {len(net.feeders())} feeder(s), {len(net.ties())} tie(s) "
+              f"from {topo_path}")
+
+    incidents = group_events(events, net, args.incident_window_s)
+    skew = clock_suspects(events, net, args.incident_window_s)
+    aggregates = aggregate(events, registry, args.epss_tiers, args.response_hours, net)
     truth = os.path.join(os.path.dirname(events_dir.rstrip("/")), "fleet_truth.json")
     validation = validate(events, truth) if os.path.isfile(truth) else None
 
@@ -201,6 +211,12 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
         "folder": os.path.abspath(events_dir),
         "events_dir": os.path.abspath(events_dir),
         "registry_path": args.devices,
+        "topology_path": topo_path,
+        "topology": ([{"node_id": n.node_id, "feeder": n.feeder, "kind": n.kind,
+                       "parent": n.parent, "tie_to": n.tie_to}
+                      for n in net.nodes()] if net is not None else []),
+        "incidents": incidents,
+        "clock_suspects": skew,
         "tool_version": __version__,
         "settings": {
             "feeder_z_ohm_per_mile": args.feeder_z,
@@ -264,6 +280,11 @@ examples:
     p.add_argument("folder", help="Folder of COMTRADE files (searched recursively)")
     p.add_argument("--devices", metavar="CSV",
                    help="Device registry CSV (auto-detected in the folder if absent)")
+    p.add_argument("--topology", metavar="CSV",
+                   help="Feeder connectivity CSV (auto-detected beside the "
+                        "events if absent). Drives the feeder one-line pages.")
+    p.add_argument("--incident-window-s", type=float, default=2.0, metavar="SEC",
+                   help="Records this far apart on one path are the same fault")
     p.add_argument("--out", metavar="DIR",
                    help="Output directory (default <folder>/analysis)")
 

@@ -575,6 +575,11 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 <div id="tip" role="status" aria-live="polite"></div>
 
 <style>
+/* The hidden attribute is a UA rule at element specificity, so ANY class rule
+   setting display beats it and the element stays visible — a "hidden" nav that
+   still shows but has no listeners reads as a dead control. Settle it once. */
+[hidden] { display: none !important; }
+
 /* ---- Page switcher -------------------------------------------------------- */
 .pagenav { display: inline-flex; gap: 2px; margin: 0 0 18px; padding: 3px;
            background: var(--surface-2); border: 1px solid var(--hairline);

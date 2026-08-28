@@ -27,7 +27,12 @@ wso_output/
 # demo/ and IS committed on purpose — it is the only way to show the tool
 # before real COMTRADE files are flowing.
 fleet/
-demo/analysis/
+
+# Batch output. comtrade-batch writes <folder>/analysis, and the folder it is
+# pointed at is often a tracked one — this swept 5 MB of generated dashboards
+# into a commit once. Bare on purpose, like devices.csv below, so it catches
+# the directory wherever a run drops it.
+analysis/
 
 # Device registry — contains operational/customer data, do not commit
 # Copy devices_template.csv to devices.csv and populate it locally.

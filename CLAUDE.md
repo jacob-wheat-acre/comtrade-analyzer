@@ -265,6 +265,14 @@ feeder and places events on it; the engineer judges whether the scheme behaved.
 `topology.csv` is gitignored operational data, and
 `comtrade_analyzer/topology_template.csv` is what you copy.
 
+**Sidecars are found from the events folder.** The docs tell people to point at
+the events folder, and the registry and topology sit *beside* it, not in it.
+`fleet_analyze.find_sidecar()` looks one level up, but only when the folder is
+named `incident_events`/`events` — otherwise it would drag in an unrelated
+parent's files. `batch.py` shipped with no topology lookup at all, so the
+documented command produced a dashboard whose feeder pages could never appear.
+**Both entry points need wiring, not just `fleet_analyze`.**
+
 `fleet_gen` generates `topology.csv` and `devices.csv` from the same
 `_SUBSTATIONS` / `_FEEDERS` / `_TIES` tables, so the demo's tree and its
 registry cannot drift. Hand-authored files are the other path; the template is
@@ -362,6 +370,11 @@ scans for `BKR_`, `RCL_`, `TIE_` and `BUS_`.
 
 `olRefresh()` redraws the diagram only on the review page. Rebuilding the
 incident list there would fight the click that triggered it.
+
+**`[hidden] { display: none !important; }` is load-bearing.** `hidden` is a UA
+rule at element specificity, so *any* class rule setting `display` beats it.
+`.pagenav` did exactly that and the tab showed with no listeners attached — a
+visible control that does nothing.
 
 **Two pages, one drawer.** `#pageNav` switches between the fleet review and
 `#pageFeeders`, which stacks every feeder grouped by substation. Both go through

@@ -887,6 +887,38 @@ def print_summary(result: dict) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
+def find_sidecar(folder: str, names: tuple) -> Optional[str]:
+    """
+    Find a file that belongs to a set of events but does not live among them.
+
+    Pointing straight at the events folder is what the docs tell people to do,
+    and the registry and topology sit beside it, not in it — so look one level
+    up when this folder IS an events folder. Matching on the folder name keeps
+    that from dragging in an unrelated parent's files.
+    """
+    search = [folder]
+    if os.path.basename(os.path.normpath(folder)) in (EVENTS_DIRNAME, "events"):
+        search.append(os.path.dirname(os.path.abspath(folder)))
+    for base in search:
+        for cand in names:
+            c = os.path.join(base, cand)
+            if os.path.isfile(c):
+                return c
+    return None
+
+
+def load_network(folder: str, path: Optional[str] = None):
+    """The topology beside a folder of events, or None. Never raises."""
+    p = path or find_sidecar(folder, ("topology.csv",))
+    if not p:
+        return None, None
+    try:
+        from .topology import load_topology
+        return load_topology(p), p
+    except (OSError, ValueError):
+        return None, None
+
+
 def resolve_inputs(folder: str, devices_arg: Optional[str]):
     """
     A fleet dir holds its records in a subfolder and carries a registry beside
@@ -901,21 +933,12 @@ def resolve_inputs(folder: str, devices_arg: Optional[str]):
             events_dir = p
             break
 
-    devices_path = devices_arg
-    if devices_path is None:
-        for cand in ("fleet_devices.csv", "devices.csv"):
-            p = os.path.join(folder, cand)
-            if os.path.isfile(p):
-                devices_path = p
-                break
+    devices_path = devices_arg or find_sidecar(folder, ("fleet_devices.csv",
+                                                        "devices.csv"))
+    topo_path = find_sidecar(folder, ("topology.csv",))
 
-    topo_path = os.path.join(folder, "topology.csv")
-    if not os.path.isfile(topo_path):
-        topo_path = None
-
-    truth_path = os.path.join(folder, "fleet_truth.json")
-    return (events_dir, devices_path, topo_path,
-            (truth_path if os.path.isfile(truth_path) else None))
+    truth_path = find_sidecar(folder, ("fleet_truth.json",))
+    return events_dir, devices_path, topo_path, truth_path
 
 
 def main():

@@ -2062,3 +2062,63 @@ class TestTheFeederOneLine:
         """
         tpl = self.TPL.read_text(encoding="utf-8")
         assert "t.slot" in tpl and "tieSlots" in tpl
+
+    def test_the_hidden_attribute_is_settled_once(self):
+        """
+        `hidden` is a UA rule at element specificity, so any class rule setting
+        display beats it. `.pagenav` did exactly that: the tab stayed visible
+        with no listeners on it and read as a dead control.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "[hidden] { display: none !important; }" in tpl
+
+
+class TestSidecarsAreFoundFromTheEventsFolder:
+    """
+    The docs tell people to point the tool at the events folder. The registry
+    and the topology live *beside* it, not in it — and comtrade-batch shipped
+    with no topology lookup at all, so the documented command produced a
+    dashboard whose feeder pages could never appear.
+    """
+
+    ROOT = Path(__file__).parent
+
+    def test_topology_is_found_one_level_up_from_the_events_folder(self):
+        from comtrade_analyzer.fleet_analyze import find_sidecar
+        got = find_sidecar(str(self.ROOT / "demo" / "incident_events"),
+                           ("topology.csv",))
+        assert got and Path(got).name == "topology.csv"
+
+    def test_it_does_not_wander_into_an_unrelated_parent(self, tmp_path):
+        """Only a folder that IS an events folder may look upward."""
+        from comtrade_analyzer.fleet_analyze import find_sidecar
+        (tmp_path / "topology.csv").write_text("x", encoding="utf-8")
+        plain = tmp_path / "some_pull"
+        plain.mkdir()
+        assert find_sidecar(str(plain), ("topology.csv",)) is None
+        events = tmp_path / "incident_events"
+        events.mkdir()
+        assert find_sidecar(str(events), ("topology.csv",)) is not None
+
+    def test_resolve_inputs_finds_both_from_the_events_folder(self):
+        from comtrade_analyzer.fleet_analyze import resolve_inputs
+        _, dev, topo, _ = resolve_inputs(
+            str(self.ROOT / "demo" / "incident_events"), None)
+        assert dev and topo
+
+    def test_batch_imports_what_the_feeder_pages_need(self):
+        """
+        A guard on the real gap: batch.py is the documented entry point and it
+        was not loading a topology or grouping incidents at all.
+        """
+        src = (self.ROOT / "comtrade_analyzer" / "batch.py").read_text(encoding="utf-8")
+        for needed in ("load_network", "group_events", '"topology"', '"incidents"'):
+            assert needed in src, f"batch.py never produces {needed}"
+
+    def test_load_network_survives_a_missing_or_broken_file(self, tmp_path):
+        from comtrade_analyzer.fleet_analyze import load_network
+        assert load_network(str(tmp_path)) == (None, None)
+        bad = tmp_path / "topology.csv"
+        bad.write_text("not,a,topology\n", encoding="utf-8")
+        net, _ = load_network(str(tmp_path))
+        assert net is None or len(net) == 0
