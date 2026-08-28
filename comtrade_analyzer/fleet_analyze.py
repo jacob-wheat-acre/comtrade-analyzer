@@ -1013,6 +1013,11 @@ def main():
         "events_dir": os.path.abspath(events_dir),
         "registry_path": devices_path,
         "topology_path": topo_path,
+        # The nodes themselves, not just the path — the dashboard is a single
+        # self-contained file and cannot go back to the CSV to draw a one-line.
+        "topology": ([{"node_id": n.node_id, "feeder": n.feeder, "kind": n.kind,
+                       "parent": n.parent, "tie_to": n.tie_to}
+                      for n in net.nodes()] if net is not None else []),
         "incidents": incidents,
         "clock_suspects": skew,
         "settings": {

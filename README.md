@@ -325,6 +325,14 @@ comtrade-topology topology.csv --feeder "Maple Ave Feeder"
 comtrade-topology topology.csv --quiet          # validation findings only
 ```
 
+With a topology present, `comtrade-batch` also draws a **feeder one-line** in
+the dashboard: devices placed by the tree, normally-open ties dashed across to
+their neighbours, each device coloured by the worst priority among its records,
+and an incident list beside it. Picking an incident rings the device that
+cleared it, marks the ones that saw it and held, and filters the table to those
+records — which is how a fault reads as a shape on the feeder rather than a row
+in a table.
+
 It prints an indented single-line sketch and then validates: duplicate ids, a
 typo'd parent, a loop, a branch with no source, a tie with no far end, a tie
 authored from both sides, and any mismatch against `devices.csv`. Exit status is

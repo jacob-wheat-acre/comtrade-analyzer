@@ -493,6 +493,30 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
     <div class="empty" id="tableEmpty" hidden>No events match these filters.</div>
   </section>
 
+  <section class="card" id="onelineCard" hidden>
+    <div class="card-head">
+      <h2>Feeder one-line</h2>
+      <span class="card-note" id="onelineNote"></span>
+    </div>
+    <div class="ol-controls">
+      <label class="fld"><span>Feeder</span>
+        <select id="olFeeder"></select>
+      </label>
+      <span class="ol-legend" id="olLegend"></span>
+    </div>
+    <div class="ol-split">
+      <div class="chart ol-canvas" id="olDiagram"></div>
+      <div class="ol-side">
+        <div class="ol-side-head">
+          <strong>Incidents on this feeder</strong>
+          <button type="button" class="ol-clear" id="olClear" hidden>Clear</button>
+        </div>
+        <div class="ol-list" id="olIncidents"></div>
+      </div>
+    </div>
+    <p class="note" id="onelineFoot"></p>
+  </section>
+
   <section class="card" id="classCard">
     <div class="card-head">
       <h2>What EPSS does to each event</h2>
@@ -529,6 +553,34 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 <div id="tip" role="status" aria-live="polite"></div>
 
 <style>
+/* ---- Feeder one-line ------------------------------------------------------ */
+.ol-controls { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.ol-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-2);
+             align-items: center; padding-bottom: 4px; }
+.ol-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+               margin-right: 5px; vertical-align: -1px; }
+.ol-split { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .ol-split { grid-template-columns: minmax(0, 1fr); } }
+.ol-canvas { border: 1px solid var(--hairline); border-radius: var(--r-md);
+             background: var(--surface-2); padding: 4px 0; }
+.ol-side-head { display: flex; align-items: baseline; justify-content: space-between;
+                gap: 8px; font-size: 12px; margin-bottom: 6px; }
+.ol-clear { font: inherit; font-size: 11px; color: var(--chrome-2); background: none;
+            border: 0; cursor: pointer; padding: 0; text-decoration: underline; }
+.ol-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.ol-inc { text-align: left; width: 100%; font: inherit; font-size: 11.5px; cursor: pointer;
+          background: var(--surface-2); border: 1px solid var(--hairline);
+          border-radius: var(--r-sm); padding: 6px 8px; color: var(--ink); line-height: 1.35; }
+.ol-inc:hover { background: var(--surface-3); }
+.ol-inc[aria-pressed="true"] { border-color: var(--chrome-2); background: var(--surface-3); }
+.ol-inc .ol-inc-top { display: flex; justify-content: space-between; gap: 8px; }
+.ol-inc .ol-inc-sub { color: var(--muted); font-size: 10.5px; margin-top: 2px; }
+.ol-dev { cursor: pointer; }
+.ol-dev:focus { outline: 2px solid var(--chrome-2); outline-offset: 2px; }
+.ol-name { font-family: var(--mono); font-size: 10px; fill: var(--ink-2); }
+.ol-count { font-size: 10px; font-weight: 600; }
+.ol-tie-label { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.ol-dim { opacity: .28; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
            overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>
@@ -1185,6 +1237,7 @@ function applyDrill(opts) {
   expanded = null;
   renderDrillChip();
   renderBody();
+  olRefresh();
   const tbl = $("eventTable");
   if (tbl) tbl.scrollIntoView({ block: "start" });
   window.scrollBy(0, -90);
@@ -1777,20 +1830,20 @@ function renderFilters() {
       values.map((v) => `<option value="${esc(v)}">${esc(labeller ? labeller(v) : v)}</option>`).join("");
   };
   opts("fZone", [...new Set(EV.map((e) => e.zone))].sort(), (v) => String(v).replace(/_/g, " "));
-  opts("fFault", ["SLG", "LL", "LLG", "3PH", "UNKNOWN"].filter((f) => AGG.by_fault_type[f]));
+  opts("fFault", ["SLG", "LL", "LLG", "3PH", "LOAD", "UNKNOWN"].filter((f) => AGG.by_fault_type[f]));
   opts("fPrio", ["1", "2", "3"], (v) => PRIO_META[v].label);
   opts("fClass", CLASS_ORDER, (v) => CLASS_META[v].label);
 
   ["fZone", "fFault", "fPrio", "fClass"].forEach((k) =>
-    $(k).addEventListener("change", () => { expanded = null; renderBody(); }));
+    $(k).addEventListener("change", () => { expanded = null; renderBody(); olRefresh(); }));
   let t;
   $("fSearch").addEventListener("input", () => {
-    clearTimeout(t); t = setTimeout(() => { expanded = null; renderBody(); }, 120);
+    clearTimeout(t); t = setTimeout(() => { expanded = null; renderBody(); olRefresh(); }, 120);
   });
   $("fReset").addEventListener("click", () => {
     ["fZone", "fFault", "fPrio", "fClass"].forEach((k) => { $(k).value = ""; });
     $("fSearch").value = ""; drill = null; expanded = null;
-    renderDrillChip(); renderBody();
+    renderDrillChip(); renderBody(); olRefresh();
   });
 }
 
@@ -1987,18 +2040,312 @@ function renderFooter() {
       : "");
 }
 
+
+/* ---------------------------------------------------------------------------
+   Feeder one-line
+
+   Reads events against the feeder rather than the clock. The topology is
+   mainline connectivity only — no impedance, no laterals, no fuses — so this
+   draws exactly what the model knows: which device is above which, and where
+   the normally-open ties are.
+
+   The point is to see a fault as a shape on the feeder. A record at a mid-line
+   recloser with the breaker above it lit as "held" is coordination working; the
+   same two both operating is worth a look. Neither reads that way in a table.
+   --------------------------------------------------------------------------- */
+const TOPO      = FLEET.topology || [];
+const INCIDENTS = FLEET.incidents || [];
+
+/* Same normalisation the Python uses, so ids typed hours apart still join. */
+const nkey = (v) => String(v ?? "").toLowerCase().replace(/[-_ ]/g, "");
+
+const OL_NODES = new Map();
+const OL_KIDS  = new Map();
+TOPO.forEach((n) => {
+  OL_NODES.set(nkey(n.node_id), n);
+  const p = nkey(n.parent);
+  if (!OL_KIDS.has(p)) OL_KIDS.set(p, []);
+  OL_KIDS.get(p).push(n);
+});
+const olNode = (id) => OL_NODES.get(nkey(id)) || null;
+const olKids = (id) => OL_KIDS.get(nkey(id)) || [];
+
+const OL_FEEDERS = [...new Set(TOPO.filter((n) => n.kind !== "source" && n.feeder)
+                                   .map((n) => n.feeder))].sort();
+
+let olFeeder = null;      /* selected feeder name */
+let olIncident = null;    /* selected incident id, or null */
+
+/* Device glyphs. A breaker is drawn square and a recloser round, the way they
+   are on a real one-line, so the symbol carries the kind without a legend. */
+function olGlyph(kind, x, y, r, fill, stroke) {
+  const common = `fill="${fill}" stroke="${stroke}" stroke-width="1.5"`;
+  if (kind === "breaker")
+    return `<rect x="${x - r}" y="${y - r}" width="${2 * r}" height="${2 * r}" rx="2" ${common}/>`;
+  if (kind === "sectionalizer")
+    return `<polygon points="${x},${y - r} ${x + r},${y} ${x},${y + r} ${x - r},${y}" ${common}/>`;
+  return `<circle cx="${x}" cy="${y}" r="${r}" ${common}/>`;
+}
+
+/* Lay the feeder out left to right: substation at the left, mainline running
+   away from it, a branch pushed to its own row. Depth is the column. */
+function olLayout(feeder) {
+  const inFeeder = (n) => n && n.feeder === feeder && n.kind !== "tie";
+  const heads = TOPO.filter((n) => inFeeder(n) && !inFeeder(olNode(n.parent)));
+
+  const placed = [];
+  let row = 0;
+  const walk = (n, depth) => {
+    placed.push({ n, depth, row });
+    const kids = olKids(n.node_id).filter(inFeeder);
+    kids.forEach((k, i) => { if (i > 0) row += 1; walk(k, depth + 1); });
+  };
+  heads.forEach((h, i) => { if (i > 0) row += 1; walk(h, 1); });
+
+  const at = new Map(placed.map((p) => [nkey(p.n.node_id), p]));
+
+  /* A tie is authored once, from whichever side the author was looking at, so
+     it may hang off either end. Anchor it to the end that is on this feeder. */
+  const ties = [];
+  TOPO.filter((n) => n.kind === "tie").forEach((t) => {
+    const near = olNode(t.parent), far = olNode(t.tie_to);
+    let anchor = null, other = null;
+    if (near && near.feeder === feeder) { anchor = near; other = far; }
+    else if (far && far.feeder === feeder) { anchor = far; other = near; }
+    if (!anchor || !at.has(nkey(anchor.node_id))) return;
+    ties.push({ tie: t, anchor: at.get(nkey(anchor.node_id)), other });
+  });
+
+  return { placed, at, ties, rows: row + 1,
+           depth: Math.max(1, ...placed.map((p) => p.depth)) };
+}
+
+/* Events on this page's current filters, indexed by device. */
+function olEventsByDevice(rows) {
+  const m = new Map();
+  rows.forEach((e) => {
+    const k = nkey(e.device_id);
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(e);
+  });
+  return m;
+}
+
+function olIncidentsFor(feeder) {
+  return INCIDENTS.filter((i) => (i.feeders || []).includes(feeder))
+                  .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
+}
+
+function renderOneline() {
+  const card = $("onelineCard");
+  if (!card) return;
+  if (!TOPO.length) { card.hidden = true; return; }
+  card.hidden = false;
+
+  if (!olFeeder || !OL_FEEDERS.includes(olFeeder)) {
+    /* Open on the feeder carrying the most events — the one worth looking at. */
+    const tally = new Map();
+    EV.forEach((e) => tally.set(e.feeder, (tally.get(e.feeder) || 0) + 1));
+    olFeeder = OL_FEEDERS.slice().sort((a, b) => (tally.get(b) || 0) - (tally.get(a) || 0))[0];
+  }
+
+  const sel = $("olFeeder");
+  sel.innerHTML = OL_FEEDERS.map((f) =>
+    `<option value="${esc(f)}"${f === olFeeder ? " selected" : ""}>${esc(f)}</option>`).join("");
+  sel.onchange = () => { olFeeder = sel.value; olIncident = null; renderOneline(); };
+
+  $("olLegend").innerHTML = [
+    [`--st-critical`, "Priority 1"], [`--st-warning`, "Priority 2"],
+    [`--muted`, "Priority 3"], [`--surface`, "No records"],
+  ].map(([v, label]) =>
+    `<span><i style="background:var(${v});border:1px solid var(--baseline)"></i>${esc(label)}</span>`
+  ).join("") + `<span>■ breaker &nbsp; ● recloser &nbsp; ╌╌ normally-open tie</span>`;
+
+  olDrawDiagram();
+  olDrawIncidents();
+}
+
+function olDrawDiagram() {
+  const host = $("olDiagram");
+  const L = olLayout(olFeeder);
+  const rows = currentRows();
+  const byDev = olEventsByDevice(rows);
+
+  const inc = olIncident ? INCIDENTS.find((i) => i.incident_id === olIncident) : null;
+  const incDevices = new Set((inc ? inc.devices : []).map(nkey));
+
+  const W = widthOf(host, 620);
+  /* padR clears the last device's centred name; padT clears the bus label. */
+  const padL = 74, padR = 72, padT = 34;
+  const colW = Math.max(120, (W - padL - padR) / Math.max(1, L.depth - 1 || 1));
+  const rowH = 74, tieDrop = 26;
+  /* Only reserve the tie lane if something actually hangs in it. */
+  const H = padT + (L.rows - 1) * rowH + 44 + (L.ties.length ? tieDrop : 0);
+  const X = (d) => padL + (d - 1) * colW;
+  const Y = (r) => padT + r * rowH;
+  const RAD = 13;
+
+  let g = "";
+
+  /* Substation bus — a vertical bar the feeder heads hang off. */
+  const busX = padL - 44;
+  g += `<line x1="${busX}" y1="${padT - 16}" x2="${busX}" y2="${Y(L.rows - 1) + 16}" ` +
+       `stroke="var(--ink-2)" stroke-width="3" stroke-linecap="round"/>`;
+  g += `<text x="${busX}" y="${padT - 24}" text-anchor="middle" class="ol-name">BUS</text>`;
+
+  /* Conductors. Orthogonal, the way a one-line is drawn — never a diagonal. */
+  L.placed.forEach((p) => {
+    const par = L.at.get(nkey(p.n.parent));
+    const x2 = X(p.depth), y2 = Y(p.row);
+    const x1 = par ? X(par.depth) : busX, y1 = par ? Y(par.row) : y2;
+    const mid = par ? x1 + (x2 - x1) / 2 : x1 + 22;
+    g += `<path d="M${x1} ${y1} H${mid} V${y2} H${x2}" fill="none" ` +
+         `stroke="var(--baseline)" stroke-width="2"/>`;
+  });
+
+  /* Normally-open ties, dropped below the device they hang off. */
+  L.ties.forEach((t) => {
+    const x = X(t.anchor.depth), y = Y(t.anchor.row) + RAD + 6;
+    const yEnd = y + tieDrop - 12;
+    const live = incDevices.size && t.other && incDevices.has(nkey(t.other.node_id));
+    g += `<path d="M${x} ${y} V${yEnd}" fill="none" stroke="var(${live ? "--c-clear" : "--baseline"})" ` +
+         `stroke-width="${live ? 2.5 : 1.5}" stroke-dasharray="4 3"/>`;
+    g += `<circle cx="${x}" cy="${yEnd}" r="4" fill="var(--surface)" ` +
+         `stroke="var(${live ? "--c-clear" : "--muted"})" stroke-width="1.5"/>`;
+    /* Ties on the last device would run the label off the right edge, so it
+       flips to the left of the stub rather than being clipped. */
+    const label = t.other ? `${t.other.node_id} · ${t.other.feeder}` : t.tie.tie_to;
+    const flip = x + 10 + label.length * 5.6 > W - 4;
+    g += `<text x="${x + (flip ? -8 : 8)}" y="${yEnd + 4}" class="ol-tie-label" ` +
+         `text-anchor="${flip ? "end" : "start"}">${esc(label)}</text>`;
+  });
+
+  /* Devices. */
+  L.placed.forEach((p) => {
+    const id = p.n.node_id;
+    const evs = byDev.get(nkey(id)) || [];
+    const worst = evs.length ? Math.min(...evs.map((e) => e.priority)) : null;
+    const meta = worst ? PRIO_META[worst] : null;
+    const fill = meta ? `var(${meta.v})` : "var(--surface)";
+    const x = X(p.depth), y = Y(p.row);
+
+    const dim = incDevices.size && !incDevices.has(nkey(id));
+    const held = inc && (inc.devices_held || []).map(nkey).includes(nkey(id));
+    const clearing = inc && nkey(inc.clearing_device) === nkey(id);
+
+    let ring = "";
+    if (clearing)
+      ring = `<circle cx="${x}" cy="${y}" r="${RAD + 6}" fill="none" ` +
+             `stroke="var(--chrome-2)" stroke-width="2.5"/>`;
+    else if (held)
+      ring = `<circle cx="${x}" cy="${y}" r="${RAD + 6}" fill="none" ` +
+             `stroke="var(--c-clear)" stroke-width="2" stroke-dasharray="3 3"/>`;
+
+    const tip = tipRef(tipHTML(esc(id), [
+      `${esc(p.n.kind)} · ${esc(p.n.feeder)}`,
+      evs.length ? `<b>${fmt(evs.length)}</b> record${evs.length === 1 ? "" : "s"} in view`
+                 : "No records in view",
+      meta ? `Worst: ${esc(meta.label)}` : "",
+      clearing ? "Cleared this incident" : (held ? "Saw it and held — coordinated" : ""),
+    ].filter(Boolean)));
+
+    const click = clickRef(() => applyDrill({
+      reset: true, chip: { label: id, test: (e) => nkey(e.device_id) === nkey(id) },
+    }));
+
+    g += `<g class="ol-dev${dim ? " ol-dim" : ""}" data-tip="${tip}" data-click="${click}" ` +
+         `aria-label="${esc(id)}, ${evs.length} record${evs.length === 1 ? "" : "s"}">`;
+    g += ring;
+    g += olGlyph(p.n.kind, x, y, RAD, fill, "var(--ink-2)");
+    if (evs.length)
+      g += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" class="ol-count" ` +
+           `fill="${worst === 3 ? "var(--ink)" : "#fff"}">${fmt(evs.length)}</text>`;
+    g += `<text x="${x}" y="${y + RAD + 14}" text-anchor="middle" class="ol-name">${esc(id)}</text>`;
+    g += `</g>`;
+  });
+
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" ` +
+    `aria-label="One-line of ${esc(olFeeder)}">${g}</svg>`;
+  bindTips(host);
+  bindClicks(host);
+
+  const shown = L.placed.reduce((a, p) => a + ((byDev.get(nkey(p.n.node_id)) || []).length), 0);
+  $("onelineNote").textContent =
+    `${L.placed.length} device${L.placed.length === 1 ? "" : "s"}, ` +
+    `${L.ties.length} tie${L.ties.length === 1 ? "" : "s"} · ${fmt(shown)} record(s) in view`;
+  $("onelineFoot").textContent =
+    "Mainline connectivity only — no laterals, fuses or impedance. Counts follow the "
+    + "filters above; click a device to filter the table to it.";
+}
+
+/* Redraw the diagram only. The incident list does not depend on the filters,
+   and rebuilding it here would fight the click that got us here. */
+function olRefresh() {
+  if ($("onelineCard") && !$("onelineCard").hidden) olDrawDiagram();
+}
+
+function olDrawIncidents() {
+  const host = $("olIncidents");
+  const list = olIncidentsFor(olFeeder);
+  $("olClear").hidden = !olIncident;
+  $("olClear").onclick = () => { olIncident = null; renderOneline(); };
+
+  if (!list.length) {
+    host.innerHTML = `<p class="note">No incidents on this feeder.</p>`;
+    return;
+  }
+
+  host.innerHTML = list.slice(0, 60).map((i) => {
+    const bits = [];
+    if (i.upstream_also_tripped) bits.push("two devices operated");
+    else if (i.devices_held && i.devices_held.length) bits.push("upstream held");
+    if (i.locked_out) bits.push("lockout");
+    if (i.restored) bits.push(`tie in ${fmtF(i.restore_delay_s || 0, 0)}s`);
+    const m = PRIO_META[i.priority] || PRIO_META[3];
+    return `<button type="button" class="ol-inc" data-inc="${esc(i.incident_id)}" ` +
+      `aria-pressed="${i.incident_id === olIncident}">
+        <span class="ol-inc-top">
+          <span>${esc(shortTime(i.started_at))} · ${esc(i.fault_type)}</span>
+          <span style="color:var(${m.v});font-weight:600">${esc(m.icon)} P${i.priority}</span>
+        </span>
+        <span class="ol-inc-sub">${esc(i.clearing_device || "—")} · ` +
+      `${i.record_count} record${i.record_count === 1 ? "" : "s"}` +
+      `${bits.length ? " · " + esc(bits.join(", ")) : ""}</span>
+      </button>`;
+  }).join("");
+
+  host.querySelectorAll(".ol-inc").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-inc");
+      olIncident = olIncident === id ? null : id;
+      const chosen = INCIDENTS.find((x) => x.incident_id === olIncident);
+      if (chosen) {
+        const ids = new Set(chosen.event_ids);
+        applyDrill({ reset: true,
+          chip: { label: `Incident ${shortTime(chosen.started_at)}`,
+                  test: (e) => ids.has(e.event_id) } });
+      } else {
+        applyDrill({ reset: true });
+      }
+      renderOneline();
+    });
+  });
+}
+
+
 /* ---------------------------------------------------------------------------
    Init
    --------------------------------------------------------------------------- */
 function init() {
   renderHeader(); renderHero(); renderUnits(); renderTiles(); renderCharts();
-  renderFilters(); renderHead(); renderBody(); renderDataQuality(); renderClasses(); renderRules(); renderFooter(); renderFeedback();
+  renderFilters(); renderHead(); renderBody(); renderOneline(); renderDataQuality();
+  renderClasses(); renderRules(); renderFooter(); renderFeedback();
 }
 
 let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { TIPS.clear(); CLICKS.clear(); renderCharts(); drawExpandedWaveform(); }, 150);
+  resizeTimer = setTimeout(() => { TIPS.clear(); CLICKS.clear(); renderCharts(); renderOneline(); drawExpandedWaveform(); }, 150);
 });
 
 if (document.readyState === "loading") {

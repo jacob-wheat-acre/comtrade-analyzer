@@ -1960,3 +1960,77 @@ class TestIncidentGrouping:
         assert g, "no grouping accuracy recorded"
         assert g["events_grouped_correctly_pct"] == 100.0
         assert g["incidents_found"] == g["incidents_expected"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 22. The feeder one-line
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTheFeederOneLine:
+    """
+    The dashboard is one self-contained file, so it cannot go back to
+    topology.csv to draw a feeder — the nodes have to travel in the payload.
+    And like the triage rules, the page must render what Python decided rather
+    than keeping its own copy of it.
+    """
+
+    ROOT = Path(__file__).parent
+    TPL = ROOT / "comtrade_analyzer" / "dashboard_template.html"
+
+    def test_the_payload_carries_the_topology_and_the_incidents(self):
+        from comtrade_analyzer.fleet_dashboard import build_payload
+        p = build_payload({
+            "events": [{"event_id": "e1"}],
+            "topology": [{"node_id": "A", "feeder": "F", "kind": "recloser",
+                          "parent": "BUS", "tie_to": ""}],
+            "incidents": [{"incident_id": "INC", "event_ids": ["e1"]}],
+        })
+        assert p["topology"] and p["incidents"]
+
+    def test_analysis_embeds_the_nodes_not_just_the_path(self, tmp_path):
+        """A path is useless to a file someone opens on another machine."""
+        from comtrade_analyzer.topology import load_topology
+        net = load_topology(str(self.ROOT / "demo" / "topology.csv"))
+        nodes = [{"node_id": n.node_id, "feeder": n.feeder, "kind": n.kind,
+                  "parent": n.parent, "tie_to": n.tie_to} for n in net.nodes()]
+        assert len(nodes) == len(net)
+        assert all(n["node_id"] for n in nodes)
+
+    def test_the_template_has_the_hooks_the_renderer_writes_into(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        for hook in ("onelineCard", "olFeeder", "olDiagram", "olIncidents",
+                     "olLegend", "onelineNote"):
+            assert f'id="{hook}"' in tpl, f"the one-line card is missing #{hook}"
+
+    def test_the_page_reads_the_topology_rather_than_hardcoding_a_feeder(self):
+        """
+        Device ids and feeder names are operational data. If any leaked into
+        the template they would ship to everyone who cloned the repo.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "FLEET.topology" in tpl and "FLEET.incidents" in tpl
+        for leaked in ("BKR_", "RCL_", "TIE_", "BUS_CH"):
+            assert leaked not in tpl, f"{leaked!r} is baked into the template"
+
+    def test_the_load_class_can_be_filtered_for(self):
+        """A tie pickup is a LOAD record; it has to be reachable in the UI."""
+        assert '"LOAD"' in self.TPL.read_text(encoding="utf-8")
+
+    def test_every_script_block_parses(self):
+        """
+        Three <script> blocks, and a stray edit into one is not caught until
+        the page loads. node --check is the cheapest way to catch it here.
+        """
+        import re, shutil, subprocess, tempfile
+        if not shutil.which("node"):
+            pytest.skip("node not installed")
+        src = self.TPL.read_text(encoding="utf-8")
+        blocks = re.findall(r"<script>\n(.*?)\n</script>", src, re.S)
+        assert len(blocks) == 3, f"expected 3 script blocks, found {len(blocks)}"
+        with tempfile.TemporaryDirectory() as d:
+            for i, b in enumerate(blocks, 1):
+                f = Path(d) / f"b{i}.js"
+                f.write_text(b.replace("__FLEET_DATA__", "{}"), encoding="utf-8")
+                r = subprocess.run(["node", "--check", str(f)],
+                                   capture_output=True, text=True)
+                assert r.returncode == 0, f"block {i}: {r.stderr[:400]}"

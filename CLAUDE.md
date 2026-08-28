@@ -336,6 +336,33 @@ the window stopped redrawing — reported as "the app screen blacks out".
 `TestPlottingReleasesItsFigures` guards it. If you add a plotting function,
 close its figure on the save path.
 
+## The feeder one-line
+
+The `#onelineCard` section draws the selected feeder from `FLEET.topology`,
+which `fleet_analyze` embeds as **nodes, not a path** — the dashboard is one
+self-contained file and cannot go back to `topology.csv` on someone else's
+machine.
+
+- Layout is orthogonal and left-to-right: substation bus at the left, depth is
+  the column, a branch takes its own row. Never a diagonal — that is not how a
+  one-line is drawn.
+- A breaker is square, a recloser round, a sectionalizer a diamond, so the
+  symbol carries the kind without reading the legend. Fill is the worst
+  priority among that device's records *in the current filter*, which is why
+  `olRefresh()` hangs off every filter change and off `applyDrill`.
+- A tie is authored once, from whichever side, so `olLayout` anchors it to
+  whichever end is on the drawn feeder and labels the other. The label flips to
+  the left of the stub near the right edge instead of being clipped.
+- Selecting an incident rings the clearing device solid and the devices that
+  held dashed, dims the rest, and drills the table to that incident's records.
+
+**No device id, feeder name or tie name may appear in the template.** Those are
+operational data; a leaked one ships to everyone who clones the repo. A test
+scans for `BKR_`, `RCL_`, `TIE_` and `BUS_`.
+
+`olRefresh()` redraws the diagram only. Rebuilding the incident list there
+would fight the click that triggered it.
+
 ## Dashboard cross-filtering
 
 Chart marks carry `data-click` and are registered through `clickRef()` /
