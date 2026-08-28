@@ -1,0 +1,251 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Feeder topology builder</title>
+<style>
+:root { --ink:#0f151c; --ink2:#47535f; --muted:#74808d; --line:#dfe5ec;
+        --surface:#fff; --plane:#eef1f5; --accent:#184f95; --bad:#c62828; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--plane); color:var(--ink); font:14px/1.5 system-ui,sans-serif; }
+.wrap { max-width:1180px; margin:0 auto; padding:20px 16px 60px; }
+h1 { font-size:19px; margin:0 0 4px; }
+.sub { color:var(--muted); font-size:13px; margin:0 0 18px; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:8px;
+        padding:14px 16px; margin-bottom:14px; }
+.bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+button { font:inherit; font-size:13px; padding:6px 12px; border:1px solid var(--line);
+         background:var(--surface); border-radius:6px; cursor:pointer; }
+button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+button:hover { border-color:var(--accent); }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+     color:var(--muted); padding:0 6px 6px; font-weight:600; }
+td { padding:2px 4px; border-top:1px solid var(--line); }
+input, select { font:inherit; font-size:13px; width:100%; padding:5px 6px;
+                border:1px solid var(--line); border-radius:5px; background:var(--surface); }
+input:focus, select:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+td.x { width:30px; }
+td.x button { padding:3px 8px; color:var(--muted); border-color:transparent; }
+td.x button:hover { color:var(--bad); border-color:var(--bad); }
+.mono { font-family:ui-monospace,Menlo,monospace; }
+pre { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; line-height:1.55;
+      margin:0; white-space:pre; overflow-x:auto; color:var(--ink2); }
+.note { font-size:12.5px; color:var(--muted); margin:10px 0 0; }
+.warn { color:var(--bad); }
+.grow { flex:1; }
+</style>
+
+<div class="wrap">
+  <h1>Feeder topology builder</h1>
+  <p class="sub">One row per device. Pick each device's parent from the list, so a
+     connection can never point at a name that does not exist — the mistake this
+     is here to prevent. Download <span class="mono">topology.csv</span> when done,
+     then run <span class="mono">comtrade-topology topology.csv --devices devices.csv</span>
+     to check it properly.</p>
+
+  <div class="card">
+    <div class="bar">
+      <button onclick="addRow()">+ Device</button>
+      <button onclick="addCabinet()">+ PMH cabinet</button>
+      <button onclick="addTie()">+ Tie</button>
+      <span class="grow"></span>
+      <label class="mono" style="font-size:12.5px;color:var(--muted)">
+        Load <input type="file" accept=".csv" onchange="loadCsv(this)"
+                    style="width:auto;display:inline-block;border:0;padding:2px">
+      </label>
+      <button class="primary" onclick="download()">Download topology.csv</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th style="width:17%">Feeder</th><th style="width:19%">Node ID</th>
+        <th style="width:12%">Kind</th><th style="width:19%">Parent</th>
+        <th style="width:19%">Tie to</th><th style="width:13%">Cabinet / model</th>
+        <th class="x"></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="note" id="count"></p>
+  </div>
+
+  <div class="card">
+    <strong style="font-size:13px">Preview</strong>
+    <p class="note" style="margin:2px 0 10px">What you have connected so far. A device
+       that is not under a source has not been wired up yet.</p>
+    <pre id="preview"></pre>
+  </div>
+</div>
+
+<script>
+"use strict";
+const KINDS = ["source", "breaker", "recloser", "sectionalizer", "pmh", "tie"];
+const MODELS = { "PMH-9": 2, "PMH-11": 3, "PMH-10": 4 };
+const HEADER = ["feeder", "node_id", "kind", "parent", "tie_to", "cabinet", "model"];
+
+let rows = [
+  { feeder: "Example Sub",    node_id: "BUS_1",        kind: "source",   parent: "", tie_to: "", cabinet: "", model: "" },
+  { feeder: "Example Feeder", node_id: "BKR_EXAM1201", kind: "breaker",  parent: "BUS_1", tie_to: "", cabinet: "", model: "" },
+  { feeder: "Example Feeder", node_id: "RCL_120-101",  kind: "recloser", parent: "BKR_EXAM1201", tie_to: "", cabinet: "", model: "" },
+];
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const ids = () => rows.map((r) => r.node_id).filter(Boolean);
+const feeders = () => [...new Set(rows.map((r) => r.feeder).filter(Boolean))];
+
+function opts(list, val, blank) {
+  return `<option value="">${blank}</option>` + list.map((v) =>
+    `<option value="${esc(v)}"${v === val ? " selected" : ""}>${esc(v)}</option>`).join("");
+}
+
+function render() {
+  const others = (i) => ids().filter((_, j) => j !== i);
+  document.getElementById("rows").innerHTML = rows.map((r, i) => `
+    <tr>
+      <td><input list="feederList" value="${esc(r.feeder)}" onchange="set(${i},'feeder',this.value)"></td>
+      <td><input class="mono" value="${esc(r.node_id)}" onchange="set(${i},'node_id',this.value)"></td>
+      <td><select onchange="set(${i},'kind',this.value)">${opts(KINDS, r.kind, "—")}</select></td>
+      <td>${r.kind === "source" ? '<span class="note">from the bus</span>'
+            : `<select class="mono" onchange="set(${i},'parent',this.value)">${
+                 opts(others(i), r.parent, "— pick upstream —")}</select>`}</td>
+      <td>${r.kind === "tie"
+            ? `<select class="mono" onchange="set(${i},'tie_to',this.value)">${
+                 opts(others(i), r.tie_to, "— far end —")}</select>`
+            : ""}</td>
+      <td>${r.kind === "pmh"
+            ? `<input class="mono" placeholder="cabinet" value="${esc(r.cabinet)}"
+                      onchange="set(${i},'cabinet',this.value)">
+               <select onchange="set(${i},'model',this.value)" style="margin-top:3px">${
+                 opts(Object.keys(MODELS), r.model, "— model —")}</select>`
+            : ""}</td>
+      <td class="x"><button title="Remove" onclick="del(${i})">×</button></td>
+    </tr>`).join("") +
+    `<datalist id="feederList">${feeders().map((f) =>
+       `<option value="${esc(f)}">`).join("")}</datalist>`;
+
+  document.getElementById("count").textContent =
+    `${rows.length} row(s) · ${feeders().length} feeder(s) · ` +
+    `${rows.filter((r) => r.kind === "tie").length} tie(s)`;
+  preview();
+}
+
+function set(i, k, v) { rows[i][k] = v.trim(); render(); }
+function del(i) { rows.splice(i, 1); render(); }
+
+function addRow() {
+  const last = rows[rows.length - 1] || {};
+  rows.push({ feeder: last.feeder || "", node_id: "", kind: "recloser",
+              parent: last.node_id || "", tie_to: "", cabinet: "", model: "" });
+  render();
+}
+
+function addTie() {
+  const last = rows[rows.length - 1] || {};
+  rows.push({ feeder: last.feeder || "", node_id: "", kind: "tie",
+              parent: last.node_id || "", tie_to: "", cabinet: "", model: "" });
+  render();
+}
+
+/* A cabinet is several near-identical rows with the same cabinet and model —
+   exactly the thing not to type by hand. */
+function addCabinet(model, cabinet, parent, feeder) {
+  model = model || prompt("Cabinet model? PMH-9 (2 ways), PMH-11 (3), PMH-10 (4)", "PMH-11");
+  if (!model || !MODELS[model]) return;
+  cabinet = cabinet || prompt("Cabinet name, e.g. PMH_121-270", "PMH_000-070");
+  if (!cabinet) return;
+  const last = rows[rows.length - 1] || {};
+  feeder = feeder || last.feeder || "";
+  parent = parent === undefined ? (last.node_id || "") : parent;
+  const src = `${cabinet}_W1`;
+  for (let w = 1; w <= MODELS[model]; w++) {
+    rows.push({ feeder, node_id: `${cabinet}_W${w}`, kind: "pmh",
+                parent: w === 1 ? parent : src, tie_to: "",
+                cabinet: cabinet, model: model });
+  }
+  render();
+}
+
+function buildCsv() {
+  const cell = (v) => {
+    v = String(v ?? "");
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  };
+  return HEADER.join(",") + "\n" +
+    rows.map((r) => HEADER.map((h) => cell(r[h])).join(",")).join("\n") + "\n";
+}
+
+function download() {
+  const blob = new Blob([buildCsv()], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "topology.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith("#"));
+  if (!lines.length) return [];
+  const head = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  return lines.slice(1).map((line) => {
+    const cells = []; let cur = "", q = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+               else if (c === '"') q = false; else cur += c; }
+      else if (c === '"') q = true;
+      else if (c === ",") { cells.push(cur); cur = ""; }
+      else cur += c;
+    }
+    cells.push(cur);
+    const r = {};
+    HEADER.forEach((h) => { const j = head.indexOf(h); r[h] = j >= 0 ? (cells[j] || "").trim() : ""; });
+    return r;
+  }).filter((r) => r.node_id);
+}
+
+function loadCsv(input) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const fr = new FileReader();
+  fr.onload = () => { rows = parseCsv(fr.result); render(); };
+  fr.readAsText(f);
+}
+
+/* Indented tree, so you can see what is wired up and what is still floating. */
+function preview() {
+  const byId = new Map(rows.filter((r) => r.node_id).map((r) => [r.node_id, r]));
+  const kids = new Map();
+  rows.forEach((r) => {
+    if (!r.parent) return;
+    if (!kids.has(r.parent)) kids.set(r.parent, []);
+    kids.get(r.parent).push(r);
+  });
+  const seen = new Set();
+  const out = [];
+  /* The connector is gated on being a root, not on the prefix being empty —
+     otherwise the first level of children never gets one and the whole tree
+     reads flat. */
+  const walk = (r, prefix, last, root) => {
+    if (seen.has(r.node_id)) { out.push(prefix + "└─ … " + r.node_id + "  (loops)"); return; }
+    seen.add(r.node_id);
+    const tag = r.kind === "tie" ? "  N.O. → " + (r.tie_to || "?")
+              : r.kind === "pmh" ? "  " + (r.cabinet || "?") : "";
+    out.push(prefix + (root ? "" : (last ? "└─ " : "├─ ")) + r.node_id +
+             "   " + r.kind + tag);
+    const kidPrefix = root ? "" : prefix + (last ? "   " : "│  ");
+    const cs = kids.get(r.node_id) || [];
+    cs.forEach((c, i) => walk(c, kidPrefix, i === cs.length - 1, false));
+  };
+  rows.filter((r) => r.kind === "source").forEach((r) => { walk(r, "", true, true); out.push(""); });
+  const floating = rows.filter((r) => r.node_id && !seen.has(r.node_id));
+  if (floating.length) {
+    out.push("NOT CONNECTED TO A SOURCE");
+    floating.forEach((r) => out.push("   " + r.node_id + "   " + r.kind));
+  }
+  if (!rows.some((r) => r.kind === "source")) {
+    out.unshift("No source row yet — add one per substation bus.", "");
+  }
+  document.getElementById("preview").textContent = out.join("\n") || "Nothing yet.";
+}
+
+render();
+</script>

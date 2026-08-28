@@ -3071,3 +3071,120 @@ class TestPmhCabinets:
         assert "p.cluster" in tpl, "ways are not grouped into an enclosure"
         # and they sit in a block on an internal bus, not strung along the line
         assert "Internal bus" in tpl
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 29. The topology builder page
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTheTopologyBuilder:
+    """
+    Real feeder connectivity gets typed in from a wall map. The builder's one
+    job is that a connection can never point at a name that does not exist —
+    every parent and tie is picked from the rows already entered. Everything
+    else is left to `comtrade-topology`, so there is one validator, not two.
+    """
+
+    ROOT = Path(__file__).parent
+    PAGE = ROOT / "comtrade_analyzer" / "topology_builder.html"
+
+    def test_the_page_ships_with_the_package(self):
+        assert self.PAGE.is_file()
+        assert "--build" in (self.ROOT / "comtrade_analyzer" / "topology.py").read_text(
+            encoding="utf-8")
+
+    def test_it_writes_the_documented_columns(self):
+        from comtrade_analyzer.topology import _HEADER
+        src = self.PAGE.read_text(encoding="utf-8")
+        listed = src[src.index("const HEADER = ["):src.index("];", src.index("const HEADER = ["))]
+        for col in _HEADER:
+            assert f'"{col}"' in listed, f"the builder does not write {col}"
+
+    def test_connections_are_chosen_not_typed(self):
+        """The mistake it exists to prevent: a parent naming nothing."""
+        src = self.PAGE.read_text(encoding="utf-8")
+        assert "pick upstream" in src and "far end" in src
+        assert "opts(others(i), r.parent" in src
+        assert "opts(others(i), r.tie_to" in src
+
+    def test_it_does_not_carry_a_second_validator(self):
+        """
+        Two implementations of the rules is how the page and the tool would
+        start disagreeing. The page checks nothing the CSV loader checks.
+        """
+        src = self.PAGE.read_text(encoding="utf-8")
+        for owned in ("cabinet_over_connected", "orphan_branch", "duplicate_node",
+                      "PMH_WAYS", "feeder_name_mismatch"):
+            assert owned not in src, f"the builder re-implements {owned}"
+        assert "comtrade-topology" in src, "it should point at the real validator"
+
+    def test_the_script_parses(self):
+        import re, shutil, subprocess, tempfile
+        if not shutil.which("node"):
+            pytest.skip("node not installed")
+        body = re.search(r"<script>\n(.*)\n</script>", self.PAGE.read_text(encoding="utf-8"),
+                         re.S).group(1)
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "b.js"
+            f.write_text(body, encoding="utf-8")
+            r = subprocess.run(["node", "--check", str(f)], capture_output=True, text=True)
+            assert r.returncode == 0, r.stderr[:400]
+
+    def test_what_it_writes_loads_and_validates(self, tmp_path):
+        """
+        The round trip is the test that matters: drive the page, take the CSV
+        it produces, and put it through the real loader and validator.
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            pytest.skip("playwright not installed")
+        from comtrade_analyzer.topology import load_topology, validate
+
+        with sync_playwright() as p:
+            b = p.chromium.launch()
+            pg = b.new_page()
+            errs = []
+            pg.on("pageerror", lambda e: errs.append(str(e)))
+            pg.goto(f"file://{self.PAGE.resolve()}")
+            pg.wait_for_timeout(300)
+            pg.evaluate("""() => {
+              rows = [
+                {feeder:"Oak Sub", node_id:"BUS_OAK", kind:"source", parent:"", tie_to:"", cabinet:"", model:""},
+                {feeder:"Oak 1201", node_id:"BKR_OAK1201", kind:"breaker", parent:"BUS_OAK", tie_to:"", cabinet:"", model:""},
+                {feeder:"Oak 1201", node_id:"RCL_120-101", kind:"recloser", parent:"BKR_OAK1201", tie_to:"", cabinet:"", model:""},
+                {feeder:"Elm Sub", node_id:"BUS_ELM", kind:"source", parent:"", tie_to:"", cabinet:"", model:""},
+                {feeder:"Elm 1301", node_id:"BKR_ELM1301", kind:"breaker", parent:"BUS_ELM", tie_to:"", cabinet:"", model:""},
+              ];
+              addCabinet("PMH-11", "PMH_120-170", "RCL_120-101", "Oak 1201");
+              rows.push({feeder:"Oak 1201", node_id:"RCL_120-151", kind:"tie",
+                         parent:"PMH_120-170_W3", tie_to:"BKR_ELM1301", cabinet:"", model:""});
+              render();
+            }""")
+            csv = pg.evaluate("buildCsv()")
+            assert not errs, errs
+            b.close()
+
+        f = tmp_path / "topology.csv"
+        f.write_text(csv, encoding="utf-8")
+        net = load_topology(str(f))
+        assert len(net.feeders()) == 2 and len(net.ties()) == 1
+        bad = [v for v in validate(net) if v["level"] != "info"]
+        assert not bad, [v["code"] for v in bad]
+
+    def test_the_cabinet_helper_writes_one_row_per_way(self):
+        """The tedious part: a PMH-10 is four near-identical rows."""
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            pytest.skip("playwright not installed")
+        from comtrade_analyzer.topology import PMH_WAYS
+        with sync_playwright() as p:
+            b = p.chromium.launch()
+            pg = b.new_page()
+            pg.goto(f"file://{self.PAGE.resolve()}")
+            pg.wait_for_timeout(300)
+            for model, ways in PMH_WAYS.items():
+                n = pg.evaluate("""(m) => { rows = []; addCabinet(m, "CAB", "", "F");
+                    return rows.length; }""", model)
+                assert n == ways, f"{model}: builder made {n} rows, model has {ways} ways"

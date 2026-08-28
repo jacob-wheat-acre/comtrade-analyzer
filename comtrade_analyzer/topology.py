@@ -686,7 +686,12 @@ def summary(net: Network) -> str:
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(
         description="Load, validate and draw a mainline feeder topology.")
-    p.add_argument("topology", help="Topology CSV (feeder,node_id,kind,parent,tie_to)")
+    p.add_argument("topology", nargs="?",
+                   help="Topology CSV (feeder,node_id,kind,parent,tie_to)")
+    p.add_argument("--build", action="store_true",
+                   help="Open the builder page in a browser and exit. Type the "
+                        "feeder in, download topology.csv, then run this "
+                        "command on it to check it.")
     p.add_argument("--devices", metavar="CSV",
                    help="Device registry, to cross-check ids and total customers")
     p.add_argument("--feeder", metavar="NAME", default="",
@@ -695,6 +700,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="Validation findings only, no diagram")
     args = p.parse_args(argv)
 
+    if args.build:
+        page = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "topology_builder.html")
+        print(f"Builder → {page}")
+        print("  Pick each device's parent from the list, download topology.csv,")
+        print("  then run:  comtrade-topology topology.csv --devices devices.csv")
+        import webbrowser
+        webbrowser.open(f"file://{page}")
+        return 0
+
+    if not args.topology:
+        p.error("a topology CSV is required (or --build to make one)")
     if not os.path.exists(args.topology):
         print(f"error: no such file: {args.topology}", file=sys.stderr)
         return 2

@@ -268,6 +268,22 @@ A test enforces the fix text, same bar as `diagnostics.py`.
 The tool does **not** simulate FLISR — that runs in the ADMS. It draws the
 feeder and places events on it; the engineer judges whether the scheme behaved.
 
+**`topology_builder.html` is how a topology gets typed in.** `comtrade-topology
+--build` opens it. Its one job is that a connection can never point at a name
+that does not exist: every parent and tie is a **dropdown of the rows already
+entered**, and the "+ PMH cabinet" button writes one row per way, which is the
+tedious part.
+
+It carries **no second validator**. Everything real — over-connected cabinets,
+orphan branches, duplicate ids, feeder-name mismatches — belongs to
+`topology.validate()`, and the page points at `comtrade-topology` for it. Two
+implementations of the rules is how the page and the tool would start
+disagreeing. A test greps the page for those rule names and fails if any
+reappear.
+
+The round-trip test is the one that matters: drive the page, take the CSV it
+writes, and put it through the real loader and validator.
+
 `demo/topology.csv` is tracked (invented, matching `demo/devices.csv`); a real
 `topology.csv` is gitignored operational data, and
 `comtrade_analyzer/topology_template.csv` is what you copy.

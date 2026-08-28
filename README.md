@@ -349,7 +349,14 @@ for reading events: opening the device above a fork drops both limbs, while the
 branch recloser drops only one, and two records on sibling limbs are two faults
 rather than one fault seen twice.
 
+Rather than typing the CSV by hand, `comtrade-topology --build` opens a builder
+page in your browser: one row per device, with every parent and tie chosen from
+a dropdown of the devices you have already entered — so a connection can never
+point at a name that does not exist. A "+ PMH cabinet" button writes one row per
+switch way. Download `topology.csv` when you are done, then check it:
+
 ```bash
+comtrade-topology --build                       # type a feeder in
 comtrade-topology topology.csv --devices devices.csv
 comtrade-topology topology.csv --feeder "Maple Ave Feeder"
 comtrade-topology topology.csv --quiet          # validation findings only
