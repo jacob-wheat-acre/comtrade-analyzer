@@ -366,10 +366,12 @@ machine.
   — that moved to a badge above the device, icon plus record count. The badge
   follows the current filter, which is why `olRefresh()` hangs off every filter
   change and off `applyDrill`.
+- **Every box is filled** with its state colour and carries a black letter.
 - **State is never colour alone.** Red/green is the worst pair for
-  deuteranopia: an open device draws hollow with a heavy border, the run out to
-  an open tie is dashed and goes solid once closed, and both spell out OPEN or
-  CLOSED.
+  deuteranopia, and filling the boxes removed the hollow-means-open cue — so
+  **anything open says the word**: a tie's label is `TIE_x · OPEN`, and an open
+  device's own name becomes `RCL_y · OPEN` in the state colour. The run out to
+  an open tie is dashed and goes solid once it closes.
 - A tie's label is far wider than the box it sits under, so `clamped()` centres
   it but pulls it inside the canvas at either end rather than letting it run
   off.
@@ -425,7 +427,17 @@ every draw clobbered the last one's caption and the review page's own count
 came out as an em dash.
 
 **Two pages, one drawer.** `#pageNav` switches between the fleet review and
-`#pageFeeders`, which stacks every feeder grouped by substation. Both go through
+`#pageFeeders`, which shows **one substation at a time** (`#feedersSub`,
+`olStation`) — thirteen feeders at once is a scroll, not a view. The list comes
+from `olStations()`, read off the tree, so a substation added to `topology.csv`
+appears with no code change.
+
+**A tie can be walked through.** Clicking one calls `olJumpThroughTie()`: the
+far end is whichever end is not the feeder you are looking at, and if it is at
+another substation the dropdown switches too. `olRevealTie()` then scrolls that
+feeder's card into view and flashes the same tie there — landing on a page of
+feeders with nothing marked is no better than not moving. On the review page the
+same click switches `olFeeder` instead. Both go through
 `olDraw(host, feeder, opts)` — a second copy of the layout is how the two would
 drift apart, and a test counts the definitions. The all-feeders page passes
 `opts.onDevice` so a click there filters the table *and* returns you to it.

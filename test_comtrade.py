@@ -2334,8 +2334,9 @@ class TestTheDeviceSymbols:
         """
         tpl = self.TPL.read_text(encoding="utf-8")
         assert '"OPEN" : "CLOSED"' in tpl or '"CLOSED"' in tpl
-        # an open device is hollow; the run out to an open tie is dashed
-        assert 'open ? "var(--surface)" : col' in tpl
+        # every open thing says the word, and the run out to an open tie is dashed
+        assert '`${id} \\u00b7 OPEN`' in tpl, "an open device does not say OPEN"
+        assert '? "CLOSED" : "OPEN"' in tpl, "a tie does not say its state"
         assert 'stroke-dasharray="5 4"' in tpl
 
     def test_priority_moved_off_the_device_fill(self):
@@ -2380,3 +2381,64 @@ class TestTheDeviceSymbols:
         """A tie's label is far wider than the box it sits under."""
         tpl = self.TPL.read_text(encoding="utf-8")
         assert "const clamped = (cx, text" in tpl
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 25. Walking the system: substations, and following a tie through
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTheFeederPageWalksTheSystem:
+    """
+    A tie is the seam between two feeders, and often between two substations.
+    Reading an event across it meant finding the far feeder in a dropdown and
+    then finding the same tie again by eye.
+    """
+
+    TPL = Path(__file__).parent / "comtrade_analyzer" / "dashboard_template.html"
+
+    def test_the_feeders_page_is_scoped_to_one_substation(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert 'id="feedersSub"' in tpl
+        assert "let olStation" in tpl
+        assert "all.filter((s) => s.station === olStation)" in tpl
+
+    def test_the_substation_list_comes_from_the_tree(self):
+        """A substation added to topology.csv must appear without a code change."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "function olStations()" in tpl
+        assert 'TOPO.filter((n) => n.kind === "source")' in tpl
+
+    def test_a_tie_can_be_followed_to_its_other_side(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "function olJumpThroughTie(" in tpl
+        assert "function olTieEnds(" in tpl
+        # the far end is whichever end is not the feeder being looked at
+        assert "ends.a.feeder === fromFeeder ? ends.b : ends.a" in tpl
+
+    def test_following_a_tie_switches_substation_when_it_has_to(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "function olStationOf(" in tpl
+        assert "if (st && st !== olStation) { olStation = st; }" in tpl
+
+    def test_the_far_end_is_revealed_not_just_navigated_to(self):
+        """Landing on a page of feeders with nothing marked is no better."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "function olRevealTie(" in tpl
+        assert "ol-jumped" in tpl
+        assert "scrollIntoView" in tpl
+
+    def test_a_tie_is_addressable_and_clickable(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert 'data-tie="${esc(t.n.node_id)}"' in tpl
+        assert 'class="ol-dev ol-tie' in tpl
+
+    def test_a_tie_is_filled_not_outlined(self):
+        """
+        Filled green, like every other box. An outline read as a different kind
+        of object rather than an open one.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        body = tpl[tpl.index("/* Ties, drawn where the layout put them"):]
+        body = body[:body.index("/* Devices.")]
+        assert 'olDevice("recloser", x, y, RAD, col, col' in body
+        assert "var(--surface)" not in body, "the tie box is still hollow"

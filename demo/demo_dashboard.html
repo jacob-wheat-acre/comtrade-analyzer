@@ -561,6 +561,12 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
         <h2>Every feeder</h2>
         <span class="card-note" id="feedersNote"></span>
       </div>
+      <div class="ol-controls">
+        <label class="fld"><span>Substation</span>
+          <select id="feedersSub"></select>
+        </label>
+        <span class="ol-legend" id="feedersLegend"></span>
+      </div>
       <p class="note" id="feedersIntro"></p>
     </section>
     <div id="feederStack"></div>
@@ -607,6 +613,14 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
                 margin: 22px 0 10px; padding-bottom: 6px;
                 border-bottom: 1px solid var(--hairline); }
 .station-head:first-child { margin-top: 0; }
+/* Where a tie hand-off lands, so the eye finds it after the page moves. */
+@keyframes ol-flash {
+  0%, 100% { opacity: 1; }
+  25%, 75% { opacity: .25; }
+}
+.ol-jumped { animation: ol-flash .5s ease-in-out 2; }
+.ol-tie { cursor: pointer; }
+.ol-tie:focus { outline: 2px solid var(--chrome-2); outline-offset: 2px; }
 
 /* ---- Feeder one-line ------------------------------------------------------ */
 .ol-controls { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -2140,11 +2154,10 @@ let olIncident = null;    /* selected incident id, or null */
    it gets a box with an R too. */
 const OL_LETTER = { breaker: "B", recloser: "R", sectionalizer: "S" };
 
-function olDevice(kind, x, y, r, fill, stroke, sw = 1.8, open = false) {
-  /* The letter is black on a filled box — both the light and dark state reds
-     are light enough to carry it. On a hollow (open) box it follows the theme's
-     ink, or it would vanish against a dark background. */
-  const ink = open ? "var(--ink)" : "#111";
+function olDevice(kind, x, y, r, fill, stroke, sw = 1.8) {
+  /* Every box is filled with its state colour and carries a black letter.
+     Both state colours are light enough in both themes to hold it. */
+  const ink = "#111";
   return `<rect x="${x - r}" y="${y - r}" width="${2 * r}" height="${2 * r}" rx="2.5" ` +
          `fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>` +
          `<text x="${x}" y="${y + 4.4}" text-anchor="middle" class="ol-letter" ` +
@@ -2255,7 +2268,7 @@ function renderOneline() {
     `<span class="ol-key">${legendBox("B", "var(--sw-closed)", "var(--sw-closed)", 1.8, "#111")}breaker</span>`
   + `<span class="ol-key">${legendBox("R", "var(--sw-closed)", "var(--sw-closed)", 1.8, "#111")}recloser</span>`
   + `<span class="ol-key" style="color:var(--sw-closed)">closed</span>`
-  + `<span class="ol-key">${legendBox("R", "var(--surface)", "var(--sw-open)", 2.4, "var(--ink)")}</span>`
+  + `<span class="ol-key">${legendBox("R", "var(--sw-open)", "var(--sw-open)", 1.8, "#111")}</span>`
   + `<span class="ol-key" style="color:var(--sw-open)">open \u00b7 ties are reclosers, normally open</span>`
   + `<span class="ol-key" style="color:var(--muted)">badge = records \u00b7 ${
        Object.values(PRIO_META).map((m) => `<b style="color:var(${m.v})">${m.icon}</b>`).join(" ")
@@ -2351,11 +2364,17 @@ function olDraw(host, feeder, opts = {}) {
       `tie recloser \u00b7 ${esc(t.n.feeder)}`,
       `<b>${closed ? "CLOSED" : "OPEN"}</b>${closed ? " \u2014 restored this section" : " (normal state)"}`,
       `Ties to ${esc(farTxt)}`,
+      `<i>Click to follow it to the other side</i>`,
     ]));
 
-    g += `<g class="ol-dev${dim ? " ol-dim" : ""}" data-tip="${tip}">`;
-    g += olDevice("recloser", x, y, RAD,
-                  closed ? col : "var(--surface)", col, closed ? 1.8 : 3, !closed);
+    /* Clicking a tie walks through it: the far end of this same tie, on the
+       other feeder, switching substation if it is at another one. */
+    const jump = clickRef(() => olJumpThroughTie(t.n.node_id, feeder));
+    g += `<g class="ol-dev ol-tie${dim ? " ol-dim" : ""}" data-tip="${tip}" ` +
+         `data-click="${jump}" data-tie="${esc(t.n.node_id)}" ` +
+         `aria-label="${esc(t.n.node_id)}, ${closed ? "closed" : "open"}, ` +
+         `ties to ${esc(farTxt)}">`;
+    g += olDevice("recloser", x, y, RAD, col, col, closed ? 1.8 : 2.6);
     const nameTxt = `${t.n.node_id} \u00b7 ${closed ? "CLOSED" : "OPEN"}`;
     const farLine = `\u2192 ${farTxt}`;
     const a = clamped(x, nameTxt), c = clamped(x, farLine);
@@ -2415,8 +2434,7 @@ function olDraw(host, feeder, opts = {}) {
          `aria-label="${esc(id)}, ${open ? "open" : "closed"}, ` +
          `${evs.length} record${evs.length === 1 ? "" : "s"}">`;
     g += ring;
-    g += olDevice(p.n.kind, x, y, RAD,
-                  open ? "var(--surface)" : col, col, open ? 3 : 1.8, open);
+    g += olDevice(p.n.kind, x, y, RAD, col, col, open ? 2.6 : 1.8);
     /* Record count and its priority, above the device so the state colour
        underneath stays unambiguous. */
     if (evs.length) {
@@ -2427,9 +2445,13 @@ function olDraw(host, feeder, opts = {}) {
       g += `<text x="${x}" y="${y - RAD - 9}" text-anchor="middle" class="ol-badge" ` +
            `fill="var(${meta ? meta.v : "--ink"})">${esc(label)}</text>`;
     }
-    const nm = clamped(x, id);
+    /* An open device says so in words. Filled boxes mean state is otherwise
+       carried by colour alone, and red/green is the worst pair to rely on. */
+    const nameTxt = open ? `${id} \u00b7 OPEN` : id;
+    const nm = clamped(x, nameTxt);
     g += `<text x="${nm.x}" y="${y + RAD + 15}" text-anchor="${nm.anchor}" ` +
-         `class="ol-name">${esc(id)}</text>`;
+         `class="ol-name"${open ? ` fill="${col}" style="font-weight:700"` : ""}>` +
+         `${esc(nameTxt)}</text>`;
     g += `</g>`;
   });
 
@@ -2509,6 +2531,59 @@ function olDrawIncidents() {
    system look like — and it does not fit in a dropdown.
    --------------------------------------------------------------------------- */
 let olPage = "review";
+let olStation = null;     /* substation shown on the all-feeders page */
+
+/* Which substation a feeder belongs to, from the tree. */
+function olStationOf(feeder) {
+  const st = olStations().find((s) => s.feeders.includes(feeder));
+  return st ? st.station : null;
+}
+
+/* Both ends of a tie, as {feeder, device}. A tie is authored once, so one end
+   is its parent and the other its tie_to — which side is "here" depends on the
+   feeder you are looking at. */
+function olTieEnds(tieId) {
+  const t = olNode(tieId);
+  if (!t) return null;
+  const a = olNode(t.parent), b = olNode(t.tie_to);
+  return { a, b };
+}
+
+/* Follow a tie to its other side: the same tie, drawn on the other feeder.
+   Switches substation when the far feeder is at a different one. */
+function olJumpThroughTie(tieId, fromFeeder) {
+  const ends = olTieEnds(tieId);
+  if (!ends || !ends.a || !ends.b) return;
+  const far = ends.a.feeder === fromFeeder ? ends.b : ends.a;
+  if (!far || !far.feeder) return;
+
+  if (olPage === "feeders") {
+    const st = olStationOf(far.feeder);
+    if (st && st !== olStation) { olStation = st; }
+    renderFeederPage();
+    olRevealTie(far.feeder, tieId);
+  } else {
+    olFeeder = far.feeder;
+    olIncident = null;
+    renderOneline();
+    olRevealTie(null, tieId);
+  }
+}
+
+/* Scroll the far end into view and flash it, so the eye lands on the device
+   the page just moved to rather than hunting for it. */
+function olRevealTie(feeder, tieId) {
+  const scope = feeder
+    ? document.querySelector(`[data-feeder="${CSS.escape(feeder)}"]`)
+    : $("olDiagram");
+  const card = feeder ? (scope && scope.closest(".feeder-card")) : $("onelineCard");
+  if (card) card.scrollIntoView({ block: "center", behavior: "smooth" });
+  const node = (scope || document).querySelector(`[data-tie="${CSS.escape(tieId)}"]`);
+  if (!node) return;
+  node.classList.remove("ol-jumped");
+  void node.getBoundingClientRect();
+  node.classList.add("ol-jumped");
+}
 
 /* Substations, and the feeders hanging off each bus. Read from the tree so a
    new substation appears here the moment it appears in topology.csv. */
@@ -2538,22 +2613,40 @@ function showPage(name) {
 function renderFeederPage() {
   const host = $("feederStack");
   if (!TOPO.length) return;
-  const stations = olStations();
+  const all = olStations();
   const rows = currentRows();
   const byDev = olEventsByDevice(rows);
+
+  if (!olStation || !all.some((s) => s.station === olStation)) {
+    /* Open on the substation carrying the most events. */
+    const tally = new Map();
+    EV.forEach((e) => tally.set(e.station, (tally.get(e.station) || 0) + 1));
+    olStation = all.slice().sort((a, b) =>
+      (tally.get(b.station) || 0) - (tally.get(a.station) || 0))[0].station;
+  }
+  const stations = all.filter((s) => s.station === olStation);
+
+  const sel = $("feedersSub");
+  sel.innerHTML = all.map((s) =>
+    `<option value="${esc(s.station)}"${s.station === olStation ? " selected" : ""}>` +
+    `${esc(s.station)} \u00b7 ${s.feeders.length} feeder${s.feeders.length === 1 ? "" : "s"}` +
+    `</option>`).join("");
+  sel.onchange = () => { olStation = sel.value; renderFeederPage(); };
+  $("feedersLegend").innerHTML = $("olLegend").innerHTML;
 
   const incByFeeder = new Map();
   INCIDENTS.forEach((i) => (i.feeders || []).forEach((f) =>
     incByFeeder.set(f, (incByFeeder.get(f) || 0) + 1)));
 
   $("feedersNote").textContent =
-    `${stations.length} substation(s), ` +
-    `${stations.reduce((a, s) => a + s.feeders.length, 0)} feeder(s), ` +
-    `${TOPO.filter((n) => n.kind === "tie").length} tie(s)`;
+    `${all.length} substation(s), ` +
+    `${all.reduce((a, s) => a + s.feeders.length, 0)} feeder(s), ` +
+    `${TOPO.filter((n) => n.kind === "tie").length} tie(s) in the model`;
   $("feedersIntro").textContent =
     "Mainline connectivity only — no laterals, fuses or impedance. Device counts "
-    + "follow the filters on the review page. Clicking a device filters the event "
-    + "table to it and takes you back there.";
+    + "follow the filters on the review page. Click a device to filter the event "
+    + "table to it and go back there; click a tie to follow it to the feeder on "
+    + "the other side, switching substation if it is at another one.";
 
   /* Build the shells first, then draw into them: an SVG sized from a container
      that is still display:none comes out at the fallback width. */
