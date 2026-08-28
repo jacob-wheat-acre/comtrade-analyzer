@@ -367,9 +367,12 @@ machine.
   follows the current filter, which is why `olRefresh()` hangs off every filter
   change and off `applyDrill`.
 - **State is never colour alone.** Red/green is the worst pair for
-  deuteranopia: an open device draws hollow with a heavy border, an open tie's
-  run to the far feeder is dashed and goes solid once closed, and both spell
-  out OPEN or CLOSED.
+  deuteranopia: an open device draws hollow with a heavy border, the run out to
+  an open tie is dashed and goes solid once closed, and both spell out OPEN or
+  CLOSED.
+- A tie's label is far wider than the box it sits under, so `clamped()` centres
+  it but pulls it inside the canvas at either end rather than letting it run
+  off.
 - With no incident selected the drawing is the **normal state** of the system —
   every protective device closed, every tie open. Selecting an incident opens
   the device that locked out and closes the tie that restored the section.
@@ -381,6 +384,16 @@ machine.
 - **A tie is a recloser**, so it draws as a box with an `R` like any other,
   green because it is normally open. It carries its own name and `OPEN`/
   `CLOSED`, because a tie is a device somebody can operate.
+- **A tie is laid out as a child, at the end of the line** — one column further
+  out than the device it hangs off, on its own row when the mainline continues
+  past it, with the run to it dashed. It used to hang below its device as a
+  stub, and two ties in one column then read as **two open switches in series**,
+  which is not a thing: a section fed through two open ties has no source at
+  all. Real devices are walked before ties so the mainline keeps the parent's
+  row and the tie branches away from it.
+- `L.devices` excludes ties; `L.ties` is just them; `L.placed` is both and is
+  only used for drawing conductors. Counting ties as devices silently inflates
+  the device totals with switches that carry nothing.
 - The letter is black on a filled box — both the light and dark state reds are
   light enough to carry it — and follows `--ink` on a hollow (open) box, or it
   would vanish against a dark background.
@@ -420,11 +433,9 @@ drift apart, and a test counts the definitions. The all-feeders page passes
 Build the card shells before drawing into them: an SVG sized from a container
 that is still `display:none` comes out at the fallback width.
 
-Ties stagger by **row**, not by device: a device can back up more than one
-feeder, *and* two devices on one row can each have a tie — the labels are long
-enough to collide either way. `L.tieSlots` reserves the lane height and widens
-`rowH` so the next row clears it. The tie drop starts below the device's own
-name, not beside it.
+A device can back up more than one feeder; laid out as children, the second and
+later ties fall to their own rows like any other sibling, which is what keeps
+their labels apart.
 
 ## Dashboard cross-filtering
 

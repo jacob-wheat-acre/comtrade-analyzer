@@ -2056,13 +2056,15 @@ class TestTheFeederOneLine:
         assert tpl.count("function olDraw(") == 1
         assert tpl.count("function olLayout(") == 1
 
-    def test_ties_sharing_a_device_get_their_own_drop(self):
+    def test_ties_sharing_a_device_each_get_their_own_row(self):
         """
-        A device can back up more than one feeder. Without a slot per tie the
-        labels land on top of each other and read as noise.
+        A device can back up more than one feeder. Laid out as children, the
+        second and later ties fall to their own rows like any other sibling,
+        which is what keeps their labels apart.
         """
         tpl = self.TPL.read_text(encoding="utf-8")
-        assert "t.slot" in tpl and "tieSlots" in tpl
+        assert "all.forEach((item, i) => {" in tpl
+        assert "if (i > 0) row += 1;" in tpl
 
     def test_the_hidden_attribute_is_settled_once(self):
         """
@@ -2284,7 +2286,7 @@ class TestTheDeviceSymbols:
 
     def test_a_tie_is_drawn_as_a_recloser(self):
         body = self._drawer()
-        i = body.index("/* Ties.")
+        i = body.index("/* Ties, drawn where the layout put them")
         j = body.index("/* Devices.")
         assert 'olDevice("recloser"' in body[i:j]
 
@@ -2309,7 +2311,7 @@ class TestTheDeviceSymbols:
         body = tpl[tpl.index("function olDraw("):]
         body = body[:body.index("\nfunction ")]
         assert "onelineNote" not in body and "onelineFoot" not in body
-        assert "return L.placed.reduce" in body
+        assert "return L.devices.reduce" in body
 
     def test_red_is_closed_and_green_is_open(self):
         """
@@ -2320,7 +2322,7 @@ class TestTheDeviceSymbols:
         assert "--sw-closed" in tpl and "--sw-open" in tpl
         assert "red closed, green open" in tpl
         # a tie is open in its normal state, so it draws with the open token
-        i = tpl.index("/* Ties.")
+        i = tpl.index("/* Ties, drawn where the layout put them")
         j = tpl.index("/* Devices.", i)
         assert "--sw-open" in tpl[i:j]
 
@@ -2332,9 +2334,9 @@ class TestTheDeviceSymbols:
         """
         tpl = self.TPL.read_text(encoding="utf-8")
         assert '"OPEN" : "CLOSED"' in tpl or '"CLOSED"' in tpl
-        # an open device is hollow; an open tie's run to the far feeder is dashed
+        # an open device is hollow; the run out to an open tie is dashed
         assert 'open ? "var(--surface)" : col' in tpl
-        assert 'closed ? "" : \'stroke-dasharray="4 3"\'' in tpl
+        assert 'stroke-dasharray="5 4"' in tpl
 
     def test_priority_moved_off_the_device_fill(self):
         """
@@ -2351,11 +2353,30 @@ class TestTheDeviceSymbols:
         assert "olDevice(p.n.kind, x, y, RAD," in body
         assert "meta.v" not in body.split("olDevice(p.n.kind")[1].split(";")[0]
 
-    def test_ties_stagger_by_row_not_by_device(self):
+    def test_a_tie_is_laid_out_as_a_child_not_a_stub(self):
         """
-        Two ties on one row collide even when they hang off different devices —
-        the labels are long. Riverbend 4402 is the case that caught it.
+        Drawn as a stub under its device, two ties in one column read as two
+        open switches in series — and a section fed through two open ties has
+        no source at all. A tie is where the line ENDS: one column further out,
+        on its own row when the mainline continues past it.
         """
         tpl = self.TPL.read_text(encoding="utf-8")
-        assert "Stagger ties by ROW, not by device" in tpl
-        assert "const k = t.anchor.row;" in tpl
+        assert "two open switches in series" in tpl
+        assert "depth: depth + 1" in tpl, "ties are not placed one column out"
+        # real devices are walked first so the mainline keeps the parent's row
+        assert "ties last" in tpl
+
+    def test_a_tie_is_never_counted_as_a_mainline_device(self):
+        """`devices` and `ties` are separate, or the counts and the record
+        totals silently include switches that carry nothing."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "const devices = placed.filter((p) => !p.isTie);" in tpl
+        body = tpl[tpl.index("function olDraw("):tpl.index("\nfunction olRefresh")]
+        assert "L.placed.forEach" in body      # conductors: everything
+        assert "L.devices.forEach" in body     # device boxes: no ties
+        assert "L.ties.forEach" in body
+
+    def test_long_tie_labels_are_pulled_inside_the_canvas(self):
+        """A tie's label is far wider than the box it sits under."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "const clamped = (cx, text" in tpl

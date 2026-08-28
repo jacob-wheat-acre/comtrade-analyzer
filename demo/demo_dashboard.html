@@ -2157,43 +2157,56 @@ function olLayout(feeder) {
   const inFeeder = (n) => n && n.feeder === feeder && n.kind !== "tie";
   const heads = TOPO.filter((n) => inFeeder(n) && !inFeeder(olNode(n.parent)));
 
-  const placed = [];
-  let row = 0;
-  const walk = (n, depth) => {
-    placed.push({ n, depth, row });
-    const kids = olKids(n.node_id).filter(inFeeder);
-    kids.forEach((k, i) => { if (i > 0) row += 1; walk(k, depth + 1); });
-  };
-  heads.forEach((h, i) => { if (i > 0) row += 1; walk(h, 1); });
-
-  const at = new Map(placed.map((p) => [nkey(p.n.node_id), p]));
-
   /* A tie is authored once, from whichever side the author was looking at, so
-     it may hang off either end. Anchor it to the end that is on this feeder. */
-  const ties = [];
+     it may hang off either end. Graft it onto whichever end is on this feeder,
+     and lay it out as an ordinary child.
+
+     It has to be a child, not a stub hanging under its device. Drawn as a drop,
+     two ties in one column read as two open switches in series — and a section
+     fed through two open ties has no source at all. A tie sits at the END of
+     the line: one column further out, on its own row when the mainline
+     continues past it. */
+  const grafted = new Map();
   TOPO.filter((n) => n.kind === "tie").forEach((t) => {
     const near = olNode(t.parent), far = olNode(t.tie_to);
     let anchor = null, other = null;
     if (near && near.feeder === feeder) { anchor = near; other = far; }
     else if (far && far.feeder === feeder) { anchor = far; other = near; }
-    if (!anchor || !at.has(nkey(anchor.node_id))) return;
-    ties.push({ tie: t, anchor: at.get(nkey(anchor.node_id)), other });
+    if (!anchor) return;
+    const k = nkey(anchor.node_id);
+    if (!grafted.has(k)) grafted.set(k, []);
+    grafted.get(k).push({ tie: t, other });
   });
 
-  /* Stagger ties by ROW, not by device. A device can back up more than one
-     feeder, and two devices on one row can each have a tie — either way the
-     labels are long enough to collide unless every tie on a row gets its own
-     drop depth. */
-  const used = new Map();
-  ties.forEach((t) => {
-    const k = t.anchor.row;
-    const slot = used.get(k) || 0;
-    t.slot = slot;
-    used.set(k, slot + 1);
-  });
-  const tieSlots = Math.max(0, ...[...used.values()]);
+  const placed = [];
+  const ties = [];
+  let row = 0;
+  const walk = (n, depth) => {
+    placed.push({ n, depth, row });
+    /* Real devices first so the mainline keeps the parent's row; ties last,
+       because the tie is where the line ends, not where it continues. */
+    const kids = olKids(n.node_id).filter(inFeeder);
+    const mine = grafted.get(nkey(n.node_id)) || [];
+    const all = [...kids.map((k) => ({ dev: k })), ...mine.map((t) => ({ tie: t }))];
+    all.forEach((item, i) => {
+      if (i > 0) row += 1;
+      if (item.dev) {
+        walk(item.dev, depth + 1);
+      } else {
+        const rec = { n: item.tie.tie, depth: depth + 1, row,
+                      other: item.tie.other, isTie: true,
+                      anchorId: n.node_id };
+        placed.push(rec);
+        ties.push(rec);
+      }
+    });
+  };
+  heads.forEach((h, i) => { if (i > 0) row += 1; walk(h, 1); });
 
-  return { placed, at, ties, tieSlots, rows: row + 1,
+  const at = new Map(placed.map((p) => [nkey(p.n.node_id), p]));
+  const devices = placed.filter((p) => !p.isTie);
+
+  return { placed, devices, at, ties, rows: row + 1,
            depth: Math.max(1, ...placed.map((p) => p.depth)) };
 }
 
@@ -2256,7 +2269,7 @@ function olDrawDiagram() {
   const shown = olDraw($("olDiagram"), olFeeder, { incident: olIncident });
   const L = olLayout(olFeeder);
   $("onelineNote").textContent =
-    `${L.placed.length} device${L.placed.length === 1 ? "" : "s"}, ` +
+    `${L.devices.length} device${L.devices.length === 1 ? "" : "s"}, ` +
     `${L.ties.length} tie${L.ties.length === 1 ? "" : "s"} · ${fmt(shown)} record(s) in view`;
   $("onelineFoot").textContent =
     "Mainline connectivity only — no laterals, fuses or impedance. Counts follow the "
@@ -2280,11 +2293,19 @@ function olDraw(host, feeder, opts = {}) {
      that now sits above every device. */
   const padL = 74, padR = 72, padT = 46;
   const colW = Math.max(120, (W - padL - padR) / Math.max(1, L.depth - 1 || 1));
-  const tieDrop = 30;
-  /* A row has to clear its own device name, its badge, and every tie hanging
-     off it, or the next row lands on the tie labels. */
-  const rowH = 76 + Math.max(0, L.tieSlots - 1) * tieDrop;
-  const H = padT + (L.rows - 1) * rowH + 46 + L.tieSlots * tieDrop;
+  /* A tie carries two label lines under it, so every row must clear those. */
+  const rowH = 86;
+  const H = padT + (L.rows - 1) * rowH + 70;
+
+  /* A tie's label is far wider than the box it sits under. Centre it, but pull
+     it inside the canvas at the ends rather than letting it run off. */
+  const clamped = (cx, text, cls, extra = "") => {
+    const half = text.length * 2.9;
+    let x = cx, anchor = "middle";
+    if (cx + half > W - 4) { x = W - 4; anchor = "end"; }
+    else if (cx - half < 4) { x = 4; anchor = "start"; }
+    return { x, anchor, cls, extra };
+  };
   const X = (d) => padL + (d - 1) * colW;
   const Y = (r) => padT + r * rowH;
   const RAD = 13;
@@ -2299,53 +2320,57 @@ function olDraw(host, feeder, opts = {}) {
 
   /* Conductors. Orthogonal, the way a one-line is drawn — never a diagonal. */
   L.placed.forEach((p) => {
-    const par = L.at.get(nkey(p.n.parent));
+    /* A grafted tie's parent in the file may be on the other feeder, so take
+       the anchor it was actually laid out under. */
+    const par = L.at.get(nkey(p.n.parent))
+             || (p.isTie ? L.at.get(nkey(p.anchorId)) : null);
     const x2 = X(p.depth), y2 = Y(p.row);
     const x1 = par ? X(par.depth) : busX, y1 = par ? Y(par.row) : y2;
     const mid = par ? x1 + (x2 - x1) / 2 : x1 + 22;
+    const tieClosed = p.isTie && inc && inc.restored && p.other
+                      && incDevices.has(nkey(p.other.node_id));
+    const stroke = p.isTie ? `var(${tieClosed ? "--sw-closed" : "--sw-open"})`
+                           : "var(--baseline)";
+    const dash = p.isTie && !tieClosed ? ' stroke-dasharray="5 4"' : "";
     g += `<path d="M${x1} ${y1} H${mid} V${y2} H${x2}" fill="none" ` +
-         `stroke="var(--baseline)" stroke-width="2"/>`;
+         `stroke="${stroke}" stroke-width="2"${dash}/>`;
   });
 
-  /* Ties. At this utility a tie is a recloser, so it is drawn exactly like
-     one: a box with an R, green because it is normally open. State is not left
-     to colour — the run to the far feeder is dashed while the tie is open and
-     solid once it has closed, and the label spells it out. */
+  /* Ties, drawn where the layout put them: at the end of the line, one column
+     out from the device they hang off. Same box as any other recloser, green
+     because it is normally open, with the run to it dashed until it closes. */
   L.ties.forEach((t) => {
-    const x = X(t.anchor.depth), y = Y(t.anchor.row) + RAD + 20;
-    const yBox = y + 18 + (t.slot || 0) * tieDrop;
+    const x = X(t.depth), y = Y(t.row);
     const far = t.other;
-    const farTxt = far ? `${far.node_id} \u00b7 ${far.feeder}` : t.tie.tie_to;
-
-    /* A tie the selected incident closed to restore the section is not open. */
+    const farTxt = far ? `${far.node_id} \u00b7 ${far.feeder}` : t.n.tie_to;
     const closed = inc && inc.restored && far && incDevices.has(nkey(far.node_id));
     const col = `var(${closed ? "--sw-closed" : "--sw-open"})`;
-    const R2 = RAD - 2;
+    const dim = incDevices.size && !closed && !(far && incDevices.has(nkey(far.node_id)));
 
-    const flip = x + 44 + farTxt.length * 5.6 > W - 4;
-    const d = flip ? -1 : 1;
+    const tip = tipRef(tipHTML(esc(t.n.node_id), [
+      `tie recloser \u00b7 ${esc(t.n.feeder)}`,
+      `<b>${closed ? "CLOSED" : "OPEN"}</b>${closed ? " \u2014 restored this section" : " (normal state)"}`,
+      `Ties to ${esc(farTxt)}`,
+    ]));
 
-    /* Drop from the device it hangs off, then the run onward to the far feeder. */
-    g += `<path d="M${x} ${y} V${yBox - R2}" fill="none" stroke="${col}" ` +
-         `stroke-width="2" ${closed ? "" : 'stroke-dasharray="4 3"'}/>`;
-    g += `<path d="M${x + d * R2} ${yBox} H${x + d * (R2 + 12)}" fill="none" ` +
-         `stroke="${col}" stroke-width="2" ${closed ? "" : 'stroke-dasharray="4 3"'}/>`;
-    g += olDevice("recloser", x, yBox, R2,
+    g += `<g class="ol-dev${dim ? " ol-dim" : ""}" data-tip="${tip}">`;
+    g += olDevice("recloser", x, y, RAD,
                   closed ? col : "var(--surface)", col, closed ? 1.8 : 3, !closed);
-
-    const tx = x + d * (R2 + 16);
-    g += `<text x="${tx}" y="${yBox - 5}" class="ol-tie-name" fill="${col}" ` +
-         `text-anchor="${flip ? "end" : "start"}">` +
-         `${esc(t.tie.node_id)} \u00b7 ${closed ? "CLOSED" : "OPEN"}</text>`;
-    g += `<text x="${tx}" y="${yBox + 11}" class="ol-tie-label" ` +
-         `text-anchor="${flip ? "end" : "start"}">\u2192 ${esc(farTxt)}</text>`;
+    const nameTxt = `${t.n.node_id} \u00b7 ${closed ? "CLOSED" : "OPEN"}`;
+    const farLine = `\u2192 ${farTxt}`;
+    const a = clamped(x, nameTxt), c = clamped(x, farLine);
+    g += `<text x="${a.x}" y="${y + RAD + 15}" text-anchor="${a.anchor}" ` +
+         `class="ol-tie-name" fill="${col}">${esc(nameTxt)}</text>`;
+    g += `<text x="${c.x}" y="${y + RAD + 29}" text-anchor="${c.anchor}" ` +
+         `class="ol-tie-label">${esc(farLine)}</text>`;
+    g += `</g>`;
   });
 
   /* Devices. Fill is switch STATE — red closed, green open, the utility's
      convention — so it cannot also carry review priority; that moves to a
      badge above the device. State is never colour alone: an open device is
      drawn hollow with a heavy ring, a closed one solid. */
-  L.placed.forEach((p) => {
+  L.devices.forEach((p) => {
     const id = p.n.node_id;
     const evs = byDev.get(nkey(id)) || [];
     const worst = evs.length ? Math.min(...evs.map((e) => e.priority)) : null;
@@ -2402,7 +2427,9 @@ function olDraw(host, feeder, opts = {}) {
       g += `<text x="${x}" y="${y - RAD - 9}" text-anchor="middle" class="ol-badge" ` +
            `fill="var(${meta ? meta.v : "--ink"})">${esc(label)}</text>`;
     }
-    g += `<text x="${x}" y="${y + RAD + 14}" text-anchor="middle" class="ol-name">${esc(id)}</text>`;
+    const nm = clamped(x, id);
+    g += `<text x="${nm.x}" y="${y + RAD + 15}" text-anchor="${nm.anchor}" ` +
+         `class="ol-name">${esc(id)}</text>`;
     g += `</g>`;
   });
 
@@ -2414,7 +2441,7 @@ function olDraw(host, feeder, opts = {}) {
   /* The count is returned, never written to a fixed element: this same drawer
      fills thirteen cards on the all-feeders page, and each would clobber the
      last one's caption. */
-  return L.placed.reduce((a, p) => a + ((byDev.get(nkey(p.n.node_id)) || []).length), 0);
+  return L.devices.reduce((a, p) => a + ((byDev.get(nkey(p.n.node_id)) || []).length), 0);
 }
 
 /* Redraw the diagram only. The incident list does not depend on the filters,
@@ -2534,11 +2561,11 @@ function renderFeederPage() {
     <div class="station-head">${esc(st.station)}</div>
     ${st.feeders.map((f) => {
       const L = olLayout(f);
-      const n = L.placed.reduce((a, p) => a + ((byDev.get(nkey(p.n.node_id)) || []).length), 0);
-      const p1 = L.placed.reduce((a, p) => a +
+      const n = L.devices.reduce((a, p) => a + ((byDev.get(nkey(p.n.node_id)) || []).length), 0);
+      const p1 = L.devices.reduce((a, p) => a +
         ((byDev.get(nkey(p.n.node_id)) || []).filter((e) => e.priority === 1).length), 0);
       const bits = [
-        `${L.placed.length} device${L.placed.length === 1 ? "" : "s"}`,
+        `${L.devices.length} device${L.devices.length === 1 ? "" : "s"}`,
         `${L.ties.length} tie${L.ties.length === 1 ? "" : "s"}`,
         `${fmt(n)} record${n === 1 ? "" : "s"}`,
         `${fmt(incByFeeder.get(f) || 0)} incident${(incByFeeder.get(f) || 0) === 1 ? "" : "s"}`,
