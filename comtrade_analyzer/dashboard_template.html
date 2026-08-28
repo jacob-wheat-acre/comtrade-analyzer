@@ -155,27 +155,10 @@ h2 { font-size: 13px; font-weight: 600; }
 .chip-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 
 /* ---- Hero ---------------------------------------------------------------- */
-.hero {
-  /* auto-fit rather than a viewport media query: the hero collapses to one
-     column when its own container gets narrow, not just the window. */
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 28px; align-items: center;
-  padding: 24px 26px; margin-bottom: 14px;
-  background: var(--surface); border: 1px solid var(--hairline);
-  border-radius: var(--r-lg); box-shadow: var(--shadow);
-}
-.hero-figure {
-  font-family: var(--sans); font-size: 76px; font-weight: 600;
-  line-height: .95; letter-spacing: -0.035em; color: var(--c-exposed);
-  margin: 8px 0 6px;
-}
-.hero-claim { font-size: 17px; font-weight: 500; max-width: 34ch; line-height: 1.35; }
 .hero-claim strong { font-weight: 600; }
-.hero-note { margin-top: 12px; font-size: 12.5px; color: var(--ink-2); max-width: 46ch; }
 .hero-note b { font-weight: 600; color: var(--ink); }
 
 /* ---- Unit grid (one cell = one event) ------------------------------------ */
-.units { display: flex; flex-direction: column; gap: 10px; }
 .unit-grid { display: grid; gap: 3px; }
 .unit {
   aspect-ratio: 1; border-radius: var(--r-sm); border: 0; padding: 0;
@@ -448,21 +431,16 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
     <span class="scope-note" id="scopeNote"></span>
   </div>
 
-  <section class="hero">
-    <div>
-      <div class="eyebrow" id="heroEyebrow">Events analyzed</div>
-      <div class="hero-figure" id="heroFigure">—</div>
-      <p class="hero-claim" id="heroClaim"></p>
-      <p class="hero-note" id="heroNote"></p>
-    </div>
-    <div class="units">
-      <div class="eyebrow">One cell, one event</div>
-      <div class="unit-grid" id="unitGrid"></div>
-      <div class="legend" id="unitLegend"></div>
-    </div>
-  </section>
-
   <section class="kpis" id="kpis"></section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>One cell, one event</h2>
+      <span class="card-note" id="unitNote"></span>
+    </div>
+    <div class="unit-grid" id="unitGrid"></div>
+    <div class="legend" id="unitLegend"></div>
+  </section>
 
   <section class="grid-2">
     <div class="card">
@@ -1163,37 +1141,18 @@ function renderHeader() {
     .join("");
 }
 
-/* What was analysed, in one line. The EPSS conversion argument lives in the
-   "EPSS exposure by zone" card and in the class table below — it was three
-   paragraphs of it here, above the fold, before you could see any of the
-   numbers. */
-function renderHero() {
-  const n = TOT.events || EV.length;
-  const rows = scopedEvents();
-  const days = new Set(rows.map((e) => (e.timestamp || "").slice(0, 10))).size;
-  const devices = new Set(rows.map((e) => e.device_id).filter(Boolean)).size;
-  const feeders = new Set(rows.map((e) => e.feeder).filter(Boolean)).size;
-
-  $("heroEyebrow").textContent = scopeFeeder ? scopeFeeder
-    : (station !== ALL_STATIONS ? station : "Events analyzed");
-  $("heroFigure").textContent = fmt(n);
-
-  const p1 = TOT.priority_1 || 0;
-  $("heroClaim").innerHTML =
-    `COMTRADE records from <strong>${fmt(devices)}</strong> ` +
-    `device${devices === 1 ? "" : "s"} on <strong>${fmt(feeders)}</strong> ` +
-    `feeder${feeders === 1 ? "" : "s"}` +
-    (days ? `, over ${fmt(days)} day${days === 1 ? "" : "s"}` : "") +
-    `. <strong>${fmt(p1)}</strong> need same-day review.`;
-
-  const lock = TOT.locked_out || 0, hif = TOT.hif_suspect || 0;
+/* The run in one line, on the grid card. What used to be the hero: the
+   headline count is now the first tile, and the EPSS argument sits on the
+   "EPSS exposure by zone" card where the decision is made. */
+function renderRunNote() {
+  const el = $("unitNote");
+  if (!el) return;
   const bits = [];
-  if (lock) bits.push(`<b>${fmt(lock)}</b> locked out`);
-  if (hif) bits.push(`<b>${fmt(hif)}</b> flagged high-impedance`);
-  if (TOT.no_trip) bits.push(`<b>${fmt(TOT.no_trip)}</b> rode through without tripping`);
-  $("heroNote").innerHTML = bits.length
-    ? bits.join(" · ") + ". What EPSS would do to each is broken out by zone below."
-    : "What EPSS would do to each is broken out by zone below.";
+  if (TOT.priority_1) bits.push(`<b>${fmt(TOT.priority_1)}</b> need same-day review`);
+  if (TOT.locked_out) bits.push(`<b>${fmt(TOT.locked_out)}</b> locked out`);
+  if (TOT.hif_suspect) bits.push(`<b>${fmt(TOT.hif_suspect)}</b> high-impedance`);
+  if (TOT.no_trip) bits.push(`<b>${fmt(TOT.no_trip)}</b> rode through`);
+  el.innerHTML = bits.join(" · ");
 }
 
 function renderUnits() {
@@ -1204,8 +1163,13 @@ function renderUnits() {
     (CLASS_META[a.wso_class].order - CLASS_META[b.wso_class].order) ||
     String(a.timestamp).localeCompare(String(b.timestamp)));
   const n = sorted.length;
-  const cols = Math.min(Math.max(Math.ceil(Math.sqrt(n)), 6), 20);
-  const cell = n <= 144 ? 20 : n <= 400 ? 12 : 8;
+  /* Fill the card's width rather than sitting as a small square in the corner
+     of it — this used to live in the hero's narrow right-hand column, where a
+     roughly square block was right. */
+  const cell = n <= 60 ? 22 : n <= 400 ? 14 : 9;
+  const GAP = 3;
+  const fits = Math.max(6, Math.floor((widthOf(grid, 600) + GAP) / (cell + GAP)));
+  const cols = Math.min(n, fits);
   grid.style.gridTemplateColumns = `repeat(${cols}, ${cell}px)`;
 
   grid.innerHTML = sorted.map((e) => {
@@ -1244,7 +1208,20 @@ function renderUnits() {
    --------------------------------------------------------------------------- */
 function renderTiles() {
   const n = TOT.events || EV.length;
+  const rows = scopedEvents();
+  const devices = new Set(rows.map((e) => e.device_id).filter(Boolean)).size;
+  const feeders = new Set(rows.map((e) => e.feeder).filter(Boolean)).size;
+  const days = new Set(rows.map((e) => (e.timestamp || "").slice(0, 10))).size;
+
   const tiles = [
+    {
+      /* What used to be a full-width hero. It is a count, so it is a tile. */
+      label: scopeFeeder || (station !== ALL_STATIONS ? station : "Events analyzed"),
+      value: fmt(n),
+      sub: `${fmt(devices)} device${devices === 1 ? "" : "s"} · `
+         + `${fmt(feeders)} feeder${feeders === 1 ? "" : "s"} · `
+         + `${fmt(days)} day${days === 1 ? "" : "s"}`,
+    },
     {
       label: "Customer-hours per WSO day",
       value: fmt(Math.round(TOT.est_customer_hours_per_wso_day || 0)),
@@ -2126,7 +2103,7 @@ function applyStation(name) {
   const fsel = $("olFeeder");
   if (fsel && fsel.value !== scopeFeeder) fsel.value = scopeFeeder;
   expanded = null;
-  renderHero(); renderUnits(); renderTiles(); renderCharts();
+  renderTiles(); renderUnits(); renderRunNote(); renderCharts();
   renderBody(); renderOneline();
   if (olPage === "feeders") renderFeederPage();
   const note = $("scopeNote");
@@ -3009,7 +2986,7 @@ function renderFeederPage() {
    Init
    --------------------------------------------------------------------------- */
 function init() {
-  renderHeader(); renderHero(); renderUnits(); renderTiles(); renderCharts();
+  renderHeader(); renderTiles(); renderUnits(); renderRunNote(); renderCharts();
   renderFilters(); renderHead(); renderBody(); renderOneline(); renderScope();
   renderDataQuality(); renderClasses(); renderRules(); renderFooter(); renderFeedback();
 
@@ -3023,7 +3000,12 @@ function init() {
 let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { TIPS.clear(); CLICKS.clear(); renderCharts(); renderOneline(); olRefresh(); drawExpandedWaveform(); }, 150);
+  /* renderUnits belongs here now: the grid picks its column count from the
+     card width, so it has to be redrawn when that changes. */
+  resizeTimer = setTimeout(() => {
+    TIPS.clear(); CLICKS.clear();
+    renderCharts(); renderUnits(); renderOneline(); olRefresh(); drawExpandedWaveform();
+  }, 150);
 });
 
 if (document.readyState === "loading") {

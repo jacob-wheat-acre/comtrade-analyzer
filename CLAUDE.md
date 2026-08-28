@@ -491,14 +491,24 @@ A device can back up more than one feeder; laid out as children, the second and
 later ties fall to their own rows like any other sibling, which is what keeps
 their labels apart.
 
-## The hero states what was analysed
+## No hero
 
-The hero used to be three paragraphs arguing the EPSS conversion, above the
-fold and before any number. It now says what the run contains — records,
-devices, feeders, days, and how many need same-day review — and follows the
-scope like everything else. **The EPSS argument lives on the "EPSS exposure by
-zone" card** (`#zoneFoot`) and in the class table, which is where the decision
-is actually made.
+There is no hero pane. The headline count is the **first KPI tile** (`Events
+analyzed`, with devices / feeders / days beneath it), the event grid is an
+ordinary card, and the EPSS conversion argument lives on the "EPSS exposure by
+zone" card (`#zoneFoot`) and in the class table — where the decision is
+actually made. It was previously a full-width pane of three paragraphs above
+any number.
+
+`renderRunNote()` fills the grid card's caption. `renderHero` is gone; anything
+that used to call it now calls `renderTiles` / `renderUnits` / `renderRunNote`.
+
+The event grid picks its **column count from the card width**, so it fills the
+card rather than sitting as a small square in one corner — which means
+`renderUnits()` has to be in the resize handler. Check for horizontal overflow
+at a few widths after touching it, and note that an element wider than the
+viewport inside `.table-scroll` is fine: the page-level test is
+`document.body.scrollWidth > window.innerWidth`.
 
 `.grid-2` is `align-items: start`. Stretched, the tallest card in a row set the
 height for all of them, and the zone card's paragraph left the fault-mix and

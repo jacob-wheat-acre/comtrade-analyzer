@@ -2675,7 +2675,7 @@ class TestScopingByStation:
         tpl = self.TPL.read_text(encoding="utf-8")
         body = tpl[tpl.index("function applyStation("):]
         body = body[:body.index("\nfunction renderScope")]
-        for fn in ("renderHero", "renderUnits", "renderTiles", "renderCharts",
+        for fn in ("renderTiles", "renderUnits", "renderRunNote", "renderCharts",
                    "renderBody", "renderOneline"):
             assert fn in body, f"applyStation does not redraw {fn}"
 
