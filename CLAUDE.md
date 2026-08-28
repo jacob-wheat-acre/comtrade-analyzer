@@ -237,7 +237,13 @@ feeder,node_id,kind,parent,tie_to
 
 Each protective device **owns the section immediately downstream of it**, so a
 feeder is a source, a head device, two or three mid-line reclosers and its ties
-— six or seven lines. Normally-closed edges form one tree per source; `kind=tie`
+— six or seven lines. A mainline **forks**: `parent` gives branching for free,
+and the fork is the point — opening the device above it drops both limbs while
+the branch recloser drops one. In `fleet_gen._FEEDERS` a feeder carries
+`branches`, a tuple of `(tap_point, count)`; limb devices are lettered from `B`
+so they never collide with the trunk's `R` numbering. Beware: a substation bus
+feeding several feeders is **not** a fork, and a test that forgets to exclude
+sources passes on the bus instead. Normally-closed edges form one tree per source; `kind=tie`
 rows *are* the normally-open edges, and closing one re-parents a subtree onto
 another feeder.
 
@@ -358,9 +364,12 @@ machine.
   symbol carries the kind without reading the legend. Fill is the worst
   priority among that device's records *in the current filter*, which is why
   `olRefresh()` hangs off every filter change and off `applyDrill`.
-- A tie is authored once, from whichever side, so `olLayout` anchors it to
-  whichever end is on the drawn feeder and labels the other. The label flips to
-  the left of the stub near the right edge instead of being clipped.
+- A tie is drawn as the **open-switch symbol** — two terminals with the blade
+  hinged at the first and standing clear of the second — not a circle on a
+  stub, which read as just another device. The legend draws the symbols rather
+  than naming them. A tie is authored once, from whichever side, so `olLayout`
+  anchors it to whichever end is on the drawn feeder and labels the other; near
+  the right edge the whole assembly mirrors instead of clipping.
 - Selecting an incident rings the clearing device solid and the devices that
   held dashed, dims the rest, and drills the table to that incident's records.
 
@@ -375,6 +384,11 @@ incident list there would fight the click that triggered it.
 rule at element specificity, so *any* class rule setting `display` beats it.
 `.pagenav` did exactly that and the tab showed with no listeners attached — a
 visible control that does nothing.
+
+**`olDraw()` returns its record count and never writes a caption.** It fills
+thirteen cards on the all-feeders page; when it wrote `#onelineNote` itself,
+every draw clobbered the last one's caption and the review page's own count
+came out as an em dash.
 
 **Two pages, one drawer.** `#pageNav` switches between the fleet review and
 `#pageFeeders`, which stacks every feeder grouped by substation. Both go through

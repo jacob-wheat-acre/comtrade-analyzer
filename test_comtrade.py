@@ -1657,7 +1657,8 @@ class TestTheTopologyModel:
         txt = single_line(self._net(), "Bear Gulch 2110")
         assert "TIE_CH1215_RG2110" in txt
         assert "TIE_RG2110_VO3308" in txt
-        assert "BKR_RG-2104" not in txt     # unrelated feeder stays out
+        # A feeder with no tie into this one, at another substation, stays out.
+        assert "RCL_RB-4411" not in txt
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2191,3 +2192,99 @@ class TestTheGuiAndTheCliAgreeOnSweepsArguments:
         )
         result = sweep(args, {}, load_config(), quiet=True)
         assert result and result["aggregates"]["totals"]["events"] > 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 24. Branching mainlines, and the tie symbol
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBranchingFeeders:
+    """
+    A mainline is not always a chain. It forks, and the fork is the point:
+    opening the device above it drops both limbs, opening the branch recloser
+    drops one. Nothing downstream can tell those apart without the tree.
+    """
+
+    ROOT = Path(__file__).parent
+
+    def _net(self):
+        from comtrade_analyzer.topology import load_topology
+        return load_topology(str(self.ROOT / "demo" / "topology.csv"))
+
+    def _limbs(self, net, node):
+        """Switching children on the SAME feeder — a bus feeding several
+        feeders is not a branching mainline, it is a substation."""
+        return [c for c in net.children(node.node_id)
+                if c.kind in ("breaker", "recloser") and c.feeder == node.feeder]
+
+    def _forks(self, net):
+        return [n for n in net.nodes()
+                if not n.is_source and len(self._limbs(net, n)) > 1]
+
+    def test_the_demo_has_a_feeder_that_forks(self):
+        assert self._forks(self._net()), "no branching mainline in the demo topology"
+
+    def test_a_fork_is_on_the_mainline_not_at_the_bus(self):
+        net = self._net()
+        for n in self._forks(net):
+            assert net.depth(n.node_id) >= 1
+            assert not n.is_source
+
+    def test_opening_above_a_fork_drops_both_limbs(self):
+        from comtrade_analyzer.wso_impact import load_registry
+        registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
+        net = self._net()
+        fork = self._forks(net)[0]
+        limbs = self._limbs(net, fork)
+        above = net.customers_below(fork.node_id, registry)
+        for limb in limbs:
+            assert net.customers_below(limb.node_id, registry) < above
+
+    def test_limbs_are_not_on_one_path(self):
+        """Two records on sibling limbs are two faults, not one seen twice."""
+        net = self._net()
+        fork = self._forks(net)[0]
+        a, b = self._limbs(net, fork)[:2]
+        assert not net.on_same_path([a.node_id, b.node_id])
+        assert net.on_same_path([fork.node_id, a.node_id])
+
+    def test_the_generator_builds_the_branches_it_declares(self):
+        import random
+        from comtrade_analyzer import fleet_gen as fg
+        devices = {d.device_id: d for d in fg.build_registry(random.Random(1))}
+        for code, feeder, _kind, trunk, branches, _cust in fg._FEEDERS:
+            want = 1 + trunk + sum(c for _, c in branches)
+            got = sum(1 for d in devices.values() if d.feeder == feeder)
+            assert got == want, f"{feeder}: {got} devices, expected {want}"
+
+
+class TestTheTieSymbol:
+    """
+    A tie was a small circle on a dashed stub, which read as just another
+    device. It is now the open-switch symbol a one-line actually uses: two
+    terminals with the blade standing clear of the second.
+    """
+
+    TPL = Path(__file__).parent / "comtrade_analyzer" / "dashboard_template.html"
+
+    def test_the_tie_is_drawn_as_an_open_switch(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "Blade, hinged at the first terminal" in tpl
+        assert "N.O. \\u2192" in tpl or "N.O. →" in tpl
+
+    def test_the_legend_draws_the_symbols_rather_than_naming_them(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert tpl.count('class="ol-key"') >= 3
+
+    def test_the_drawer_never_writes_a_fixed_caption(self):
+        """
+        olDraw fills thirteen cards on the all-feeders page. When it wrote
+        #onelineNote itself, each draw clobbered the last one's caption and the
+        review page's count came out as an em dash.
+        """
+        import ast, re
+        tpl = self.TPL.read_text(encoding="utf-8")
+        body = tpl[tpl.index("function olDraw("):]
+        body = body[:body.index("\nfunction ")]
+        assert "onelineNote" not in body and "onelineFoot" not in body
+        assert "return L.placed.reduce" in body

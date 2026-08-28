@@ -623,6 +623,7 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 .ol-inc .ol-inc-sub { color: var(--muted); font-size: 10.5px; margin-top: 2px; }
 .ol-dev { cursor: pointer; }
 .ol-dev:focus { outline: 2px solid var(--chrome-2); outline-offset: 2px; }
+.ol-key { display: inline-flex; align-items: center; gap: 4px; }
 .ol-name { font-family: var(--mono); font-size: 10px; fill: var(--ink-2); }
 .ol-count { font-size: 10px; font-weight: 600; }
 .ol-tie-label { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
@@ -2216,7 +2217,22 @@ function renderOneline() {
     [`--muted`, "Priority 3"], [`--surface`, "No records"],
   ].map(([v, label]) =>
     `<span><i style="background:var(${v});border:1px solid var(--baseline)"></i>${esc(label)}</span>`
-  ).join("") + `<span>■ breaker &nbsp; ● recloser &nbsp; ╌╌ normally-open tie</span>`;
+  ).join("") + `<span class="ol-key">
+      <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
+        <rect x="2" y="2" width="8" height="8" rx="1.5" fill="none"
+              stroke="var(--ink-2)" stroke-width="1.6"/></svg>breaker</span>`
+    + `<span class="ol-key">
+      <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
+        <circle cx="6" cy="6" r="4.4" fill="none" stroke="var(--ink-2)" stroke-width="1.6"/>
+      </svg>recloser</span>`
+    + `<span class="ol-key">
+      <svg width="36" height="14" viewBox="0 0 36 14" aria-hidden="true">
+        <path d="M0 9 H4" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="3 3"/>
+        <path d="M4 9 L15 2" stroke="var(--muted)" stroke-width="1.6" stroke-linecap="round"/>
+        <circle cx="4" cy="9" r="2.4" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.6"/>
+        <circle cx="22" cy="9" r="2.4" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.6"/>
+        <path d="M24.4 9 H36" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="3 3"/>
+      </svg>normally-open tie</span>`;
 
   olDrawDiagram();
   olDrawIncidents();
@@ -2274,21 +2290,36 @@ function olDraw(host, feeder, opts = {}) {
          `stroke="var(--baseline)" stroke-width="2"/>`;
   });
 
-  /* Normally-open ties, dropped below the device they hang off. */
+  /* Normally-open ties. Drawn as the open-switch symbol a one-line actually
+     uses — two terminals with the blade lifted clear of the second — because a
+     small circle on a dashed stub was being read as just another device. */
   L.ties.forEach((t) => {
     const x = X(t.anchor.depth), y = Y(t.anchor.row) + RAD + 6;
     const yEnd = y + tieDrop - 12 + (t.slot || 0) * tieDrop;
-    const live = incDevices.size && t.other && incDevices.has(nkey(t.other.node_id));
-    g += `<path d="M${x} ${y} V${yEnd}" fill="none" stroke="var(${live ? "--c-clear" : "--baseline"})" ` +
-         `stroke-width="${live ? 2.5 : 1.5}" stroke-dasharray="4 3"/>`;
-    g += `<circle cx="${x}" cy="${yEnd}" r="4" fill="var(--surface)" ` +
-         `stroke="var(${live ? "--c-clear" : "--muted"})" stroke-width="1.5"/>`;
-    /* Ties on the last device would run the label off the right edge, so it
-       flips to the left of the stub rather than being clipped. */
-    const label = t.other ? `${t.other.node_id} · ${t.other.feeder}` : t.tie.tie_to;
-    const flip = x + 10 + label.length * 5.6 > W - 4;
-    g += `<text x="${x + (flip ? -8 : 8)}" y="${yEnd + 4}" class="ol-tie-label" ` +
-         `text-anchor="${flip ? "end" : "start"}">${esc(label)}</text>`;
+    const far = t.other;
+    const label = far ? `${far.node_id} · ${far.feeder}` : t.tie.tie_to;
+    const live = incDevices.size && far && incDevices.has(nkey(far.node_id));
+    const col = `var(${live ? "--c-clear" : "--muted"})`;
+    const wide = live ? 2.2 : 1.6;
+
+    /* Near the right edge the whole assembly mirrors rather than clipping. */
+    const flip = x + 34 + label.length * 5.6 > W - 4;
+    const d = flip ? -1 : 1;
+    const t2 = x + d * 20;
+
+    g += `<path d="M${x} ${y} V${yEnd}" fill="none" stroke="${col}" ` +
+         `stroke-width="${wide}" stroke-dasharray="4 3"/>`;
+    /* Blade, hinged at the first terminal and standing open. */
+    g += `<path d="M${x} ${yEnd} L${x + d * 13} ${yEnd - 9}" fill="none" ` +
+         `stroke="${col}" stroke-width="${wide}" stroke-linecap="round"/>`;
+    [x, t2].forEach((cx) => {
+      g += `<circle cx="${cx}" cy="${yEnd}" r="2.6" fill="var(--surface)" ` +
+           `stroke="${col}" stroke-width="${wide}"/>`;
+    });
+    g += `<path d="M${t2} ${yEnd} H${t2 + d * 7}" fill="none" stroke="${col}" ` +
+         `stroke-width="${wide}" stroke-dasharray="3 3"/>`;
+    g += `<text x="${t2 + d * 11}" y="${yEnd + 3.5}" class="ol-tie-label" ` +
+         `text-anchor="${flip ? "end" : "start"}">N.O. \u2192 ${esc(label)}</text>`;
   });
 
   /* Devices. */
@@ -2342,13 +2373,10 @@ function olDraw(host, feeder, opts = {}) {
   bindTips(host);
   bindClicks(host);
 
-  const shown = L.placed.reduce((a, p) => a + ((byDev.get(nkey(p.n.node_id)) || []).length), 0);
-  $("onelineNote").textContent =
-    `${L.placed.length} device${L.placed.length === 1 ? "" : "s"}, ` +
-    `${L.ties.length} tie${L.ties.length === 1 ? "" : "s"} · ${fmt(shown)} record(s) in view`;
-  $("onelineFoot").textContent =
-    "Mainline connectivity only — no laterals, fuses or impedance. Counts follow the "
-    + "filters above; click a device to filter the table to it.";
+  /* The count is returned, never written to a fixed element: this same drawer
+     fills thirteen cards on the all-feeders page, and each would clobber the
+     last one's caption. */
+  return L.placed.reduce((a, p) => a + ((byDev.get(nkey(p.n.node_id)) || []).length), 0);
 }
 
 /* Redraw the diagram only. The incident list does not depend on the filters,

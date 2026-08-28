@@ -317,7 +317,12 @@ Maple Ave Feeder,   TIE_MAPLE_PINE,tie,      RCL_123-456,   RCL_555-001
 
 Each protective device owns the section immediately downstream of it, so a whole
 feeder is six or seven lines. `tie` rows are the normally-open links to other
-feeders.
+feeders, drawn as an open switch on the one-line.
+
+A mainline may **fork** — just give two devices the same `parent`. That matters
+for reading events: opening the device above a fork drops both limbs, while the
+branch recloser drops only one, and two records on sibling limbs are two faults
+rather than one fault seen twice.
 
 ```bash
 comtrade-topology topology.csv --devices devices.csv

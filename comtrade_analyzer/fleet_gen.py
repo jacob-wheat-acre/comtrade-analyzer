@@ -84,23 +84,31 @@ _SUBSTATIONS = [
     ("RB", "Riverbend",    "ZONE_D", 1, 34.5),
 ]
 
-# station code, feeder name, head device kind, mid-line reclosers, feeder customers.
+# station code, feeder name, head kind, trunk reclosers, branches, customers.
+#
+# `branches` is a tuple of (tap_point, count): a limb of `count` reclosers
+# hanging off trunk device `tap_point`, where 0 is the head, 1 is R1 and so on.
+# A real mainline is not always a chain — it forks, and the fork matters,
+# because opening the device above it drops both limbs while opening the branch
+# recloser drops only one. Branch devices are lettered from B so they never
+# collide with the trunk's R numbering.
+#
 # Customers are explicit rather than drawn from the RNG: the registry is a
 # fixture, and an inserted feeder must not silently renumber every other one.
 _FEEDERS = [
-    ("CH", "Cedar Hollow 1211",  "breaker",  2, 1368),
-    ("CH", "Cedar Hollow 1212",  "recloser", 1,  872),
-    ("CH", "Sawmill Grade 1215", "recloser", 1,  435),
-    ("RG", "Ridgeline 2104",     "breaker",  2,  927),
-    ("RG", "Ridgeline 2106",     "recloser", 1,  885),
-    ("RG", "Bear Gulch 2110",    "recloser", 1,  574),
-    ("RG", "Summit Tap 2112",    "recloser", 0,  882),
-    ("VO", "Valley Oak 3301",    "breaker",  2, 2200),
-    ("VO", "Valley Oak 3305",    "recloser", 1,  358),
-    ("VO", "Almond Row 3308",    "recloser", 1,  801),
-    ("RB", "Riverbend 4402",     "breaker",  2, 1064),
-    ("RB", "Riverbend 4407",     "recloser", 1,  674),
-    ("RB", "Delta Flats 4411",   "recloser", 1,  498),
+    ("CH", "Cedar Hollow 1211",  "breaker",  2, (),          1368),
+    ("CH", "Cedar Hollow 1212",  "recloser", 1, (),           872),
+    ("CH", "Sawmill Grade 1215", "recloser", 1, (),           435),
+    ("RG", "Ridgeline 2104",     "breaker",  2, ((1, 2),),    927),
+    ("RG", "Ridgeline 2106",     "recloser", 1, (),           885),
+    ("RG", "Bear Gulch 2110",    "recloser", 1, (),           574),
+    ("RG", "Summit Tap 2112",    "recloser", 0, (),           882),
+    ("VO", "Valley Oak 3301",    "breaker",  2, ((1, 1), (2, 1)), 2200),
+    ("VO", "Valley Oak 3305",    "recloser", 1, (),           358),
+    ("VO", "Almond Row 3308",    "recloser", 1, (),           801),
+    ("RB", "Riverbend 4402",     "breaker",  2, ((0, 1),),   1064),
+    ("RB", "Riverbend 4407",     "recloser", 1, (),           674),
+    ("RB", "Delta Flats 4411",   "recloser", 1, (),           498),
 ]
 
 # Normally-open ties, (near device, far device). Authored once, from either
@@ -117,6 +125,8 @@ _TIES = [
     ("RCL_VO-3308R1", "RCL_RB-4407R1"),
     ("RCL_RB-4402R2", "RCL_RB-4407R1"),
     ("RCL_RB-4402R1", "RCL_RB-4411R1"),
+    ("RCL_RG-2104B2", "RCL_RG-2110R1"),
+    ("RCL_VO-3301B1", "RCL_VO-3308R1"),
 ]
 
 
@@ -167,24 +177,35 @@ def build_registry(rng: random.Random) -> List[Device]:
     stations = {code: (label, zone, tier, kv)
                 for code, label, zone, tier, kv in _SUBSTATIONS}
     devices: List[Device] = []
-    for code, feeder, head_kind, n_mid, customers in _FEEDERS:
+    for code, feeder, head_kind, n_trunk, branches, customers in _FEEDERS:
         label, zone, tier, kv = stations[code]
         num = _feeder_number(feeder)
         sub = f"{label} Sub"
         bus = _bus_id(code)
-        sections = _split_customers(customers, n_mid + 1)
+        total = 1 + n_trunk + sum(c for _, c in branches)
+        sections = _split_customers(customers, total)
+        nxt = iter(sections)
+
+        def _add(did, parent, kind="recloser"):
+            devices.append(Device(did, sub, feeder, zone, tier, next(nxt), kind,
+                                  parent=parent, bus=bus, kv_ll=kv,
+                                  fs=rng.choice(SAMPLE_RATES)))
+            return did
 
         head_id = f"{'BKR' if head_kind == 'breaker' else 'RCL'}_{code}-{num}"
-        devices.append(Device(head_id, sub, feeder, zone, tier, sections[0],
-                              head_kind, parent=bus, bus=bus, kv_ll=kv,
-                              fs=rng.choice(SAMPLE_RATES)))
+        _add(head_id, bus, head_kind)
+
+        trunk = [head_id]
         parent = head_id
-        for i in range(1, n_mid + 1):
-            mid_id = f"RCL_{code}-{num}R{i}"
-            devices.append(Device(mid_id, sub, feeder, zone, tier, sections[i],
-                                  "recloser", parent=parent, bus=bus, kv_ll=kv,
-                                  fs=rng.choice(SAMPLE_RATES)))
-            parent = mid_id
+        for i in range(1, n_trunk + 1):
+            parent = _add(f"RCL_{code}-{num}R{i}", parent)
+            trunk.append(parent)
+
+        for b, (tap, count) in enumerate(branches):
+            letter = chr(ord("B") + b)
+            parent = trunk[min(tap, len(trunk) - 1)]
+            for j in range(1, count + 1):
+                parent = _add(f"RCL_{code}-{num}{letter}{j}", parent)
     return devices
 
 
