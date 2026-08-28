@@ -2837,3 +2837,46 @@ class TestScopingByStation:
         assert "customers_covered: null," in body
         # and the page says so where it is always visible
         assert "saved no per-feeder" in tpl
+
+    # Sawmill Grade, Summit Tap, Almond Row and Delta Flats have buses of their
+    # own. Bear Gulch 2110 deliberately does not — a feeder named for a place
+    # but fed from a neighbouring substation is an ordinary arrangement, and
+    # this one is fed from Ridgeline. Both are fixture decisions, so name them.
+    _OWN_BUS = ("Sawmill Grade 1215", "Summit Tap 2112",
+                "Almond Row 3308", "Delta Flats 4411")
+    _FED_FROM_A_NEIGHBOUR = {"Bear Gulch 2110": "Ridgeline"}
+
+    def test_those_feeders_have_buses_of_their_own(self):
+        """
+        Grouping them under Cedar Hollow, Ridgeline, Valley Oak and Riverbend
+        made the picker read as though they shared a bus with a substation they
+        are not named for.
+        """
+        from comtrade_analyzer import fleet_gen as fg
+        stations = {code: label for code, label, *_ in fg._SUBSTATIONS}
+        for code, feeder, *_ in fg._FEEDERS:
+            if feeder in self._OWN_BUS:
+                assert stations[code] == " ".join(feeder.split()[:-1]), \
+                    f"{feeder} is still on {stations[code]} Sub"
+
+    def test_a_feeder_fed_from_a_neighbour_is_a_named_decision(self):
+        """So it reads as intended rather than as the bug that was just fixed."""
+        from comtrade_analyzer import fleet_gen as fg
+        stations = {code: label for code, label, *_ in fg._SUBSTATIONS}
+        for code, feeder, *_ in fg._FEEDERS:
+            head = " ".join(feeder.split()[:-1])
+            if stations[code] != head:
+                assert self._FED_FROM_A_NEIGHBOUR.get(feeder) == stations[code], (
+                    f"{feeder} sits on {stations[code]} Sub without being listed "
+                    "as fed from a neighbour — either give it its own bus or "
+                    "record the decision here")
+
+    def test_each_of_those_starts_at_its_own_breaker(self):
+        """A feeder out of its own substation begins at a breaker, not a
+        mid-line recloser."""
+        from comtrade_analyzer import fleet_gen as fg
+        alone = [c for c, *_ in fg._FEEDERS
+                 if sum(1 for c2, *_ in fg._FEEDERS if c2 == c) == 1]
+        for code, feeder, kind, *_ in fg._FEEDERS:
+            if code in alone:
+                assert kind == "breaker", f"{feeder} is alone on its bus but heads with a {kind}"

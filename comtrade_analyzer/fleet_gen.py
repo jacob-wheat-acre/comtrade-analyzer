@@ -78,10 +78,14 @@ HIF_FAULT_PEAK = (34.0, 48.0)
 
 # code, station label, zone, fire risk tier, distribution kV (L-L)
 _SUBSTATIONS = [
-    ("CH", "Cedar Hollow", "ZONE_A", 3, 12.47),
-    ("RG", "Ridgeline",    "ZONE_B", 2, 12.47),
-    ("VO", "Valley Oak",   "ZONE_C", 2, 21.0),
-    ("RB", "Riverbend",    "ZONE_D", 1, 34.5),
+    ("CH", "Cedar Hollow",  "ZONE_A", 3, 12.47),
+    ("SG", "Sawmill Grade", "ZONE_A", 3, 12.47),
+    ("RG", "Ridgeline",     "ZONE_B", 2, 12.47),
+    ("ST", "Summit Tap",    "ZONE_B", 2, 12.47),
+    ("VO", "Valley Oak",    "ZONE_C", 2, 21.0),
+    ("AR", "Almond Row",    "ZONE_C", 2, 21.0),
+    ("RB", "Riverbend",     "ZONE_D", 1, 34.5),
+    ("DF", "Delta Flats",   "ZONE_D", 1, 34.5),
 ]
 
 # station code, feeder name, head kind, trunk reclosers, branches, customers.
@@ -95,20 +99,23 @@ _SUBSTATIONS = [
 #
 # Customers are explicit rather than drawn from the RNG: the registry is a
 # fixture, and an inserted feeder must not silently renumber every other one.
+# A feeder named for somewhere its substation is not named for belongs to its
+# own substation. Sawmill Grade, Summit Tap, Almond Row and Delta Flats each
+# have a bus of their own, so each starts at its own breaker.
 _FEEDERS = [
     ("CH", "Cedar Hollow 1211",  "breaker",  2, (),          1368),
     ("CH", "Cedar Hollow 1212",  "recloser", 1, (),           872),
-    ("CH", "Sawmill Grade 1215", "recloser", 1, (),           435),
+    ("SG", "Sawmill Grade 1215", "breaker",  1, (),           435),
     ("RG", "Ridgeline 2104",     "breaker",  2, ((1, 2),),    927),
     ("RG", "Ridgeline 2106",     "recloser", 1, (),           885),
     ("RG", "Bear Gulch 2110",    "recloser", 1, (),           574),
-    ("RG", "Summit Tap 2112",    "recloser", 0, (),           882),
+    ("ST", "Summit Tap 2112",    "breaker",  0, (),           882),
     ("VO", "Valley Oak 3301",    "breaker",  2, ((1, 1), (2, 1)), 2200),
     ("VO", "Valley Oak 3305",    "recloser", 1, (),           358),
-    ("VO", "Almond Row 3308",    "recloser", 1, (),           801),
+    ("AR", "Almond Row 3308",    "breaker",  1, (),           801),
     ("RB", "Riverbend 4402",     "breaker",  2, ((0, 1),),   1064),
     ("RB", "Riverbend 4407",     "recloser", 1, (),           674),
-    ("RB", "Delta Flats 4411",   "recloser", 1, (),           498),
+    ("DF", "Delta Flats 4411",   "breaker",  1, (),           498),
 ]
 
 # Normally-open ties, as (feeder, position) on each side. Position is the same
