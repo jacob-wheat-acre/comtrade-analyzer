@@ -254,7 +254,7 @@ debugging against a real event:
 comtrade-batch demo\incident_events --devices demo\devices.csv
 ```
 
-It analyses 196 synthetic records in a couple of seconds and opens the dashboard.
+It analyses 201 synthetic records in a couple of seconds and opens the dashboard.
 
 **If that fails, you can still demo.** `demo\demo_dashboard.html` is a
 complete pre-built dashboard — double-click it. It needs no Python at all, so

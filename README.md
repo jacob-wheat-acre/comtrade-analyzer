@@ -198,10 +198,10 @@ On Windows, if you did not activate the environment:
 .\.venv\Scripts\comtrade-batch.exe demo\incident_events --devices demo\devices.csv
 ```
 
-Either way: 196 records in a couple of seconds, then it opens the dashboard it
+Either way: 201 records in a couple of seconds, then it opens the dashboard it
 just built.
 
-Those 196 records come from **115 incidents**, not 196 separate faults. One
+Those 201 records come from **115 incidents**, not 196 separate faults. One
 fault leaves a record at the device that cleared it, another at every device
 above it that saw the same current and correctly did not trip, and — after a
 lockout — one on a *neighbouring* feeder when a tie picks the stranded section

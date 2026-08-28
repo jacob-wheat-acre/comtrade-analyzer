@@ -24,6 +24,7 @@ feeder_analysis.py   Reclose sequence, fault location, HIF screen
 triage.py            Priority 1/2/3 flags — _FLAGS + _TRIGGERS drive the UI
 relay_settings.py    SUBNET settings catalog, template parsing, pickup math
 topology.py          Mainline feeder connectivity  → comtrade-topology
+incidents.py         Regroups event records into the faults that caused them
 diagnostics.py       Says plainly what is wrong with a real COMTRADE file
 wso_impact.py        EPSS impact — classify_event owns the three-way boundary
 plotting.py          Waveform / RMS / sequence / phasor plots
@@ -472,6 +473,38 @@ What holds a set together, and what does not:
   other records exist, so the pipeline has to re-derive the grouping the way it
   must on a real SUBNET pull. Putting it in the CFG would be cheating.
 
+## Incident grouping
+
+`incidents.py` rebuilds the sets from what a real pull actually has. Two joins,
+and they are not the same rule:
+
+- **Same fault** — inside `window_s` (config `incidents.window_s`, 2 s) **and**
+  `on_same_path()`. Both are required. Time alone merges unrelated faults across
+  the fleet during a storm; topology alone merges every fault that feeder ever
+  had.
+- **Restoration** — a `LOAD` record on the far side of a tie that backs up a
+  section someone just locked out, inside `restore_window_s` (15 min). Purely
+  topological: the tie close is tens of seconds later, on another feeder, under
+  a different device id, so no time window finds it.
+
+With **no topology** it degrades to same-feeder-and-window. That over-merges two
+faults a second apart on one feeder, which is stated rather than hidden.
+
+`clock_suspects()` reports pairs that share a path and a fault type but miss the
+window. A relay minutes out — or a whole timezone out from a missed setting —
+looks exactly like a separate fault, and silently splitting the incident is the
+failure mode worth naming.
+
+**`upstream_also_tripped` is an observation, not a verdict.** Two devices on one
+path both operating is invisible in either record alone, but fuse saving and a
+genuine over-trip look identical from here. The tool surfaces it; the engineer
+looks at the one-line and decides. This is not a FLISR verification machine —
+FLISR runs in the ADMS.
+
+Grouping accuracy is validated against `fleet_truth.json` and printed with the
+other detector-agreement numbers. It only means something on generated data, so
+treat it as a regression guard.
+
 ## The LOAD class — cold load is not a three-phase fault
 
 `classify_fault` returns **`LOAD`** for a balanced current rise on all three
@@ -490,7 +523,7 @@ This did not move any real fault: all five generators classify unchanged.
 
 ## The demo set
 
-`demo/` is **tracked on purpose** — 196 synthetic records from 115 incidents,
+`demo/` is **tracked on purpose** — 201 synthetic records from 115 incidents,
 the registry, the topology, the ground truth, and a pre-built
 `demo_dashboard.html`. It exists because the tool had to be demonstrated before
 SUBNET was returning COMTRADE files, and a colleague's managed PC may not get

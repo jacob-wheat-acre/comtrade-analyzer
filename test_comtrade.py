@@ -1778,3 +1778,185 @@ class TestIncidentGeneration:
         info = generate_fleet(str(tmp_path), count=6, seed=11)
         for cfg in Path(info["events_dir"]).glob("*.cfg"):
             assert "INC" not in cfg.read_text(encoding="utf-8")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 21. Rebuilding incidents from timestamps and topology
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestIncidentGrouping:
+    """
+    Nothing in a COMTRADE file says which records belong to one fault, so the
+    grouping is rebuilt from when the fault started and how the feeder is
+    wired. Both are needed: time alone merges unrelated faults across the fleet
+    in a storm, topology alone merges every fault that feeder ever had.
+    """
+
+    ROOT = Path(__file__).parent
+
+    def _net(self):
+        from comtrade_analyzer.topology import load_topology
+        return load_topology(str(self.ROOT / "demo" / "topology.csv"))
+
+    def _ev(self, eid, device, feeder, t, inception=0.05, **kw):
+        e = {"event_id": eid, "device_id": device, "feeder": feeder,
+             "timestamp": t, "fault_inception_s": inception,
+             "fault_type": "SLG", "total_shots": 1, "locked_out": False,
+             "priority": 3, "flags": [], "customers_affected": 0, "zone": "Z"}
+        e.update(kw)
+        return e
+
+    # -- the join rules -----------------------------------------------------
+
+    def test_records_on_one_path_at_one_instant_are_one_fault(self):
+        from comtrade_analyzer.incidents import group_events
+        evs = [
+            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", "BKR_CH-1211", "Cedar Hollow 1211", "2026-06-01T00:00:00.02",
+                     total_shots=0),
+        ]
+        incs = group_events(evs, self._net())
+        assert len(incs) == 1
+        assert incs[0]["record_count"] == 2
+
+    def test_the_same_instant_on_another_feeder_is_a_different_fault(self):
+        """A storm drops faults all over the fleet in the same second."""
+        from comtrade_analyzer.incidents import group_events
+        evs = [
+            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", "RCL_RG-2106R1", "Ridgeline 2106", "2026-06-01T00:00:00.01"),
+        ]
+        assert len(group_events(evs, self._net())) == 2
+
+    def test_the_same_path_much_later_is_a_different_fault(self):
+        from comtrade_analyzer.incidents import group_events
+        evs = [
+            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", "BKR_CH-1211", "Cedar Hollow 1211", "2026-06-01T00:05:00"),
+        ]
+        assert len(group_events(evs, self._net())) == 2
+
+    def test_a_sibling_branch_is_not_the_same_path(self):
+        """Both on one feeder, neither above the other — two faults."""
+        from comtrade_analyzer.incidents import group_events
+        evs = [
+            self._ev("a", "RCL_RB-4402R2", "Riverbend 4402", "2026-06-01T00:00:00"),
+            self._ev("b", "RCL_RB-4402R1", "Riverbend 4402", "2026-06-01T00:00:00.01"),
+        ]
+        # R1 IS above R2, so these DO join — the guard is the reverse case.
+        assert len(group_events(evs, self._net())) == 1
+
+    def test_the_window_is_tunable(self):
+        from comtrade_analyzer.incidents import group_events
+        evs = [
+            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", "BKR_CH-1211", "Cedar Hollow 1211", "2026-06-01T00:00:05"),
+        ]
+        net = self._net()
+        assert len(group_events(evs, net, window_s=2.0)) == 2
+        assert len(group_events(evs, net, window_s=10.0)) == 1
+
+    # -- the restoration join -----------------------------------------------
+
+    def test_a_tie_pickup_joins_its_lockout_across_feeders(self):
+        """
+        No time window finds this: it is a minute later, on another feeder,
+        under a different device id. Only the tree connects them.
+        """
+        from comtrade_analyzer.incidents import group_events
+        evs = [
+            self._ev("lock", "RCL_CH-1211R2", "Cedar Hollow 1211",
+                     "2026-06-01T00:00:00", locked_out=True),
+            self._ev("tie", "RCL_CH-1212R1", "Cedar Hollow 1212",
+                     "2026-06-01T00:01:00", fault_type="LOAD", total_shots=0),
+        ]
+        incs = group_events(evs, self._net())
+        assert len(incs) == 1
+        assert incs[0]["restored"] is True
+        assert incs[0]["restore_delay_s"] == 60.0
+
+    def test_a_load_step_with_no_lockout_to_explain_it_stands_alone(self):
+        from comtrade_analyzer.incidents import group_events
+        evs = [self._ev("tie", "RCL_CH-1212R1", "Cedar Hollow 1212",
+                        "2026-06-01T00:01:00", fault_type="LOAD", total_shots=0)]
+        incs = group_events(evs, self._net())
+        assert len(incs) == 1 and incs[0]["restored"] is True
+        assert incs[0]["locked_out"] is False
+
+    # -- what an incident says ----------------------------------------------
+
+    def test_the_clearing_device_is_the_deepest_one_that_operated(self):
+        from comtrade_analyzer.incidents import group_events
+        evs = [
+            self._ev("a", "BKR_CH-1211", "Cedar Hollow 1211",
+                     "2026-06-01T00:00:00", total_shots=0),
+            self._ev("b", "RCL_CH-1211R2", "Cedar Hollow 1211",
+                     "2026-06-01T00:00:00.01", total_shots=1),
+        ]
+        inc = group_events(evs, self._net())[0]
+        assert inc["clearing_device"] == "RCL_CH-1211R2"
+        assert inc["devices_held"] == ["BKR_CH-1211"]
+        assert inc["upstream_also_tripped"] is False
+
+    def test_two_devices_on_one_path_both_operating_is_reported(self):
+        """The one thing neither record can show on its own."""
+        from comtrade_analyzer.incidents import group_events
+        evs = [
+            self._ev("a", "BKR_CH-1211", "Cedar Hollow 1211",
+                     "2026-06-01T00:00:00", total_shots=1),
+            self._ev("b", "RCL_CH-1211R2", "Cedar Hollow 1211",
+                     "2026-06-01T00:00:00.01", total_shots=1),
+        ]
+        assert group_events(evs, self._net())[0]["upstream_also_tripped"] is True
+
+    # -- degradation and skew -----------------------------------------------
+
+    def test_without_a_topology_it_falls_back_to_the_feeder(self):
+        """A plain folder still groups; it just cannot tell path from sibling."""
+        from comtrade_analyzer.incidents import group_events
+        evs = [
+            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", "BKR_CH-1211", "Cedar Hollow 1211", "2026-06-01T00:00:00.02"),
+            self._ev("c", "RCL_RG-2106R1", "Ridgeline 2106", "2026-06-01T00:00:00.01"),
+        ]
+        incs = group_events(evs, None)
+        assert len(incs) == 2
+
+    def test_a_drifted_clock_is_reported_not_hidden(self):
+        """
+        A relay minutes out looks exactly like a separate fault. Splitting the
+        incident silently is the failure; saying so is the fix.
+        """
+        from comtrade_analyzer.incidents import clock_suspects
+        evs = [
+            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", "BKR_CH-1211", "Cedar Hollow 1211", "2026-06-01T00:04:00"),
+        ]
+        sus = clock_suspects(evs, self._net())
+        assert len(sus) == 1
+        assert sus[0]["gap_s"] == 240.0
+
+    def test_fault_instant_uses_inception_not_the_trigger(self):
+        """
+        The trigger is where the relay decided to save the record and can sit
+        anywhere in it; inception is when the fault actually started.
+        """
+        from comtrade_analyzer.incidents import fault_instant
+        e = self._ev("a", "D", "F", "2026-06-01T00:00:00", inception=0.25)
+        assert fault_instant(e).microsecond == 250000
+
+    # -- against the shipped corpus -----------------------------------------
+
+    def test_the_demo_corpus_regroups_into_the_sets_that_made_it(self):
+        """
+        Only meaningful because the ids were kept out of the CFG files — a
+        regression guard on generated data, not proof the algorithm is right.
+        """
+        analysis = self.ROOT / "demo" / "analysis" / "fleet_analysis.json"
+        if not analysis.is_file():
+            pytest.skip("run fleet_analyze on demo/ first")
+        d = json.loads(analysis.read_text(encoding="utf-8"))
+        g = (d.get("validation") or {}).get("grouping")
+        assert g, "no grouping accuracy recorded"
+        assert g["events_grouped_correctly_pct"] == 100.0
+        assert g["incidents_found"] == g["incidents_expected"]

@@ -795,6 +795,12 @@ def build_scenario(idx: int, rng: random.Random, device: Device,
 # it is a mix that keeps both cases in the corpus.
 _WITNESS_P = (0.80, 0.45, 0.25)
 
+# How often the device above the fault operates as well. Both devices on one
+# path tripping for one fault is a coordination problem you cannot see in
+# either record alone — it takes the tree to notice. Kept rare, the way it is
+# on a feeder that is mostly coordinated correctly.
+_OVERTRIP_P = 0.09
+
 # ADMS runs the restoration, not this tool. Its tie close lands tens of seconds
 # after the lockout, which is far outside any same-fault time window — so
 # grouping it with the rest has to come from the topology, not the clock.
@@ -839,6 +845,36 @@ def _witness_scenario(origin: Scenario, device: Device, rng: random.Random,
         expect_wso="EPSS_CANDIDATE", expect_flags=sorted(set(expect_flags)),
         role="witness",
     )
+
+
+def _overtrip_scenario(origin: Scenario, device: Device, rng: random.Random,
+                       customers_below: int, base_date: datetime,
+                       idx: int, seq: int) -> Scenario:
+    """
+    An upstream device that operated for the same fault as the one below it.
+
+    Both devices open, so the outage is everything under the *upper* one when
+    it should have been everything under the lower. Neither record shows this:
+    each one on its own is a device that saw a fault and tripped, which is what
+    a device is for. It only reads as wrong once you know they are on one path.
+    """
+    sc = build_scenario(idx, rng, device, base_date, depth=1,
+                        customers_below=customers_below,
+                        template=rng.choice(["single_trip", "reclose_1_success"]))
+    # Same fault, same instant, same current — only the load differs.
+    sc.fault_type = origin.fault_type
+    sc.phases = origin.phases
+    sc.i_fault = origin.i_fault
+    sc.scenario = "overtrip"
+    sc.role = "overtrip"
+    sc.expect_flags = sorted({f for f in sc.expect_flags
+                              if f not in ("3ph_fault", "llg_fault")}
+                             | ({"3ph_fault"} if origin.fault_type == "3PH" else set())
+                             | ({"llg_fault"} if origin.fault_type == "LLG" else set()))
+    sc.timestamp = origin.timestamp + timedelta(milliseconds=rng.uniform(-30, 30))
+    sc.event_id = (f"{device.device_id}_"
+                   f"{sc.timestamp.strftime('%Y%m%d_%H%M%S')}_{idx:03d}{seq}")
+    return sc
 
 
 def _tie_pickup_scenario(origin: Scenario, device: Device, rng: random.Random,
@@ -912,16 +948,23 @@ def build_incident(idx: int, rng: random.Random, net, devices: List[Device],
     # A high-impedance fault is tens of amps: nothing upstream picks it up.
     if origin.scenario != "hif":
         upstream = [n for n in path[1:] if n.kind in ("breaker", "recloser")]
+        # Occasionally the device above operates too, instead of holding.
+        overtrip_at = 0 if (upstream and origin.shots[0].t_trip is not None
+                            and rng.random() < _OVERTRIP_P) else None
         for i, node in enumerate(upstream):
-            p_rec = _WITNESS_P[i] if i < len(_WITNESS_P) else _WITNESS_P[-1]
-            if rng.random() >= p_rec:
-                continue
             dev = by_id[node.node_id]
             up_below = net.customers_below(node.node_id, _as_registry(devices))
-            share = below / up_below if up_below else 0.0
-            w = _witness_scenario(origin, dev, rng, up_below, share, idx, i + 1)
-            w.incident_id = inc
-            records.append(w)
+            if i == overtrip_at:
+                r = _overtrip_scenario(origin, dev, rng, up_below, base_date,
+                                       idx, i + 1)
+            else:
+                p_rec = _WITNESS_P[i] if i < len(_WITNESS_P) else _WITNESS_P[-1]
+                if rng.random() >= p_rec:
+                    continue
+                share = below / up_below if up_below else 0.0
+                r = _witness_scenario(origin, dev, rng, up_below, share, idx, i + 1)
+            r.incident_id = inc
+            records.append(r)
 
     # After a lockout the section is stranded until something ties it back in.
     if origin.t_lockout is not None:

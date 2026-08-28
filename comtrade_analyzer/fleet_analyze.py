@@ -55,6 +55,7 @@ from .analysis import (
 from .feeder_analysis import compute_feeder_summary
 from .triage import rule_table, triage_event
 from .fleet_gen import EVENTS_DIRNAME
+from .incidents import clock_suspects, group_events
 from .wso_impact import (
     EPSS_CANDIDATE, NOT_EXPOSED,
     class_table, classify_event, load_registry, lookup_device,
@@ -677,6 +678,41 @@ def aggregate(events: list, registry: dict, epss_tiers: list,
 # Ground-truth validation (only when fleet_truth.json is present)
 # ---------------------------------------------------------------------------
 
+def _grouping_accuracy(events: list, truth: dict) -> Optional[dict]:
+    """
+    How well the rebuilt grouping matches the sets the generator actually
+    produced. Only meaningful on generated data — real files carry no answer —
+    so this is a regression guard, not evidence the algorithm is right.
+    """
+    want = defaultdict(set)
+    for t in truth.values():
+        if t.get("incident_id"):
+            want[t["incident_id"]].add(t["event_id"])
+    if not want:
+        return None
+
+    got = defaultdict(set)
+    for e in events:
+        if e.get("incident_id"):
+            got[e["incident_id"]].add(e["event_id"])
+
+    exact = checked = 0
+    for e in events:
+        t = truth.get(e["event_id"])
+        if t is None or not t.get("incident_id"):
+            continue
+        checked += 1
+        if got.get(e.get("incident_id"), set()) == want[t["incident_id"]]:
+            exact += 1
+    return {
+        "checked": checked,
+        "incidents_expected": len(want),
+        "incidents_found": len(got),
+        "events_grouped_correctly_pct": (round(100.0 * exact / checked, 1)
+                                         if checked else 0.0),
+    }
+
+
 def validate(events: list, truth_path: str) -> Optional[dict]:
     try:
         with open(truth_path, encoding="utf-8") as fh:
@@ -713,6 +749,7 @@ def validate(events: list, truth_path: str) -> Optional[dict]:
 
     pct = lambda n: round(100.0 * n / checked, 1) if checked else 0.0
     return {
+        "grouping": _grouping_accuracy(events, truth),
         "checked": checked,
         "fault_type_match_pct": pct(fault_ok),
         "wso_class_match_pct": pct(wso_ok),
@@ -759,6 +796,12 @@ def print_summary(result: dict) -> None:
           + (f"   ({len(result['parse_errors'])} parse errors)" if result["parse_errors"] else ""))
     print(f"  Elapsed       : {result['elapsed_s']:.1f} s")
 
+    incs = result.get("incidents") or []
+    if incs:
+        multi = sum(1 for i in incs if i["record_count"] > 1)
+        print(f"  Incidents     : {len(incs)}   "
+              f"({multi} seen by more than one device)")
+
     print()
     print("  FAULT MIX")
     for k, v in sorted(a["by_fault_type"].items(), key=lambda kv: -kv[1]):
@@ -792,6 +835,37 @@ def print_summary(result: dict) -> None:
         print(f"    {name:<14s} tier {tiers:<4s} {epss:<14s} "
               f"events={z['events']:3d}  exposed={z['wso_exposed']:3d}  P1={z['priority_1']:3d}")
 
+    incs = result.get("incidents") or []
+    if incs:
+        restored = [i for i in incs if i["restored"]]
+        both = [i for i in incs if i["upstream_also_tripped"]]
+        print()
+        print("  INCIDENTS")
+        print(f"    Seen by one device only     : "
+              f"{sum(1 for i in incs if i['record_count'] == 1):4d}")
+        print(f"    Upstream device held        : "
+              f"{sum(1 for i in incs if i['devices_held']):4d}"
+              "   coordination worked")
+        print(f"    Two devices on one path     : {len(both):4d}"
+              "   review — over-trip or fuse saving")
+        print(f"    Locked out                  : "
+              f"{sum(1 for i in incs if i['locked_out']):4d}")
+        if restored:
+            med = sorted(i["restore_delay_s"] for i in restored
+                         if i["restore_delay_s"] is not None)
+            tail = f"   median {med[len(med) // 2]:.0f} s to a tie" if med else ""
+            print(f"    Restored through a tie      : {len(restored):4d}{tail}")
+
+    skew = result.get("clock_suspects") or []
+    if skew:
+        print()
+        print(f"  CLOCK SKEW — {len(skew)} pair(s) share a path and a fault type "
+              "but miss the window")
+        for r in skew[:3]:
+            print(f"    {r['devices'][0]} / {r['devices'][1]}: "
+                  f"{r['gap_s']:.1f} s apart, both {r['fault_type']}")
+        print("    Widen --incident-window-s, or check the relay clocks.")
+
     v = result.get("validation")
     if v:
         print()
@@ -800,6 +874,10 @@ def print_summary(result: dict) -> None:
         print(f"    WSO class    : {v['wso_class_match_pct']}%")
         print(f"    Shot count   : {v['shot_count_match_pct']}%")
         print(f"    Triage flags : {v['triage_flag_recall_pct']}% recall")
+        g = v.get("grouping")
+        if g:
+            print(f"    Incident grouping : {g['events_grouped_correctly_pct']}%  "
+                  f"({g['incidents_found']} found / {g['incidents_expected']} real)")
         if v["mismatches"]:
             print(f"    {len(v['mismatches'])} mismatch(es) — see fleet_analysis.json")
     print("=" * W)
@@ -852,6 +930,11 @@ def main():
     p.add_argument("--response-hours", type=float,
                    default=cfg.get("wso", {}).get("avg_response_hours", 2.0), metavar="HRS",
                    help="Crew response time for customer-hour estimates")
+    p.add_argument("--incident-window-s", type=float,
+                   default=cfg.get("incidents", {}).get("window_s", 2.0),
+                   metavar="SEC",
+                   help="Records this far apart on one path are the same fault. "
+                        "Widen it when relay clocks are known to drift.")
     p.add_argument("--epss-tiers", type=int, nargs="+",
                    default=cfg.get("wso", {}).get("epss_tiers", [2, 3]), metavar="N",
                    help="Risk tiers receiving EPSS treatment")
@@ -918,6 +1001,8 @@ def main():
         print(f"  ERROR {r['file']}: {r['error']}", file=sys.stderr)
 
     events.sort(key=lambda e: (e.get("timestamp") or "", e["event_id"]))
+    incidents = group_events(events, net, args.incident_window_s)
+    skew = clock_suspects(events, net, args.incident_window_s)
     aggregates = aggregate(events, registry, args.epss_tiers,
                            args.response_hours, net)
     validation = validate(events, truth_path) if truth_path else None
@@ -928,6 +1013,8 @@ def main():
         "events_dir": os.path.abspath(events_dir),
         "registry_path": devices_path,
         "topology_path": topo_path,
+        "incidents": incidents,
+        "clock_suspects": skew,
         "settings": {
             "feeder_z_ohm_per_mile": args.feeder_z,
             "epss_tiers": args.epss_tiers,
