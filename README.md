@@ -8,7 +8,7 @@ Designed for protection engineers reviewing fault events on 12–35 kV distribut
 
 ## Features
 
-- **Fault classification** — SLG, LL, LLG, 3PH using symmetrical-component analysis (Fortescue transform on DFT phasors)
+- **Fault classification** — SLG, LL, LLG, 3PH using symmetrical-component analysis (Fortescue transform on DFT phasors), plus LOAD for a balanced current step with the voltage intact (cold-load pickup, not a fault)
 - **Phasor diagrams** — voltage phasors, current phasors, and sequence components (I0 / I1 / I2) at the fault window
 - **Waveform plots** — annotated with fault inception and trip time
 - **RMS current overlay** and **sequence component time-series** plots
@@ -47,7 +47,7 @@ managed PC, and it is not required.
 Run the tool the same way:
 
 ```powershell
-.\.venv\Scripts\comtrade-batch.exe demo\events --devices demo\devices.csv
+.\.venv\Scripts\comtrade-batch.exe demo\incident_events --devices demo\devices.csv
 ```
 
 If you would rather activate the environment so you can type `comtrade-batch`
@@ -110,6 +110,7 @@ Installing puts six commands on your PATH (inside the venv):
 | `comtrade-dashboard` | Re-render the dashboard from an existing `fleet_analysis.json` |
 | `comtrade-gui` | tkinter desktop interface |
 | `comtrade-demo-fleet` | Generate synthetic events to try the pipeline without real data |
+| `comtrade-topology` | Validate and draw a feeder connectivity model |
 
 Use `pip install -e .` instead — it installs the tool **in place**, so a later
 `git pull` updates it with no reinstall. That is the recommended setup for a
@@ -188,26 +189,36 @@ fights you on a managed PC.
 *Or run the pipeline yourself*, which is the better demo because people watch
 it happen:
 ```bash
-comtrade-batch demo/events --devices demo/devices.csv --settings demo/settings_example.csv
+comtrade-batch demo/incident_events --devices demo/devices.csv --settings demo/settings_example.csv
 ```
 
 On Windows, if you did not activate the environment:
 
 ```powershell
-.\.venv\Scripts\comtrade-batch.exe demo\events --devices demo\devices.csv
+.\.venv\Scripts\comtrade-batch.exe demo\incident_events --devices demo\devices.csv
 ```
 
-Either way: 100 events in about a second, then it opens the dashboard it
+Either way: 196 records in a couple of seconds, then it opens the dashboard it
 just built.
+
+Those 196 records come from **115 incidents**, not 196 separate faults. One
+fault leaves a record at the device that cleared it, another at every device
+above it that saw the same current and correctly did not trip, and — after a
+lockout — one on a *neighbouring* feeder when a tie picks the stranded section
+back up. `demo/topology.csv` is what says which is which.
 
 Every dashboard built from generated events carries a **DEMO DATA** badge in
 the header, so nobody mistakes it for real plant.
 
 To make a different set (a fresh seed gives different events):
 ```bash
-comtrade-demo-fleet --count 250 --seed 7      # writes ./fleet/, gitignored
-comtrade-batch ./fleet/events --devices ./fleet/fleet_devices.csv
+comtrade-demo-fleet --count 150 --seed 7      # writes ./fleet/, gitignored
+comtrade-batch ./fleet/incident_events --devices ./fleet/fleet_devices.csv
 ```
+
+`--count` counts **incidents**, not files; each yields roughly 1.7 records. The
+generator writes `topology.csv` beside the registry, and `comtrade-batch` picks
+it up automatically to work out how many customers each trip actually drops.
 
 ---
 
@@ -282,6 +293,42 @@ BKR_FEED1234,Oak St Sub,     Oak St Feeder,     ZONE_A,  3,         890
 - **zone** — WSO deployment zone name
 - **risk_tier** — fire risk tier (1, 2, or 3); tiers 2 and 3 receive EPSS treatment by default
 - **customers_served** — used for customer-hour estimates
+
+### Feeder connectivity (optional)
+
+The device registry says *what* a device is; a topology file says *where it
+sits*. It is mainline connectivity only — no impedance, no laterals, no fuses.
+Copy `comtrade_analyzer/topology_template.csv` to `topology.csv` and fill it in;
+like `devices.csv` it is gitignored operational data.
+
+```
+feeder,             node_id,       kind,     parent,        tie_to
+Maple Ave Sub,      BUS_MAPLE,     source,,
+Maple Ave Feeder,   BKR_FEED1234,  breaker,  BUS_MAPLE,
+Maple Ave Feeder,   RCL_123-456,   recloser, BKR_FEED1234,
+Maple Ave Feeder,   TIE_MAPLE_PINE,tie,      RCL_123-456,   RCL_555-001
+```
+
+- **feeder** — the feeder this node is on; the *station* name on a `source` row
+- **node_id** — matches `device_id` in `devices.csv` for anything that records events
+- **kind** — `source`, `breaker`, `recloser`, `sectionalizer` or `tie`
+- **parent** — the node immediately upstream; empty only on a `source` row
+- **tie_to** — the far-end device, on a `tie` row only
+
+Each protective device owns the section immediately downstream of it, so a whole
+feeder is six or seven lines. `tie` rows are the normally-open links to other
+feeders.
+
+```bash
+comtrade-topology topology.csv --devices devices.csv
+comtrade-topology topology.csv --feeder "Maple Ave Feeder"
+comtrade-topology topology.csv --quiet          # validation findings only
+```
+
+It prints an indented single-line sketch and then validates: duplicate ids, a
+typo'd parent, a loop, a branch with no source, a tie with no far end, a tie
+authored from both sides, and any mismatch against `devices.csv`. Exit status is
+non-zero only when there are errors.
 
 ### Usage
 
@@ -409,6 +456,8 @@ names, customer counts and outage estimates.
 - **`devices.csv` is gitignored** and must stay that way. Only
   `devices_template.csv` is tracked. Never commit a populated registry, and keep
   real device IDs and feeder names out of commit messages and test fixtures.
+- **`topology.csv` is gitignored** for the same reason — real feeder
+  connectivity is operational data. Only `topology_template.csv` is tracked.
 - **Every `comtrade-batch` output is a local file.** The dashboard is
   self-contained HTML that loads no external resources and sends nothing
   anywhere. Opening it in a browser does not transmit the data.
@@ -536,8 +585,10 @@ comtrade-analyzer/
 │   ├── plotting.py           Waveform, RMS, sequence, phasor plots
 │   ├── report.py             Word (.docx) report generator
 │   ├── triage.py             Priority 1/2/3 event triage
+│   ├── topology.py           Feeder connectivity (comtrade-topology)
 │   ├── config.json           User-configurable thresholds
-│   └── devices_template.csv  Device registry template (copy → devices.csv)
+│   ├── devices_template.csv  Device registry template (copy → devices.csv)
+│   └── topology_template.csv Feeder connectivity template (copy → topology.csv)
 ├── main.py, app.py           Compatibility shims for running from a checkout
 ├── install_shortcut.py       Desktop shortcut installer
 ├── make_icon.py              Icon generator (PNG / ICO / ICNS)

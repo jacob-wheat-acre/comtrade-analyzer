@@ -123,6 +123,7 @@ def print_summary(summary: dict):
             "LL":  "Line-to-Line (LL)",
             "LLG": "Double Line-to-Ground (LLG)",
             "3PH": "Three-Phase (3PH)",
+            "LOAD": "Load step (no fault)",
         }
         print(f"  Fault type : {labels.get(ftype, ftype)}")
 

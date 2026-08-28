@@ -1,0 +1,12 @@
+feeder,node_id,kind,parent,tie_to
+# One row per mainline node. Copy this to topology.csv and replace it with
+# your own feeders. node_id must match device_id in devices.csv for anything
+# that records events. Rows whose node_id starts with # are ignored.
+Maple Ave Sub,BUS_MAPLE,source,,
+Maple Ave Feeder,BKR_FEED1234,breaker,BUS_MAPLE,
+Maple Ave Feeder,RCL_123-456,recloser,BKR_FEED1234,
+Maple Ave Feeder,RCL_123-789,recloser,RCL_123-456,
+Pine Ridge Sub,BUS_PINE,source,,
+Pine Ridge Feeder,BKR_FEED5678,breaker,BUS_PINE,
+Pine Ridge Feeder,RCL_555-001,recloser,BKR_FEED5678,
+Maple Ave Feeder,TIE_MAPLE_PINE,tie,RCL_123-789,RCL_555-001

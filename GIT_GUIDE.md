@@ -185,7 +185,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 Or sidestep it entirely by prefixing commands with the venv path:
 
 ```
-.\.venv\Scripts\comtrade-batch.exe demo\events --devices demo\devices.csv
+.\.venv\Scripts\comtrade-batch.exe demo\incident_events --devices demo\devices.csv
 ```
 
 Or use **Command Prompt** instead of PowerShell, which has no such restriction:
@@ -251,10 +251,10 @@ Then try the tool on the demo data that ships with it, so you are not
 debugging against a real event:
 
 ```
-comtrade-batch demo\events --devices demo\devices.csv
+comtrade-batch demo\incident_events --devices demo\devices.csv
 ```
 
-It analyses 100 synthetic events in about a second and opens the dashboard.
+It analyses 196 synthetic records in a couple of seconds and opens the dashboard.
 
 **If that fails, you can still demo.** `demo\demo_dashboard.html` is a
 complete pre-built dashboard — double-click it. It needs no Python at all, so
@@ -418,7 +418,7 @@ If you did not activate the environment, prefix each `comtrade-*` command with
 `.\.venv\Scripts\` — for example:
 
 ```
-.\.venv\Scripts\comtrade-batch.exe demo\events --devices demo\devices.csv
+.\.venv\Scripts\comtrade-batch.exe demo\incident_events --devices demo\devices.csv
 ```
 
 Never type `&&` in Windows PowerShell. One command per line.

@@ -253,10 +253,12 @@ def classify_fault(
     - SLG  : one phase >> other two
     - LL   : two phases elevated, third near pre-fault level, |I0| small
     - LLG  : two phases elevated + measurable ground (I0) contribution
-    - 3PH  : all three phases elevated approximately equally
+    - 3PH  : all three phases elevated approximately equally, voltage collapsed
+    - LOAD : all three phases elevated approximately equally, voltage intact —
+             a balanced load step, not a fault
     - UNKNOWN : insufficient channels or no clear pattern
 
-    Returns one of: 'SLG', 'LL', 'LLG', '3PH', 'UNKNOWN'
+    Returns one of: 'SLG', 'LL', 'LLG', '3PH', 'LOAD', 'UNKNOWN'
     """
     ia = _find_channel(record, ("IA", "Ia", "I_A", "I-A", "IA1"))
     ib = _find_channel(record, ("IB", "Ib", "I_B", "I-B", "IB1"))
@@ -295,9 +297,48 @@ def classify_fault(
             return "LLG" if i0_post > 0.1 * top else "LL"
 
     if ratio_bot > 0.7:
+        # Balanced rise on all three phases. That is a three-phase fault only
+        # if the voltage went with it; if it held up, this is load being
+        # switched on — cold-load pickup when a tie closes onto a section
+        # looks exactly like a 3PH fault in current alone. Voltage is the only
+        # thing that separates them, so with no voltage channels we cannot
+        # tell, and the fault reading stands.
+        if _voltage_held_up(record, fault_index, spc):
+            return "LOAD"
         return "3PH"
 
     return "LLG"
+
+
+# A three-phase fault drags every phase voltage down hard — even a remote one
+# sags well past this. A load step barely moves it. Anything above this ratio
+# of pre-fault voltage is load, not a fault.
+_LOAD_STEP_V_RATIO = 0.85
+
+
+def _voltage_held_up(record: EventRecord, fault_index: int, spc: int) -> bool:
+    """
+    True when every phase voltage during the fault window is still close to its
+    pre-fault level. False when voltage collapsed, or when there is nothing to
+    measure — an unknown is not evidence of a load step.
+    """
+    va = _find_channel(record, ("VAN", "VA", "Van", "V_A", "VA1"))
+    vb = _find_channel(record, ("VBN", "VB", "Vbn", "V_B", "VB1"))
+    vc = _find_channel(record, ("VCN", "VC", "Vcn", "V_C", "VC1"))
+    if va is None or vb is None or vc is None:
+        return False
+
+    pre_start = max(0, fault_index - spc)
+    if fault_index - pre_start < spc // 2:
+        return False        # not enough pre-fault record to compare against
+
+    end = min(fault_index + spc, len(va))
+    for v in (va, vb, vc):
+        pre = float(np.sqrt(np.mean(v[pre_start:fault_index] ** 2)))
+        post = float(np.sqrt(np.mean(v[fault_index:end] ** 2)))
+        if pre < 1e-6 or post < _LOAD_STEP_V_RATIO * pre:
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------------

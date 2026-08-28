@@ -45,6 +45,11 @@ import numpy as np
 # Constants
 # ---------------------------------------------------------------------------
 
+# The corpus is organised around incidents — one fault, several records — so
+# the folder says so. fleet_analyze.resolve_inputs looks for this name first
+# and falls back to a plain events/ dump, which is what a real SUBNET pull is.
+EVENTS_DIRNAME = "incident_events"
+
 F0 = 60.0                       # power frequency, Hz — US distribution
 PHASE_ANGLE = {"A": 0.0, "B": -2 * np.pi / 3, "C": 2 * np.pi / 3}
 SAMPLE_RATES = [960, 1920, 1920, 1920, 3840]     # weighted toward 1920 Hz
@@ -62,14 +67,56 @@ HIF_FAULT_PEAK = (34.0, 48.0)
 # Synthetic device registry
 # ---------------------------------------------------------------------------
 
-# zone, zone label, ID code, fire risk tier, feeder names.
+# The fleet is described as a mainline topology, not a flat device list: the
+# tree is what makes an incident's records consistent with each other. One
+# substation bus per zone, a head device per feeder, and a couple of mid-line
+# reclosers below it. build_registry() and write_topology() both read this, so
+# devices.csv and topology.csv cannot disagree.
+#
 # The ID code is explicit rather than derived from the label — "Ridgeline" and
 # "Riverbend" would otherwise both abbreviate to RI and read as one substation.
-_ZONES = [
-    ("ZONE_A", "Cedar Hollow", "CH", 3, ["Cedar Hollow 1211", "Cedar Hollow 1212", "Sawmill Grade 1215"]),
-    ("ZONE_B", "Ridgeline",    "RG", 2, ["Ridgeline 2104", "Ridgeline 2106", "Bear Gulch 2110", "Summit Tap 2112"]),
-    ("ZONE_C", "Valley Oak",   "VO", 2, ["Valley Oak 3301", "Valley Oak 3305", "Almond Row 3308"]),
-    ("ZONE_D", "Riverbend",    "RB", 1, ["Riverbend 4402", "Riverbend 4407", "Delta Flats 4411"]),
+
+# code, station label, zone, fire risk tier, distribution kV (L-L)
+_SUBSTATIONS = [
+    ("CH", "Cedar Hollow", "ZONE_A", 3, 12.47),
+    ("RG", "Ridgeline",    "ZONE_B", 2, 12.47),
+    ("VO", "Valley Oak",   "ZONE_C", 2, 21.0),
+    ("RB", "Riverbend",    "ZONE_D", 1, 34.5),
+]
+
+# station code, feeder name, head device kind, mid-line reclosers, feeder customers.
+# Customers are explicit rather than drawn from the RNG: the registry is a
+# fixture, and an inserted feeder must not silently renumber every other one.
+_FEEDERS = [
+    ("CH", "Cedar Hollow 1211",  "breaker",  2, 1368),
+    ("CH", "Cedar Hollow 1212",  "recloser", 1,  872),
+    ("CH", "Sawmill Grade 1215", "recloser", 1,  435),
+    ("RG", "Ridgeline 2104",     "breaker",  2,  927),
+    ("RG", "Ridgeline 2106",     "recloser", 1,  885),
+    ("RG", "Bear Gulch 2110",    "recloser", 1,  574),
+    ("RG", "Summit Tap 2112",    "recloser", 0,  882),
+    ("VO", "Valley Oak 3301",    "breaker",  2, 2200),
+    ("VO", "Valley Oak 3305",    "recloser", 1,  358),
+    ("VO", "Almond Row 3308",    "recloser", 1,  801),
+    ("RB", "Riverbend 4402",     "breaker",  2, 1064),
+    ("RB", "Riverbend 4407",     "recloser", 1,  674),
+    ("RB", "Delta Flats 4411",   "recloser", 1,  498),
+]
+
+# Normally-open ties, (near device, far device). Authored once, from either
+# side — the model is undirected. Four of these cross substations, which is
+# what makes a tie interesting.
+_TIES = [
+    ("RCL_CH-1211R2", "RCL_CH-1212R1"),
+    ("RCL_CH-1215R1", "RCL_RG-2110R1"),
+    ("RCL_CH-1212R1", "RCL_VO-3305R1"),
+    ("RCL_RG-2104R2", "RCL_RG-2106R1"),
+    ("RCL_RG-2106R1", "RCL_RG-2112"),
+    ("RCL_RG-2110R1", "RCL_VO-3308R1"),
+    ("RCL_VO-3301R2", "RCL_VO-3305R1"),
+    ("RCL_VO-3308R1", "RCL_RB-4407R1"),
+    ("RCL_RB-4402R2", "RCL_RB-4407R1"),
+    ("RCL_RB-4402R1", "RCL_RB-4411R1"),
 ]
 
 
@@ -80,28 +127,94 @@ class Device:
     feeder: str
     zone: str
     risk_tier: int
-    customers_served: int
-    kind: str            # 'recloser' or 'breaker'
+    customers_served: int      # THIS device's section, not the whole feeder
+    kind: str                  # 'recloser' or 'breaker'
+    parent: str = ""           # upstream device id, '' at the bus
+    bus: str = ""              # substation bus node id
+    kv_ll: float = 12.47       # from the substation — one voltage per bus
+    fs: int = 1920             # this relay's record rate, not the event's
+
+
+def _bus_id(code: str) -> str:
+    return f"BUS_{code}"
+
+
+def _feeder_number(feeder: str) -> str:
+    """'Cedar Hollow 1211' -> '1211'. The circuit number, not the name."""
+    return feeder.split()[-1]
+
+
+def _split_customers(total: int, n_sections: int) -> List[int]:
+    """
+    Spread a feeder's customers along its mainline. The section closest to the
+    substation carries about half — the trunk is denser than the tail — and the
+    rounding remainder goes there too, so the parts always sum to the whole.
+    """
+    if n_sections <= 1:
+        return [total]
+    head = int(round(total * 0.5))
+    each = (total - head) // (n_sections - 1)
+    rest = [each] * (n_sections - 1)
+    return [total - sum(rest)] + rest
 
 
 def build_registry(rng: random.Random) -> List[Device]:
-    """Invent a small distribution fleet: 2–4 devices per zone."""
+    """
+    The fleet as a flat device list, derived from _FEEDERS so it always matches
+    the topology. `rng` is unused now that customers are explicit; it stays in
+    the signature because the caller threads one RNG through the whole build.
+    """
+    stations = {code: (label, zone, tier, kv)
+                for code, label, zone, tier, kv in _SUBSTATIONS}
     devices: List[Device] = []
-    for zone, label, code, tier, feeders in _ZONES:
+    for code, feeder, head_kind, n_mid, customers in _FEEDERS:
+        label, zone, tier, kv = stations[code]
+        num = _feeder_number(feeder)
         sub = f"{label} Sub"
-        for i, feeder in enumerate(feeders):
-            kind = "breaker" if i == 0 else "recloser"
-            prefix = "BKR" if kind == "breaker" else "RCL"
-            did = f"{prefix}_{code}-{feeder.split()[-1]}"
-            customers = rng.randint(340, 1180) if kind == "recloser" else rng.randint(900, 2400)
-            devices.append(Device(did, sub, feeder, zone, tier, customers, kind))
+        bus = _bus_id(code)
+        sections = _split_customers(customers, n_mid + 1)
+
+        head_id = f"{'BKR' if head_kind == 'breaker' else 'RCL'}_{code}-{num}"
+        devices.append(Device(head_id, sub, feeder, zone, tier, sections[0],
+                              head_kind, parent=bus, bus=bus, kv_ll=kv,
+                              fs=rng.choice(SAMPLE_RATES)))
+        parent = head_id
+        for i in range(1, n_mid + 1):
+            mid_id = f"RCL_{code}-{num}R{i}"
+            devices.append(Device(mid_id, sub, feeder, zone, tier, sections[i],
+                                  "recloser", parent=parent, bus=bus, kv_ll=kv,
+                                  fs=rng.choice(SAMPLE_RATES)))
+            parent = mid_id
     return devices
 
 
 def write_registry(devices: List[Device], path: str) -> None:
     lines = ["device_id,station,feeder,zone,risk_tier,customers_served"]
     for d in devices:
-        lines.append(f"{d.device_id},{d.station},{d.feeder},{d.zone},{d.risk_tier},{d.customers_served}")
+        lines.append(f"{d.device_id},{d.station},{d.feeder},{d.zone},"
+                     f"{d.risk_tier},{d.customers_served}")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+def write_topology(devices: List[Device], path: str) -> None:
+    """
+    Write the connectivity file topology.py reads: a source row per substation,
+    a row per device, then the ties. Generated from the same _FEEDERS/_TIES
+    tables as the registry so the two can never drift.
+    """
+    by_id = {d.device_id: d for d in devices}
+    lines = ["feeder,node_id,kind,parent,tie_to"]
+    for code, label, _zone, _tier, _kv in _SUBSTATIONS:
+        lines.append(f"{label} Sub,{_bus_id(code)},source,,")
+        for d in devices:
+            if d.bus == _bus_id(code):
+                lines.append(f"{d.feeder},{d.device_id},{d.kind},{d.parent},")
+    for near, far in _TIES:
+        n, f = by_id[near], by_id[far]
+        tie_id = (f"TIE_{n.device_id.split('_')[1].split('-')[0]}{_feeder_number(n.feeder)}"
+                  f"_{f.device_id.split('_')[1].split('-')[0]}{_feeder_number(f.feeder)}")
+        lines.append(f"{n.feeder},{tie_id},tie,{near},{far}")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
 
@@ -119,6 +232,11 @@ class Shot:
     t_close: Optional[float]       # None = no reclose (lockout or end of record)
     t_clear: Optional[float] = None  # for the no-trip case: when the fault vanishes
     mag_scale: float = 1.0
+    # Load current after this shot's fault clears. Set on a witness record:
+    # when the device below opens, the load it was feeding disappears from
+    # everything upstream, so the post-fault load steps DOWN. Leaving it at the
+    # pre-fault level is the detail a protection engineer spots first.
+    load_after: Optional[float] = None
 
 
 @dataclass
@@ -139,6 +257,28 @@ class Scenario:
     scenario: str                  # template name, for ground truth
     expect_wso: str                # PERMANENT / WSO_EXPOSED / NOT_EXPOSED
     expect_flags: List[str] = field(default_factory=list)
+
+    # --- incident context ---------------------------------------------------
+    # One fault produces several records: the device that cleared it, every
+    # device upstream that saw the same current and correctly did not trip,
+    # and — after a lockout — the tie that picked the section back up. They
+    # share an incident_id in the ground truth ONLY; a relay has no idea the
+    # others exist, so the pipeline has to re-derive the grouping from
+    # timestamps and topology the way it must on a real SUBNET pull.
+    incident_id: str = ""
+    role: str = "origin"           # origin | witness | tie_pickup
+    # Cold-load inrush on a tie_pickup record:
+    # (t_close, peak A, settled A, decay tau s). Before t_close the record
+    # carries i_load — the far feeder's own load; after it, the inrush decays
+    # toward `settled`, which is that load plus the section just picked up.
+    cold_load: Optional[Tuple[float, float, float, float]] = None
+
+    @property
+    def t_trigger(self) -> float:
+        """Seconds into the record at which the relay triggered."""
+        if self.shots:
+            return self.shots[0].t_fault
+        return self.cold_load[0] if self.cold_load else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -225,9 +365,10 @@ def synthesize(sc: Scenario):
     cur_arr = {"A": ia, "B": ib, "C": ic}
     volt_arr = {"A": van, "B": vbn, "C": vcn}
 
-    def fill_load(mask):
+    def fill_load(mask, amp=None):
+        amp = sc.i_load if amp is None else amp
         for p in "ABC":
-            cur_arr[p][mask] = sc.i_load * np.sin(w * t[mask] + PHASE_ANGLE[p])
+            cur_arr[p][mask] = amp * np.sin(w * t[mask] + PHASE_ANGLE[p])
             volt_arr[p][mask] = sc.v_peak * np.sin(w * t[mask] + PHASE_ANGLE[p])
 
     def fill_fault(mask, t0, mag_scale):
@@ -247,15 +388,39 @@ def synthesize(sc: Scenario):
     p50_windows: List[Tuple[float, float]] = []
     p51_windows: List[Tuple[float, float]] = []
 
+    # A tie pickup record has no fault at all: the far feeder's own load, then
+    # a cold-load inrush when the tie closes and it picks up the stranded
+    # section. Decays toward the combined load, which is where it stays.
+    if sc.cold_load is not None and not sc.shots:
+        t_close, peak, settled, tau = sc.cold_load
+        fill_load(t < t_close)
+        mask = t >= t_close
+        envelope = settled + (peak - settled) * np.exp(-(t[mask] - t_close) / tau)
+        for p in "ABC":
+            cur_arr[p][mask] = envelope * np.sin(w * t[mask] + PHASE_ANGLE[p])
+            volt_arr[p][mask] = sc.v_peak * np.sin(w * t[mask] + PHASE_ANGLE[p])
+        i_n_cold = cur_arr["A"] + cur_arr["B"] + cur_arr["C"]
+        return {
+            "n": n, "t": t,
+            "analog": [ia, ib, ic, i_n_cold, van, vbn, vcn],
+            "digital": [np.zeros(n, dtype=int), np.zeros(n, dtype=int),
+                        np.zeros(n, dtype=int), np.zeros(n, dtype=int),
+                        np.ones(n, dtype=int), np.zeros(n, dtype=int)],
+        }
+
     cursor = 0.0
+    load_now = sc.i_load
     for shot in sc.shots:
-        fill_load((t >= cursor) & (t < shot.t_fault))
+        fill_load((t >= cursor) & (t < shot.t_fault), load_now)
 
         if shot.t_trip is None:
-            # Self-clearing fault, no relay operation
+            # Self-clearing fault, or a fault cleared by a device further down
+            # the feeder — either way this relay never trips.
             t_end = shot.t_clear if shot.t_clear is not None else sc.t_total
             fill_fault((t >= shot.t_fault) & (t < t_end), shot.t_fault, shot.mag_scale)
             cursor = t_end
+            if shot.load_after is not None:
+                load_now = shot.load_after
             continue
 
         fill_fault((t >= shot.t_fault) & (t < shot.t_trip), shot.t_fault, shot.mag_scale)
@@ -269,7 +434,7 @@ def synthesize(sc: Scenario):
         cursor = t_open_end
 
     if cursor < sc.t_total:
-        fill_load((t >= cursor) & (t < sc.t_total))
+        fill_load((t >= cursor) & (t < sc.t_total), load_now)
 
     # OPEN intervals overwrite whatever was there
     for t_trip, t_close in open_windows:
@@ -342,11 +507,11 @@ def write_event(sc: Scenario, wave: dict, out_dir: str) -> str:
     a_vlt = max(np.max(np.abs(np.concatenate([van, vbn, vcn]))), 1.0) * 1.05 / ADC_FULL_SCALE
     scales = [a_cur] * 4 + [a_vlt] * 3
 
-    prim_cur = int(round(sc.i_fault * 1.5 / 100.0) * 100)
+    prim_cur = int(round(max(sc.i_fault, sc.i_load * 2) * 1.5 / 100.0) * 100)
     prim_vlt = int(round(sc.v_peak))
 
     start_dt = sc.timestamp
-    trig_dt = start_dt + timedelta(seconds=sc.shots[0].t_fault)
+    trig_dt = start_dt + timedelta(seconds=sc.t_trigger)
 
     def _dt(d: datetime) -> str:
         return d.strftime("%d/%m/%Y,%H:%M:%S.%f")
@@ -433,19 +598,53 @@ def _ground_element(ftype: str, fast: bool) -> str:
     return ("50G" if fast else "51G") if ground else ("50P" if fast else "51P")
 
 
-def build_scenario(idx: int, rng: random.Random, devices: List[Device],
-                   base_date: datetime) -> Scenario:
-    template = rng.choices(list(_TEMPLATE_WEIGHTS), weights=list(_TEMPLATE_WEIGHTS.values()))[0]
-    device = rng.choice(devices)
-    ftype, phases = _pick_fault(rng)
-    fs = rng.choice(SAMPLE_RATES)
+# Load current scales with the customers a device feeds, so an upstream
+# record and the downstream record of the same fault differ in exactly the way
+# the topology says they should.
+_AMPS_PER_CUSTOMER = (0.055, 0.085)
 
-    kv_ll = rng.choice([12.47, 12.47, 12.47, 21.0, 34.5])
+
+def _load_current(rng: random.Random, customers: int) -> float:
+    """Peak load current for a device feeding `customers`, clamped to sane rails."""
+    return float(np.clip(customers * rng.uniform(*_AMPS_PER_CUSTOMER), 12.0, 260.0))
+
+
+def _fault_current(rng: random.Random, i_load: float, depth: int) -> float:
+    """
+    Available fault current at a section `depth` hops from the substation.
+
+    Line impedance is NOT in the topology model, and it stays out of it — this
+    is the generator choosing a plausible level for a location, so that a fault
+    out at the end of a feeder is weaker than one at the head. Every device
+    upstream of the fault sees this SAME current: on a radial mainline there is
+    no branch between them to divide it.
+    """
+    base = rng.uniform(max(9.0 * i_load, 320.0), 2600.0)
+    return max(base * (0.72 ** max(0, depth - 1)), 9.0 * i_load, 260.0)
+
+
+def build_scenario(idx: int, rng: random.Random, device: Device,
+                   base_date: datetime, depth: int = 1,
+                   customers_below: int = 0, ratio_customers: int = 0,
+                   template: Optional[str] = None) -> Scenario:
+    if template is None:
+        template = rng.choices(list(_TEMPLATE_WEIGHTS),
+                               weights=list(_TEMPLATE_WEIGHTS.values()))[0]
+    ftype, phases = _pick_fault(rng)
+    fs = device.fs
+
+    kv_ll = device.kv_ll
     v_peak = kv_ll * 1000 / np.sqrt(3) * np.sqrt(2)
 
-    i_load = rng.uniform(55.0, 165.0)
-    # >= 8x load keeps the unfaulted/faulted RMS ratio under the 0.15 threshold
-    i_fault = rng.uniform(max(9.0 * i_load, 320.0), 2600.0)
+    i_load = _load_current(rng, customers_below or device.customers_served)
+    # Every device up the path sees this same fault current against its own,
+    # larger, load. The classifier needs unfaulted/faulted RMS under 0.15 on
+    # all of them, so size the fault against the heaviest-loaded device on the
+    # path — the feeder head — not against the one that cleared it.
+    heaviest = i_load
+    if ratio_customers and customers_below:
+        heaviest = i_load * (ratio_customers / customers_below)
+    i_fault = _fault_current(rng, heaviest, depth)
 
     if template == "hif":
         ftype, phases = "SLG", rng.choice(_SLG_PHASES)
@@ -587,63 +786,243 @@ def build_scenario(idx: int, rng: random.Random, devices: List[Device],
 
 
 # ---------------------------------------------------------------------------
+# Incidents — one fault, several records
+# ---------------------------------------------------------------------------
+
+# How likely an upstream device is to have recorded the same fault. The device
+# immediately above usually does; a substation breaker two sections up often
+# never picks up at all. Nothing here is a claim about real relay settings —
+# it is a mix that keeps both cases in the corpus.
+_WITNESS_P = (0.80, 0.45, 0.25)
+
+# ADMS runs the restoration, not this tool. Its tie close lands tens of seconds
+# after the lockout, which is far outside any same-fault time window — so
+# grouping it with the rest has to come from the topology, not the clock.
+_RESTORE_DELAY_S = (20.0, 120.0)
+
+
+def _incident_id(idx: int, origin: Scenario) -> str:
+    return f"INC{idx:04d}_{origin.timestamp.strftime('%Y%m%d_%H%M%S')}"
+
+
+def _witness_scenario(origin: Scenario, device: Device, rng: random.Random,
+                      customers_below: int, share_lost: float,
+                      idx: int, seq: int) -> Scenario:
+    """
+    A record from a device upstream of the one that cleared the fault.
+
+    It sees the same fault, at the same instant, at the same magnitude — and it
+    does not trip, because something below it did. Afterwards its load steps
+    down by whatever the device below was feeding.
+    """
+    first = origin.shots[0]
+    t_clear = T_PRE + ((first.t_trip - first.t_fault) if first.t_trip is not None
+                       else (first.t_clear - first.t_fault))
+    i_load = _load_current(rng, customers_below)
+    shots = [Shot(T_PRE, None, "", None, t_clear=t_clear,
+                  load_after=i_load * (1.0 - share_lost))]
+    t_total = t_clear + rng.uniform(0.15, 0.35)
+
+    expect_flags = ["no_trip"]
+    if origin.fault_type == "3PH":
+        expect_flags.append("3ph_fault")
+    elif origin.fault_type == "LLG":
+        expect_flags.append("llg_fault")
+
+    ts = origin.timestamp + timedelta(milliseconds=rng.uniform(-30, 30))
+    return Scenario(
+        event_id=f"{device.device_id}_{ts.strftime('%Y%m%d_%H%M%S')}_{idx:03d}{seq}",
+        device=device, fault_type=origin.fault_type, phases=origin.phases,
+        shots=shots, t_lockout=None, t_total=t_total, fs=device.fs,
+        i_load=i_load, i_fault=origin.i_fault, v_peak=origin.v_peak,
+        kv_ll=device.kv_ll, timestamp=ts, scenario="witness_no_trip",
+        expect_wso="EPSS_CANDIDATE", expect_flags=sorted(set(expect_flags)),
+        role="witness",
+    )
+
+
+def _tie_pickup_scenario(origin: Scenario, device: Device, rng: random.Random,
+                         own_customers: int, restored_customers: int,
+                         idx: int, seq: int) -> Scenario:
+    """
+    The far side of a tie, closing onto the section stranded by a lockout.
+
+    No fault, no trip — a step up in load with a cold-load inrush on top. This
+    is what a FLISR restoration actually looks like in an event file, and it
+    lands on a different feeder from the fault that caused it.
+    """
+    own = _load_current(rng, own_customers)
+    restored = _load_current(rng, restored_customers)
+    settled = own + restored
+    peak = settled * rng.uniform(1.6, 2.4)
+    t_close = rng.uniform(0.10, 0.20)
+    tau = rng.uniform(0.8, 2.5)
+    t_total = t_close + rng.uniform(2.0, 4.0)
+
+    ts = (origin.timestamp
+          + timedelta(seconds=(origin.t_lockout or origin.t_total))
+          + timedelta(seconds=rng.uniform(*_RESTORE_DELAY_S))
+          - timedelta(seconds=t_close))
+    return Scenario(
+        event_id=f"{device.device_id}_{ts.strftime('%Y%m%d_%H%M%S')}_{idx:03d}{seq}",
+        # "LOAD" is what this is and what the classifier should call it: a
+        # balanced current step with the voltage still up.
+        device=device, fault_type="LOAD", phases=(), shots=[],
+        t_lockout=None, t_total=t_total, fs=device.fs,
+        i_load=own, i_fault=0.0, v_peak=origin.v_peak, kv_ll=device.kv_ll,
+        timestamp=ts, scenario="tie_pickup", expect_wso="NOT_EXPOSED",
+        expect_flags=[], role="tie_pickup",
+        cold_load=(t_close, peak, settled, tau),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
+def build_incident(idx: int, rng: random.Random, net, devices: List[Device],
+                   by_id: dict, base_date: datetime) -> List[Scenario]:
+    """
+    One fault and every record it produced, origin first.
+
+    The fault happens on some device's section. That device clears it; every
+    device between it and the substation saw the same current and correctly
+    stayed put; and if it locked out, a tie may have picked the section back
+    up minutes later on a neighbouring feeder.
+    """
+    # Faults are weighted toward the mid-line: there are more line miles out
+    # there than in the first section out of the substation.
+    weights = [1.0 + 0.6 * max(0, net.depth(d.device_id) - 1) for d in devices]
+    origin_dev = rng.choices(devices, weights=weights)[0]
+    depth = net.depth(origin_dev.device_id)
+    below = net.customers_below(origin_dev.device_id, _as_registry(devices))
+
+    path = net.path_to_source(origin_dev.device_id)
+    head = next((n for n in reversed(path) if n.kind in ("breaker", "recloser")),
+                None)
+    head_below = (net.customers_below(head.node_id, _as_registry(devices))
+                  if head is not None else below)
+
+    origin = build_scenario(idx, rng, origin_dev, base_date, depth=depth,
+                            customers_below=below, ratio_customers=head_below)
+    inc = _incident_id(idx, origin)
+    origin.incident_id = inc
+    records = [origin]
+
+    # A high-impedance fault is tens of amps: nothing upstream picks it up.
+    if origin.scenario != "hif":
+        upstream = [n for n in path[1:] if n.kind in ("breaker", "recloser")]
+        for i, node in enumerate(upstream):
+            p_rec = _WITNESS_P[i] if i < len(_WITNESS_P) else _WITNESS_P[-1]
+            if rng.random() >= p_rec:
+                continue
+            dev = by_id[node.node_id]
+            up_below = net.customers_below(node.node_id, _as_registry(devices))
+            share = below / up_below if up_below else 0.0
+            w = _witness_scenario(origin, dev, rng, up_below, share, idx, i + 1)
+            w.incident_id = inc
+            records.append(w)
+
+    # After a lockout the section is stranded until something ties it back in.
+    if origin.t_lockout is not None:
+        ties = net.backup_ties(origin_dev.device_id)
+        if ties and rng.random() < 0.65:
+            tie = rng.choice(ties)
+            far = net.node(tie.tie_to)
+            if far is not None and far.node_id in by_id:
+                dev = by_id[far.node_id]
+                own = net.customers_below(far.node_id, _as_registry(devices))
+                t = _tie_pickup_scenario(origin, dev, rng, own, below,
+                                         idx, len(records) + 1)
+                t.incident_id = inc
+                records.append(t)
+
+    return records
+
+
+def _as_registry(devices: List[Device]) -> dict:
+    """Devices in the shape topology.customers_below expects."""
+    from .wso_impact import _normalize
+    return {_normalize(d.device_id): {"customers_served": d.customers_served}
+            for d in devices}
+
+
+def _truth_row(sc: Scenario) -> dict:
+    return {
+        "event_id":        sc.event_id,
+        "file":            f"{sc.event_id}.cfg",
+        "incident_id":     sc.incident_id,
+        "role":            sc.role,
+        "scenario":        sc.scenario,
+        "device_id":       sc.device.device_id,
+        "feeder":          sc.device.feeder,
+        "station":         sc.device.station,
+        "zone":            sc.device.zone,
+        "risk_tier":       sc.device.risk_tier,
+        "customers":       sc.device.customers_served,
+        "timestamp":       sc.timestamp.isoformat(),
+        "sample_rate":     sc.fs,
+        "kv_ll":           sc.kv_ll,
+        "duration_s":      round(sc.t_total, 4),
+        "expect_fault":    sc.fault_type,
+        "faulted_phases":  "".join(sc.phases),
+        "expect_shots":    sum(1 for s in sc.shots if s.t_trip is not None),
+        "expect_wso":      sc.expect_wso,
+        "expect_flags":    sc.expect_flags,
+        "i_load_peak_a":   round(sc.i_load, 1),
+        "i_fault_peak_a":  round(sc.i_fault, 1),
+    }
+
+
 def generate_fleet(out_dir: str, count: int, seed: int) -> dict:
+    """
+    Build `count` incidents. Each yields several event files, so the number of
+    records written is larger — and unlike the old one-event-per-fault corpus,
+    the records of one fault are consistent with each other.
+    """
+    from .topology import load_topology
+
     rng = random.Random(seed)
-    events_dir = os.path.join(out_dir, "events")
+    events_dir = os.path.join(out_dir, EVENTS_DIRNAME)
     os.makedirs(events_dir, exist_ok=True)
 
     devices = build_registry(rng)
+    by_id = {d.device_id: d for d in devices}
     registry_path = os.path.join(out_dir, "fleet_devices.csv")
+    topology_path = os.path.join(out_dir, "topology.csv")
     write_registry(devices, registry_path)
+    write_topology(devices, topology_path)
+    net = load_topology(topology_path)
 
     base_date = datetime(2026, 6, 1, 0, 0, 0)
     truth = []
+    written = 0
 
     for i in range(1, count + 1):
-        sc = build_scenario(i, rng, devices, base_date)
-        wave = synthesize(sc)
-        write_event(sc, wave, events_dir)
-        truth.append({
-            "event_id":        sc.event_id,
-            "file":            f"{sc.event_id}.cfg",
-            "scenario":        sc.scenario,
-            "device_id":       sc.device.device_id,
-            "feeder":          sc.device.feeder,
-            "station":         sc.device.station,
-            "zone":            sc.device.zone,
-            "risk_tier":       sc.device.risk_tier,
-            "customers":       sc.device.customers_served,
-            "timestamp":       sc.timestamp.isoformat(),
-            "sample_rate":     sc.fs,
-            "kv_ll":           sc.kv_ll,
-            "duration_s":      round(sc.t_total, 4),
-            "expect_fault":    sc.fault_type,
-            "faulted_phases":  "".join(sc.phases),
-            "expect_shots":    sum(1 for s in sc.shots if s.t_trip is not None),
-            "expect_wso":      sc.expect_wso,
-            "expect_flags":    sc.expect_flags,
-            "i_load_peak_a":   round(sc.i_load, 1),
-            "i_fault_peak_a":  round(sc.i_fault, 1),
-        })
+        for sc in build_incident(i, rng, net, devices, by_id, base_date):
+            write_event(sc, synthesize(sc), events_dir)
+            truth.append(_truth_row(sc))
+            written += 1
         if i % 10 == 0 or i == count:
-            print(f"  {i}/{count} events written")
+            print(f"  {i}/{count} incidents, {written} event files written")
 
     truth_path = os.path.join(out_dir, "fleet_truth.json")
     with open(truth_path, "w", encoding="utf-8") as fh:
-        json.dump({"seed": seed, "count": count, "events": truth}, fh, indent=2)
+        json.dump({"seed": seed, "incidents": count, "count": len(truth),
+                   "events": truth}, fh, indent=2)
 
     return {"events_dir": events_dir, "registry": registry_path,
-            "truth": truth_path, "devices": len(devices)}
+            "topology": topology_path, "truth": truth_path,
+            "devices": len(devices), "incidents": count, "events": len(truth)}
 
 
 def main():
     p = argparse.ArgumentParser(
         prog="fleet-gen",
         description="Generate a synthetic COMTRADE event fleet for batch analysis")
-    p.add_argument("--count", type=int, default=100, help="number of events (default 100)")
+    p.add_argument("--count", type=int, default=70,
+                   help="number of INCIDENTS (default 70). Each yields several "
+                        "event files, so expect roughly 3x this many records.")
     p.add_argument("--seed", type=int, default=20260601, help="RNG seed for reproducibility")
     # Relative to the working directory, not the package: an installed copy
     # must never try to write fixtures into site-packages.
@@ -651,11 +1030,13 @@ def main():
                    help="output folder (default ./fleet)")
     args = p.parse_args()
 
-    print(f"Generating {args.count} synthetic events (seed {args.seed}) ...")
+    print(f"Generating {args.count} synthetic incidents (seed {args.seed}) ...")
     info = generate_fleet(args.out_dir, args.count, args.seed)
     print()
-    print(f"  Events   → {info['events_dir']}")
+    print(f"  Events   → {info['events_dir']}  "
+          f"({info['events']} records from {info['incidents']} incidents)")
     print(f"  Registry → {info['registry']}  ({info['devices']} devices)")
+    print(f"  Topology → {info['topology']}")
     print(f"  Truth    → {info['truth']}")
     print()
     print("Next:")

@@ -36,5 +36,10 @@ demo/analysis/
 devices.csv
 !demo/devices.csv
 
+# Feeder connectivity — real mainline topology is operational data too.
+# Copy comtrade_analyzer/topology_template.csv to topology.csv and fill it in.
+topology.csv
+!demo/topology.csv
+
 # macOS
 .DS_Store

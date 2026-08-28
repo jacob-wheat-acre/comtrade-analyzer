@@ -272,6 +272,7 @@ def _word_operations_table(doc, record: EventRecord, report: dict) -> None:
         "LL":   "Line-to-Line (LL)",
         "LLG":  "Double Line-to-Ground (LLG)",
         "3PH":  "Three-Phase (3PH)",
+        "LOAD": "Load step (no fault)",
         "UNKNOWN": "Undetermined",
     }
 

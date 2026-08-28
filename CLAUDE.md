@@ -23,6 +23,7 @@ analysis.py          RMS, fault inception, trip time, DFT phasors, sequence
 feeder_analysis.py   Reclose sequence, fault location, HIF screen
 triage.py            Priority 1/2/3 flags — _FLAGS + _TRIGGERS drive the UI
 relay_settings.py    SUBNET settings catalog, template parsing, pickup math
+topology.py          Mainline feeder connectivity  → comtrade-topology
 diagnostics.py       Says plainly what is wrong with a real COMTRADE file
 wso_impact.py        EPSS impact — classify_event owns the three-way boundary
 plotting.py          Waveform / RMS / sequence / phasor plots
@@ -213,6 +214,66 @@ priorities opaque in the first place.
 Priority is the minimum over the flags that fired; `reasons[].decisive` marks
 which ones set it, and the page greys the rest.
 
+## Feeder connectivity
+
+`topology.py` is the mainline model: **connectivity only** — no impedance, no
+laterals, no fuses, no load flow. It exists to answer what event files alone
+cannot: are two records the same fault seen at two depths, what goes dark when
+a device opens, and which feeder could back it up.
+
+The format is one row per node, five columns, because real topology gets typed
+into a spreadsheet from a wall map — there is no GIS export:
+
+```
+feeder,node_id,kind,parent,tie_to
+```
+
+- `feeder` — the feeder this node belongs to; the **station name** on a source row.
+- `node_id` — must match `device_id` in `devices.csv` for anything that records.
+- `kind` — `source | breaker | recloser | sectionalizer | tie`.
+- `parent` — the node immediately upstream; empty only on a source.
+- `tie_to` — the far-end node; read on `kind=tie` rows only.
+
+Each protective device **owns the section immediately downstream of it**, so a
+feeder is a source, a head device, two or three mid-line reclosers and its ties
+— six or seven lines. Normally-closed edges form one tree per source; `kind=tie`
+rows *are* the normally-open edges, and closing one re-parents a subtree onto
+another feeder.
+
+**Customers are not in this file.** They stay in `devices.csv`
+(`customers_served`); `customers_below()` sums the subtree from the registry.
+Two places to edit a customer count is how they drift.
+
+`subtree()` stops at a normally-open tie — a N.O. tie carries nothing, and
+traversing it would double the outage on every lockout. `cross_ties=True` is the
+post-restoration view.
+
+Lookups are punctuation- and case-insensitive via `wso_impact._normalize`, which
+is **imported, not re-implemented** — a second copy is exactly how the
+diagnostics channel check drifted from the analysis it mirrored.
+
+`validate()` returns diagnostics-shaped findings (symptom, evidence, fix) for the
+mistakes hand-authoring actually produces: duplicate ids, a typo'd parent, a
+loop, an orphan branch, a tie with no far end, a tie authored from both sides.
+A test enforces the fix text, same bar as `diagnostics.py`.
+
+The tool does **not** simulate FLISR — that runs in the ADMS. It draws the
+feeder and places events on it; the engineer judges whether the scheme behaved.
+
+`demo/topology.csv` is tracked (invented, matching `demo/devices.csv`); a real
+`topology.csv` is gitignored operational data, and
+`comtrade_analyzer/topology_template.csv` is what you copy.
+
+`fleet_gen` generates `topology.csv` and `devices.csv` from the same
+`_SUBSTATIONS` / `_FEEDERS` / `_TIES` tables, so the demo's tree and its
+registry cannot drift. Hand-authored files are the other path; the template is
+what you copy for those.
+
+**`customers_served` is a device's OWN section, not its whole feeder.** What a
+trip actually drops is the subtree below it, which is `customers_below()` —
+`fleet_analyze` puts that on every event as `customers_affected`. Without a
+topology the two are equal, which is the right fallback for a plain folder.
+
 ## Relay settings
 
 `relay_settings.py` reads the SUBNET export as a **catalog**, not a native SEL
@@ -383,17 +444,68 @@ on Windows, so nothing on the machine that writes them notices a mistake.
 tracked file; generating a second copy is how the two drifted apart in
 pq-analyzer, and you got whichever half depending on what you ran last.
 
+## Incidents — one fault, several records
+
+A fault does not produce one event file. It produces a record at the device
+that cleared it, a record at every device between there and the substation that
+saw the same current and correctly did **not** trip, and — after a lockout —
+a record on a *neighbouring feeder* when a tie picks the stranded section back
+up. `fleet_gen.build_incident` emits all of them.
+
+What holds a set together, and what does not:
+
+- **Same fault current.** On a radial mainline there is no branch between the
+  devices on one path, so every device upstream of the fault sees the *same*
+  magnitude. What differs is pre-fault **load** — an upstream device feeds
+  everything below it — and that is topology, not impedance.
+- **Load steps down** on a witness record after the device below opens.
+  `Shot.load_after` carries it. Leaving load flat across a downstream trip is
+  the detail a protection engineer spots first.
+- **Fault current is sized against the feeder head**, not the device that
+  cleared. Every device on the path needs unfaulted/faulted RMS under the
+  classifier's 0.15 gate, and the head carries the most load — size it there or
+  the witness records misclassify as LLG.
+- **The tie pickup is tens of seconds later**, on another feeder. `classify_event`
+  and any time-window correlation must not expect it inside a fault window;
+  grouping it needs the topology.
+- **`incident_id` lives in `fleet_truth.json` only.** A relay has no idea the
+  other records exist, so the pipeline has to re-derive the grouping the way it
+  must on a real SUBNET pull. Putting it in the CFG would be cheating.
+
+## The LOAD class — cold load is not a three-phase fault
+
+`classify_fault` returns **`LOAD`** for a balanced current rise on all three
+phases with the voltage still up. Cold-load inrush when a tie closes onto a
+restored section is indistinguishable from a 3PH fault in current alone, and it
+was being reported as one; voltage is the only discriminator, so
+`_voltage_held_up()` gates the 3PH branch on it (`_LOAD_STEP_V_RATIO`, 0.85).
+
+With **no voltage channels it stays 3PH** — an unknown is not evidence of a
+load step. `triage` fires no flags on a LOAD record and `wso_impact` returns
+`NOT_EXPOSED`, because there is no fault for EPSS to convert. Without this,
+every FLISR restoration read as a Priority 1 three-phase fault on a healthy
+feeder.
+
+This did not move any real fault: all five generators classify unchanged.
+
 ## The demo set
 
-`demo/` is **tracked on purpose** — 100 synthetic events, the registry, the
-ground truth, and a pre-built `demo_dashboard.html`. It exists because the tool
-had to be demonstrated before SUBNET was returning COMTRADE files, and a
-colleague's managed PC may not get the Python install working on the first try.
-The pre-built HTML is the zero-dependency fallback.
+`demo/` is **tracked on purpose** — 196 synthetic records from 115 incidents,
+the registry, the topology, the ground truth, and a pre-built
+`demo_dashboard.html`. It exists because the tool had to be demonstrated before
+SUBNET was returning COMTRADE files, and a colleague's managed PC may not get
+the Python install working on the first try. The pre-built HTML is the
+zero-dependency fallback.
 
-Regenerate it with `fleet_gen --count 100 --seed 20260601`; the seed is what
-makes it reproducible. Rebuild the HTML after any dashboard change, or it goes
-stale against the code. `demo/analysis/` and `fleet/` stay ignored — those are
+The records live in **`demo/incident_events/`** — named for what it holds, since
+the corpus is organised around incidents rather than loose events.
+`fleet_analyze.resolve_inputs` looks for that name first and falls back to a
+plain `events/` dump, which is what a real SUBNET pull is.
+
+Regenerate it with `fleet_gen --count 115 --seed 20260601`; the seed is what
+makes it reproducible. **`--count` counts incidents, not records** — each yields
+roughly 1.7 files. Rebuild the HTML after any dashboard change, or it goes stale
+against the code. `demo/analysis/` and `fleet/` stay ignored — those are
 scratch.
 
 Any dashboard built from a set with a `fleet_truth.json` beside it shows a

@@ -28,6 +28,8 @@ Coverage:
 import json
 import math
 import struct
+from collections import defaultdict
+from datetime import datetime
 import sys
 from pathlib import Path
 
@@ -109,9 +111,14 @@ def _record(analog, digital=None, fs=FS, f0=F0, trigger_s=0.05, units=None):
 
 
 def _fault_record(i_load, i_fault, faulted, n_cycles=8, fault_cycle=3,
-                  trip_cycle=None, phase_shift=None, unfaulted_scale=1.0):
+                  trip_cycle=None, phase_shift=None, unfaulted_scale=1.0,
+                  v_collapse=0.15):
     """
     Load current for `fault_cycle` cycles, then elevated current on `faulted`.
+
+    The voltage on the faulted phases collapses to `v_collapse` per unit, which
+    is what makes it a fault rather than load being switched on. Pass
+    v_collapse=1.0 to model a balanced load step with the voltage intact.
 
     Returns (record, fault_index).
     """
@@ -127,7 +134,10 @@ def _fault_record(i_load, i_fault, faulted, n_cycles=8, fault_cycle=3,
             sig[fi:] = _sine(i_load * unfaulted_scale, n, PH[p])[fi:]
         chans[f"I{p}"] = sig
     for p in "ABC":
-        chans[f"V{p}N"] = _sine(10000.0, n, PH[p])
+        v = _sine(10000.0, n, PH[p])
+        if p in faulted:
+            v[fi:] = _sine(10000.0 * v_collapse, n, PH[p])[fi:]
+        chans[f"V{p}N"] = v
 
     digital = {}
     if trip_cycle is not None:
@@ -396,6 +406,28 @@ class TestClassifyFault:
 
     def test_balanced_three_phase(self):
         rec, fi = _fault_record(i_load=80.0, i_fault=900.0, faulted="ABC")
+        assert classify_fault(rec, fi) == "3PH"
+
+    def test_a_balanced_step_with_the_voltage_intact_is_load_not_a_fault(self):
+        """
+        Cold-load pickup — a tie closing onto a restored section — is a
+        balanced rise on all three phases and looks exactly like a 3PH fault in
+        current alone. The voltage is the only thing that separates them: a
+        real three-phase fault drags it down, load does not.
+        """
+        rec, fi = _fault_record(i_load=80.0, i_fault=260.0, faulted="ABC",
+                                v_collapse=1.0)
+        assert classify_fault(rec, fi) == "LOAD"
+
+    def test_without_voltage_channels_a_balanced_step_still_reads_as_a_fault(self):
+        """An unknown is not evidence of a load step — don't downgrade blind."""
+        n, fi = SPC * 8, SPC * 3
+        chans = {}
+        for p in "ABC":
+            sig = _sine(80.0, n, PH[p])
+            sig[fi:] = _sine(900.0, n, PH[p])[fi:]
+            chans[f"I{p}"] = sig
+        rec = _record(chans, trigger_s=fi / FS)
         assert classify_fault(rec, fi) == "3PH"
 
     def test_unfaulted_phases_below_the_slg_gate(self):
@@ -1451,3 +1483,298 @@ class TestWindowsIcon:
         for name in ("icon.png", "icon.ico"):
             assert (pkg / name).read_bytes() == (self.ROOT / name).read_bytes(), \
                 f"{name} differs between the package and the root — run make_icon.py"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 19. Feeder connectivity
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTheTopologyModel:
+    """
+    topology.py answers the questions a pile of event files cannot: which
+    devices are on one path to the source, what goes dark when one opens, and
+    which feeder could back it up. The format is hand-authored in a
+    spreadsheet, so the validator has to catch spreadsheet mistakes.
+    """
+
+    ROOT = Path(__file__).parent
+    DEMO = ROOT / "demo" / "topology.csv"
+    TEMPLATE = ROOT / "comtrade_analyzer" / "topology_template.csv"
+
+    def _net(self):
+        from comtrade_analyzer.topology import load_topology
+        return load_topology(str(self.DEMO))
+
+    # -- the shipped files --------------------------------------------------
+
+    def test_the_demo_topology_validates_without_errors_or_warnings(self):
+        from comtrade_analyzer.topology import validate
+        bad = [f for f in validate(self._net()) if f["level"] != "info"]
+        assert not bad, "demo/topology.csv: " + "; ".join(
+            f"{f['code']}: {f['message']}" for f in bad)
+
+    def test_the_template_validates_clean(self):
+        """It is what a colleague copies — it must not model a mistake."""
+        from comtrade_analyzer.topology import load_topology, validate
+        bad = [f for f in validate(load_topology(str(self.TEMPLATE)))
+               if f["level"] != "info"]
+        assert not bad, "template: " + "; ".join(f["code"] for f in bad)
+
+    def test_the_template_carries_the_documented_columns(self):
+        import csv as _csv
+        from comtrade_analyzer.topology import _HEADER
+        with open(self.TEMPLATE, newline="", encoding="utf-8-sig") as fh:
+            header = tuple(h.strip() for h in next(_csv.reader(fh)))
+        assert header == _HEADER
+
+    def test_every_registered_device_is_placed_on_a_feeder(self):
+        """A device with events but no topology row cannot be drawn anywhere."""
+        from comtrade_analyzer.wso_impact import load_registry
+        registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
+        net = self._net()
+        missing = [d["device_id"] for d in registry.values()
+                   if d["device_id"] not in net]
+        assert not missing, f"in devices.csv but not in topology: {missing}"
+
+    def test_every_feeder_has_a_way_back_in(self):
+        net = self._net()
+        stranded = [f for f in net.feeders() if not net.ties(f)]
+        assert not stranded, f"no tie to back up: {stranded}"
+
+    # -- graph semantics ----------------------------------------------------
+
+    def test_upstream_is_along_one_path_not_merely_the_same_feeder(self):
+        """
+        The whole point: two records within a few hundred ms are one fault seen
+        at two depths only if the devices share a path to the source.
+        """
+        net = self._net()
+        assert net.is_upstream_of("BKR_CH-1211", "RCL_CH-1211R2")
+        assert not net.is_upstream_of("RCL_CH-1211R2", "BKR_CH-1211")
+        assert not net.is_upstream_of("RCL_CH-1212", "RCL_CH-1211R2")
+        assert net.on_same_path(["BKR_CH-1211", "RCL_CH-1211R1", "RCL_CH-1211R2"])
+        assert not net.on_same_path(["RCL_CH-1212", "RCL_CH-1211R2"])
+
+    def test_the_deepest_device_is_the_one_that_should_have_cleared(self):
+        net = self._net()
+        seen = ["BKR_CH-1211", "RCL_CH-1211R2", "RCL_CH-1211R1"]
+        assert net.deepest(seen).node_id == "RCL_CH-1211R2"
+
+    def test_a_normally_open_tie_carries_nothing(self):
+        """
+        subtree() is 'what goes dark if this opens'. A N.O. tie is a leaf, not
+        a route onto the neighbouring feeder — treating it as one would double
+        the outage on every lockout.
+        """
+        net = self._net()
+        below = [n.node_id for n in net.subtree("BKR_CH-1211")]
+        assert "TIE_CH1211_CH1212" in below
+        assert "RCL_CH-1212R1" not in below
+        crossed = [n.node_id for n in net.subtree("BKR_CH-1211", cross_ties=True)]
+        assert "RCL_CH-1212R1" in crossed
+
+    def test_ids_join_across_punctuation_and_case(self):
+        """Topology and registry are typed by hand, hours apart."""
+        net = self._net()
+        assert "rcl ch 1211 r2" in net
+        assert net.node("RCL_CH_1211R2").node_id == "RCL_CH-1211R2"
+
+    def test_customers_below_sums_the_subtree_from_the_registry(self):
+        """
+        customers_served on a device row is that device's OWN section; what a
+        trip actually drops is the whole subtree under it. A feeder head takes
+        every recloser below it with it, so the two numbers must differ.
+        """
+        from comtrade_analyzer.wso_impact import load_registry
+        registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
+        net = self._net()
+        head, own = "BKR_CH-1211", registry["bkrch1211"]["customers_served"]
+        below = net.customers_below(head, registry)
+        assert below > own, "a feeder head must drop more than its own section"
+        assert below == sum(registry[k]["customers_served"]
+                            for k in ("bkrch1211", "rclch1211r1", "rclch1211r2"))
+
+    def test_a_leaf_device_drops_only_its_own_section(self):
+        from comtrade_analyzer.wso_impact import load_registry
+        registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
+        net = self._net()
+        assert (net.customers_below("RCL_CH-1211R2", registry)
+                == registry["rclch1211r2"]["customers_served"])
+
+    # -- authoring mistakes -------------------------------------------------
+
+    def _codes(self, text, tmp_path):
+        from comtrade_analyzer.topology import load_topology, validate
+        f = tmp_path / "t.csv"
+        f.write_text("feeder,node_id,kind,parent,tie_to\n" + text, encoding="utf-8")
+        return {v["code"] for v in validate(load_topology(str(f)))}
+
+    def test_the_validator_catches_spreadsheet_mistakes(self, tmp_path):
+        cases = {
+            "duplicate_node":       "F,S,source,,\nF,A,recloser,S,\nF,A,recloser,S,\n",
+            "missing_parent":       "F,S,source,,\nF,A,recloser,TYPO,\n",
+            "no_parent":            "F,S,source,,\nF,A,recloser,,\n",
+            "loop":                 "F,S,source,,\nF,A,recloser,B,\nF,B,recloser,A,\n",
+            "unknown_kind":         "F,S,source,,\nF,A,switchgear,S,\n",
+            "source_has_parent":    "F,S,source,,\nF,T,source,S,\n",
+            "tie_without_far_end":  "F,S,source,,\nF,A,recloser,S,\nF,T,tie,A,\n",
+            "missing_tie_far_end":  "F,S,source,,\nF,A,recloser,S,\nF,T,tie,A,GONE\n",
+            "no_source":            "F,A,recloser,B,\nF,B,recloser,A,\n",
+        }
+        for code, rows in cases.items():
+            assert code in self._codes(rows, tmp_path), f"{code} not reported"
+
+    def test_every_finding_carries_a_fix(self, tmp_path):
+        """Same bar as diagnostics.py: symptom, evidence, fix."""
+        from comtrade_analyzer.topology import load_topology, validate
+        f = tmp_path / "t.csv"
+        f.write_text("feeder,node_id,kind,parent,tie_to\n"
+                     "F,S,source,,\nF,A,recloser,TYPO,\nF,A,widget,S,\n",
+                     encoding="utf-8")
+        findings = validate(load_topology(str(f)))
+        assert findings
+        for v in findings:
+            assert v["fix"].strip(), f"{v['code']} has no fix text"
+
+    def test_a_duplicate_row_does_not_silently_vanish(self, tmp_path):
+        """The graph keeps the first row; the validator must still say so."""
+        from comtrade_analyzer.topology import load_topology
+        f = tmp_path / "t.csv"
+        f.write_text("feeder,node_id,kind,parent,tie_to\n"
+                     "F,S,source,,\nF,A,recloser,S,\nF,A,breaker,S,\n",
+                     encoding="utf-8")
+        net = load_topology(str(f))
+        assert net.node("A").kind == "recloser"
+        assert len(net.dropped) == 1
+
+    def test_a_feeder_view_shows_ties_authored_from_the_far_side(self, ):
+        """
+        The model is undirected — a tie is written once, from whichever feeder
+        the author was looking at. Bear Gulch's tie to Sawmill Grade lives on
+        the Sawmill Grade row, and must still appear when Bear Gulch is drawn.
+        """
+        from comtrade_analyzer.topology import single_line
+        txt = single_line(self._net(), "Bear Gulch 2110")
+        assert "TIE_CH1215_RG2110" in txt
+        assert "TIE_RG2110_VO3308" in txt
+        assert "BKR_RG-2104" not in txt     # unrelated feeder stays out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 20. Incidents — one fault, several records
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestIncidentGeneration:
+    """
+    A fault produces a record at the device that cleared it, one at every
+    device above it that saw the same current and did not trip, and — after a
+    lockout — one on a neighbouring feeder when a tie picks the section up.
+    The records of one fault have to be consistent with each other, because the
+    whole point of the topology is to check exactly that.
+    """
+
+    ROOT = Path(__file__).parent
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def fleet(cls, tmp_path_factory):
+        from comtrade_analyzer.fleet_gen import generate_fleet
+        out = tmp_path_factory.mktemp("fleet")
+        info = generate_fleet(str(out), count=30, seed=99)
+        return json.loads(Path(info["truth"]).read_text(encoding="utf-8"))
+
+    def _by_incident(self, truth):
+        out = defaultdict(list)
+        for e in truth["events"]:
+            out[e["incident_id"]].append(e)
+        return out
+
+    def test_the_generated_registry_and_topology_agree(self, tmp_path):
+        """Both come from the same tables, so validate() must find no gaps."""
+        from comtrade_analyzer.fleet_gen import generate_fleet
+        from comtrade_analyzer.topology import load_topology, validate
+        from comtrade_analyzer.wso_impact import load_registry
+        info = generate_fleet(str(tmp_path), count=1, seed=3)
+        net = load_topology(info["topology"])
+        findings = validate(net, load_registry(info["registry"]))
+        assert not findings, [f["code"] for f in findings]
+
+    def test_a_fault_can_produce_several_records(self, fleet):
+        groups = self._by_incident(fleet)
+        assert any(len(v) > 1 for v in groups.values()), \
+            "no incident produced more than one record"
+
+    def test_every_incident_has_exactly_one_origin(self, fleet):
+        for inc, rows in self._by_incident(fleet).items():
+            origins = [r for r in rows if r["role"] == "origin"]
+            assert len(origins) == 1, f"{inc}: {len(origins)} origin records"
+
+    def test_witnesses_saw_the_same_fault_at_the_same_instant(self, fleet):
+        """Same type, same current, same moment — it is one fault."""
+        for rows in self._by_incident(fleet).values():
+            origin = next(r for r in rows if r["role"] == "origin")
+            t0 = datetime.fromisoformat(origin["timestamp"])
+            for w in [r for r in rows if r["role"] == "witness"]:
+                assert w["expect_fault"] == origin["expect_fault"]
+                assert w["i_fault_peak_a"] == origin["i_fault_peak_a"]
+                gap = abs((datetime.fromisoformat(w["timestamp"]) - t0).total_seconds())
+                assert gap < 0.05, f"{w['event_id']}: {gap:.3f}s from the origin"
+
+    def test_a_witness_is_upstream_and_carries_more_load(self, fleet, tmp_path_factory):
+        """
+        The device that saw the fault but did not trip must be electrically
+        above the one that cleared it, and feeding more customers.
+        """
+        from comtrade_analyzer.topology import load_topology
+        from comtrade_analyzer.fleet_gen import generate_fleet
+        out = tmp_path_factory.mktemp("net")
+        info = generate_fleet(str(out), count=1, seed=3)
+        net = load_topology(info["topology"])
+        for rows in self._by_incident(fleet).values():
+            origin = next(r for r in rows if r["role"] == "origin")
+            for w in [r for r in rows if r["role"] == "witness"]:
+                assert net.is_upstream_of(w["device_id"], origin["device_id"]), \
+                    f"{w['device_id']} is not above {origin['device_id']}"
+                assert w["i_load_peak_a"] > origin["i_load_peak_a"]
+
+    def test_a_witness_never_trips(self, fleet):
+        for e in fleet["events"]:
+            if e["role"] == "witness":
+                assert e["expect_shots"] == 0
+                assert "no_trip" in e["expect_flags"]
+
+    def test_a_tie_pickup_is_a_load_step_on_another_feeder(self, fleet):
+        """
+        FLISR restoration lands on the neighbouring feeder, tens of seconds
+        later, with no fault at all — that is what makes it easy to misread.
+        """
+        seen = 0
+        for rows in self._by_incident(fleet).values():
+            origin = next(r for r in rows if r["role"] == "origin")
+            for t in [r for r in rows if r["role"] == "tie_pickup"]:
+                seen += 1
+                assert t["expect_fault"] == "LOAD"
+                assert t["expect_wso"] == "NOT_EXPOSED"
+                assert t["expect_flags"] == []
+                assert t["feeder"] != origin["feeder"], "a tie must cross feeders"
+                gap = (datetime.fromisoformat(t["timestamp"])
+                       - datetime.fromisoformat(origin["timestamp"])).total_seconds()
+                assert gap > 5.0, "restoration is not inside the fault window"
+        assert seen, "no tie pickup in the sample"
+
+    def test_only_a_lockout_strands_a_section(self, fleet):
+        for rows in self._by_incident(fleet).values():
+            if any(r["role"] == "tie_pickup" for r in rows):
+                origin = next(r for r in rows if r["role"] == "origin")
+                assert origin["expect_wso"] == "PERMANENT", \
+                    "nothing to restore unless the device locked out"
+
+    def test_the_incident_id_is_not_in_the_comtrade_files(self, tmp_path):
+        """
+        A relay has no idea the other records exist. If the id leaks into the
+        CFG, the pipeline's grouping is never actually exercised.
+        """
+        from comtrade_analyzer.fleet_gen import generate_fleet
+        info = generate_fleet(str(tmp_path), count=6, seed=11)
+        for cfg in Path(info["events_dir"]).glob("*.cfg"):
+            assert "INC" not in cfg.read_text(encoding="utf-8")

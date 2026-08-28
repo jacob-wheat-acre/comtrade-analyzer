@@ -54,6 +54,7 @@ from .analysis import (
 )
 from .feeder_analysis import compute_feeder_summary
 from .triage import rule_table, triage_event
+from .fleet_gen import EVENTS_DIRNAME
 from .wso_impact import (
     EPSS_CANDIDATE, NOT_EXPOSED,
     class_table, classify_event, load_registry, lookup_device,
@@ -520,8 +521,15 @@ def _counter(events, key) -> dict:
 
 
 def aggregate(events: list, registry: dict, epss_tiers: list,
-              response_hours: float) -> dict:
-    """Roll the per-event table into the summaries the dashboard renders."""
+              response_hours: float, net=None) -> dict:
+    """
+    Roll the per-event table into the summaries the dashboard renders.
+
+    With a topology loaded, `customers_served` on a device row is that device's
+    own section, and the customers an event actually drops is the whole subtree
+    below it — a feeder-head trip takes out every recloser under it too. Without
+    one there is no tree to walk, so the two are the same number.
+    """
     total = len(events)
 
     by_zone = defaultdict(lambda: {
@@ -532,7 +540,8 @@ def aggregate(events: list, registry: dict, epss_tiers: list,
     })
     by_device = defaultdict(lambda: {
         "device_id": "", "feeder": "", "zone": "UNREGISTERED", "risk_tier": None,
-        "customers_served": 0, "events": 0, "wso_exposed": 0, "permanent": 0,
+        "customers_served": 0, "customers_affected": 0,
+        "events": 0, "wso_exposed": 0, "permanent": 0,
         "priority_1": 0, "flags": Counter(),
     })
     by_day = Counter()
@@ -544,6 +553,10 @@ def aggregate(events: list, registry: dict, epss_tiers: list,
         e["zone"] = zone
         e["risk_tier"] = dev["risk_tier"] if dev else None
         e["customers_served"] = dev["customers_served"] if dev else 0
+        did = dev["device_id"] if dev else e.get("device_id", "")
+        e["customers_affected"] = (net.customers_below(did, registry)
+                                   if net is not None and did in net
+                                   else e["customers_served"])
         e["station"] = dev["station"] if dev else ""
         e["epss_zone"] = bool(dev and dev["risk_tier"] in epss_tiers)
         if dev is None and e.get("device_id"):
@@ -566,6 +579,7 @@ def aggregate(events: list, registry: dict, epss_tiers: list,
         d["zone"] = zone
         d["risk_tier"] = e["risk_tier"]
         d["customers_served"] = e["customers_served"]
+        d["customers_affected"] = e["customers_affected"]
         d["events"] += 1
         if e["wso_class"] == "WSO_EXPOSED":
             d["wso_exposed"] += 1
@@ -714,7 +728,8 @@ def validate(events: list, truth_path: str) -> Optional[dict]:
 
 _CSV_COLUMNS = [
     "event_id", "timestamp", "device_id", "feeder", "zone", "risk_tier",
-    "customers_served", "fault_type", "faulted_phase", "priority", "wso_class",
+    "customers_served", "customers_affected", "fault_type", "faulted_phase",
+    "priority", "wso_class",
     "total_shots", "locked_out", "trip_delay_ms", "trip_delay_cycles",
     "peak_phase_current_a", "peak_residual_a", "est_miles", "est_miles_valid", "hif_suspect",
     "sample_rate_hz", "duration_s", "sequence_outcome", "flags",
@@ -795,10 +810,18 @@ def print_summary(result: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def resolve_inputs(folder: str, devices_arg: Optional[str]):
-    """A fleet dir has events/ and fleet_devices.csv; a plain folder does not."""
-    events_dir = os.path.join(folder, "events")
-    if not os.path.isdir(events_dir):
-        events_dir = folder
+    """
+    A fleet dir holds its records in a subfolder and carries a registry beside
+    them; a plain folder of COMTRADE files — which is what a real SUBNET pull
+    looks like — does not. `events/` is still accepted for folders built before
+    the corpus was organised into incidents.
+    """
+    events_dir = folder
+    for cand in (EVENTS_DIRNAME, "events"):
+        p = os.path.join(folder, cand)
+        if os.path.isdir(p):
+            events_dir = p
+            break
 
     devices_path = devices_arg
     if devices_path is None:
@@ -808,8 +831,13 @@ def resolve_inputs(folder: str, devices_arg: Optional[str]):
                 devices_path = p
                 break
 
+    topo_path = os.path.join(folder, "topology.csv")
+    if not os.path.isfile(topo_path):
+        topo_path = None
+
     truth_path = os.path.join(folder, "fleet_truth.json")
-    return events_dir, devices_path, (truth_path if os.path.isfile(truth_path) else None)
+    return (events_dir, devices_path, topo_path,
+            (truth_path if os.path.isfile(truth_path) else None))
 
 
 def main():
@@ -852,16 +880,24 @@ def main():
         print(f"Error: folder not found — {args.folder}", file=sys.stderr)
         sys.exit(1)
 
-    events_dir, devices_path, truth_path = resolve_inputs(args.folder, args.devices)
+    events_dir, devices_path, topo_path, truth_path = resolve_inputs(
+        args.folder, args.devices)
     files = _find_cfg(events_dir)
     if not files:
         print(f"No COMTRADE files found under: {events_dir}", file=sys.stderr)
         sys.exit(1)
 
     registry = load_registry(devices_path) if devices_path else {}
+    net = None
+    if topo_path:
+        from .topology import load_topology
+        net = load_topology(topo_path)
     print(f"Events   : {len(files)} file(s) under {events_dir}")
     print(f"Registry : {len(registry)} device(s)"
           + (f" from {devices_path}" if devices_path else " — none, zones will be UNREGISTERED"))
+    if net is not None:
+        print(f"Topology : {len(net.feeders())} feeder(s), {len(net.ties())} tie(s) "
+              f"from {topo_path}")
 
     t0 = time.time()
     wave_opts = None if args.no_waveforms else tuple(args.waveform_buckets)
@@ -882,7 +918,8 @@ def main():
         print(f"  ERROR {r['file']}: {r['error']}", file=sys.stderr)
 
     events.sort(key=lambda e: (e.get("timestamp") or "", e["event_id"]))
-    aggregates = aggregate(events, registry, args.epss_tiers, args.response_hours)
+    aggregates = aggregate(events, registry, args.epss_tiers,
+                           args.response_hours, net)
     validation = validate(events, truth_path) if truth_path else None
 
     result = {
@@ -890,6 +927,7 @@ def main():
         "folder": os.path.abspath(args.folder),
         "events_dir": os.path.abspath(events_dir),
         "registry_path": devices_path,
+        "topology_path": topo_path,
         "settings": {
             "feeder_z_ohm_per_mile": args.feeder_z,
             "epss_tiers": args.epss_tiers,

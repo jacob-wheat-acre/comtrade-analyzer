@@ -168,6 +168,9 @@ def classify_event(feeder_data: Optional[dict],
                       have occurred. Cannot tell which of the two above it is.
 
       NOT_EXPOSED     No fault current and no operation. Nothing to convert.
+                      A balanced load step with the voltage intact (fault_type
+                      LOAD) counts as no fault current — a tie closing onto a
+                      restored section is not something EPSS converts.
     """
     if feeder_data is None:
         return NOT_EXPOSED
@@ -184,7 +187,8 @@ def classify_event(feeder_data: Optional[dict],
     # No trip at all. If fault current was present, the device rode through
     # something — the case this whole analysis exists to find.
     if seq.total_shots == 0:
-        if summary and summary.get("fault_inception_s") is not None:
+        if (summary and summary.get("fault_inception_s") is not None
+                and summary.get("fault_type") != "LOAD"):
             return EPSS_CANDIDATE
         return NOT_EXPOSED
 

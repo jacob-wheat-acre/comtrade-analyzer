@@ -26,6 +26,7 @@ comtrade-wso       = "comtrade_analyzer.wso_impact:main"
 comtrade-dashboard = "comtrade_analyzer.fleet_dashboard:main"
 comtrade-gui       = "comtrade_analyzer.app:main"
 comtrade-demo-fleet = "comtrade_analyzer.fleet_gen:main"
+comtrade-topology  = "comtrade_analyzer.topology:main"
 
 [tool.setuptools]
 packages = ["comtrade_analyzer"]

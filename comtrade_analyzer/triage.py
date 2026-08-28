@@ -126,8 +126,15 @@ def triage_event(
         flags.append("3ph_fault")
         evidence["3ph_fault"] = "classified 3PH"
 
+    # A balanced current step with the voltage still up is load being picked
+    # up, not a fault — a tie closing onto a restored section is the usual
+    # cause. Flagging it "rode through" would call every FLISR restoration a
+    # coordination problem.
+    is_load_step = summary.get("fault_type") == "LOAD"
+
     if (summary.get("fault_inception_s") is not None
-            and summary.get("trip_time_s") is None):
+            and summary.get("trip_time_s") is None
+            and not is_load_step):
         flags.append("no_trip")
         evidence["no_trip"] = (
             f"inception at {summary['fault_inception_s'] * 1000:.1f} ms, "
