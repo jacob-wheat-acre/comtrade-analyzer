@@ -2458,10 +2458,10 @@ function olSubtree(id) {
 }
 
 /* Every device is a box; the letter inside says what it is. B breaker,
-   R recloser, S sectionalizer. That is the drawing convention in use at the
-   utility this is for — no circles, and a tie is a recloser like any other, so
-   it gets a box with an R too. */
-const OL_LETTER = { breaker: "B", recloser: "R", sectionalizer: "S" };
+   R recloser, S sectionalizer, P automatic PMH cabinet. That is the drawing
+   convention in use at the utility this is for — no circles, and a tie is a
+   recloser like any other, so it gets a box with an R too. */
+const OL_LETTER = { breaker: "B", recloser: "R", sectionalizer: "S", pmh: "P" };
 
 function olDevice(kind, x, y, r, fill, stroke, sw = 1.8) {
   /* Every box is filled with its state colour and carries a black letter.
@@ -2834,6 +2834,13 @@ function olDraw(host, feeder, opts = {}) {
     g += `<text x="${nm.x}" y="${y + RAD + 17}" text-anchor="${nm.anchor}" ` +
          `class="ol-name"${open ? ` fill="${col}" style="font-weight:700"` : ""}>` +
          `${esc(id)}</text>`;
+    /* A cabinet's model is its way count, which is the thing you need when
+       asking whether another circuit can be brought into it. */
+    if (p.n.model) {
+      const md = clamped(x, p.n.model);
+      g += `<text x="${md.x}" y="${y + RAD + 33}" text-anchor="${md.anchor}" ` +
+           `class="ol-tie-label">${esc(p.n.model)}</text>`;
+    }
     g += `</g>`;
   });
 

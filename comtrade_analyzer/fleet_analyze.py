@@ -1078,7 +1078,7 @@ def main():
         # The nodes themselves, not just the path — the dashboard is a single
         # self-contained file and cannot go back to the CSV to draw a one-line.
         "topology": ([{"node_id": n.node_id, "feeder": n.feeder, "kind": n.kind,
-                       "parent": n.parent, "tie_to": n.tie_to,
+                       "parent": n.parent, "tie_to": n.tie_to, "model": n.model,
                        # for the contingency view: what this section serves.
                        # Devices with no events are still part of an outage.
                        "customers": ((registry.get(_normalize(n.node_id)) or {})

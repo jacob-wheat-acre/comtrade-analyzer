@@ -2392,7 +2392,8 @@ class TestBranchingFeeders:
         from comtrade_analyzer import fleet_gen as fg
         devices = {d.device_id: d for d in fg.build_registry(random.Random(1))}
         for code, feeder, _kind, trunk, branches, _cust in fg._FEEDERS:
-            want = 1 + trunk + sum(c for _, c in branches)
+            cabinets = sum(1 for c in fg._PMH if c[0] == feeder)
+            want = 1 + trunk + sum(c for _, c in branches) + cabinets
             got = sum(1 for d in devices.values() if d.feeder == feeder)
             assert got == want, f"{feeder}: {got} devices, expected {want}"
 
@@ -2948,3 +2949,92 @@ class TestTheContingencyView:
         i = tpl.index("function olSubtree(")
         body = tpl[i:i + 500]
         assert 'if (n.kind === "tie") return;' in body
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 28. Automatic PMH cabinets
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPmhCabinets:
+    """
+    A cabinet's WAYS are its edges: the source way is its parent, each load way
+    a child, and a normally-open way to another feeder is a tie anchored to it.
+    Only automatic cabinets are mapped, and only switch ways — a fused way is
+    not connectivity anyone switches.
+    """
+
+    ROOT = Path(__file__).parent
+
+    def _net(self):
+        from comtrade_analyzer.topology import load_topology
+        return load_topology(str(self.ROOT / "demo" / "topology.csv"))
+
+    def test_the_models_carry_their_way_counts(self):
+        from comtrade_analyzer.topology import PMH_WAYS
+        assert PMH_WAYS == {"PMH-9": 2, "PMH-11": 3, "PMH-10": 4}
+
+    def test_the_demo_has_cabinets_and_they_validate(self):
+        from comtrade_analyzer.topology import validate
+        net = self._net()
+        cabs = [n for n in net.nodes() if n.kind == "pmh"]
+        assert cabs, "no PMH cabinet in the demo topology"
+        assert all(c.model for c in cabs), "a cabinet with no model cannot be checked"
+        bad = [f for f in validate(net) if f["level"] != "info"]
+        assert not bad, [f["code"] for f in bad]
+
+    def test_a_cabinet_way_can_be_the_normally_open_point(self):
+        """The thing that makes a cabinet interesting for restoration."""
+        net = self._net()
+        anchored = [t for t in net.ties()
+                    if (p := net.node(t.parent)) is not None and p.kind == "pmh"]
+        assert anchored, "no tie hangs off a cabinet"
+
+    def test_an_over_connected_cabinet_is_an_error(self, tmp_path):
+        from comtrade_analyzer.topology import load_topology, validate
+        f = tmp_path / "t.csv"
+        f.write_text(
+            "feeder,node_id,kind,parent,tie_to,model\n"
+            "S,BUS,source,,,\n"
+            "F,BKR_1,breaker,BUS,,\n"
+            "F,PMH_1,pmh,BKR_1,,PMH-9\n"          # 2 ways: source + one load
+            "F,RCL_1,recloser,PMH_1,,\n"
+            "F,RCL_2,recloser,PMH_1,,\n",         # one way too many
+            encoding="utf-8")
+        codes = [x["code"] for x in validate(load_topology(str(f)))]
+        assert "cabinet_over_connected" in codes
+
+    def test_an_unknown_model_is_an_error(self, tmp_path):
+        from comtrade_analyzer.topology import load_topology, validate
+        f = tmp_path / "t.csv"
+        f.write_text("feeder,node_id,kind,parent,tie_to,model\n"
+                     "S,BUS,source,,,\nF,PMH_1,pmh,BUS,,PMH-42\n", encoding="utf-8")
+        codes = [x["code"] for x in validate(load_topology(str(f)))]
+        assert "unknown_cabinet_model" in codes
+
+    def test_a_cabinet_never_records_an_event(self):
+        """
+        A way switch is a load-interrupter, not a protective device: it does
+        not clear faults, so it leaves no oscillography. It is still in the
+        registry — it carries customers and matters for N-1.
+        """
+        import csv as _csv
+        from comtrade_analyzer.topology import RECORDING_KINDS
+        assert "pmh" not in RECORDING_KINDS
+        truth = json.loads((self.ROOT / "demo" / "fleet_truth.json")
+                           .read_text(encoding="utf-8"))
+        cabs = {n.node_id for n in self._net().nodes() if n.kind == "pmh"}
+        assert cabs
+        assert not (cabs & {e["device_id"] for e in truth["events"]}), \
+            "a cabinet produced an event"
+
+    def test_a_cabinet_is_still_in_the_registry(self):
+        from comtrade_analyzer.wso_impact import load_registry, _normalize
+        registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
+        for c in (n for n in self._net().nodes() if n.kind == "pmh"):
+            assert _normalize(c.node_id) in registry, f"{c.node_id} carries no customers"
+
+    def test_the_page_draws_a_cabinet_as_a_lettered_box(self):
+        tpl = (self.ROOT / "comtrade_analyzer" / "dashboard_template.html").read_text(
+            encoding="utf-8")
+        assert 'pmh: "P"' in tpl
+        assert "p.n.model" in tpl, "the cabinet's way count is not shown"

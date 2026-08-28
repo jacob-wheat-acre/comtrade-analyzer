@@ -231,9 +231,10 @@ feeder,node_id,kind,parent,tie_to
 
 - `feeder` — the feeder this node belongs to; the **station name** on a source row.
 - `node_id` — must match `device_id` in `devices.csv` for anything that records.
-- `kind` — `source | breaker | recloser | sectionalizer | tie`.
+- `kind` — `source | breaker | recloser | sectionalizer | pmh | tie`.
 - `parent` — the node immediately upstream; empty only on a source.
 - `tie_to` — the far-end node; read on `kind=tie` rows only.
+- `model` — `PMH-9` / `PMH-11` / `PMH-10`; read on `kind=pmh` rows only.
 
 Each protective device **owns the section immediately downstream of it**, so a
 feeder is a source, a head device, two or three mid-line reclosers and its ties
@@ -320,6 +321,28 @@ grouping test does not fail: `incidents._same_fault` falls back to matching on
 the feeder when a device is not in the topology, so the test passes with the
 path logic switched off. `TestIncidentGrouping._ev()` asserts the device exists
 (pass `unknown=True` for the deliberate no-topology case).
+
+## Automatic PMH cabinets
+
+`PMH_WAYS` = **PMH-9: 2, PMH-11: 3, PMH-10: 4**. Only **automatic** cabinets
+are mapped, and only their **switch** ways — a fused way is not connectivity
+anyone switches, so it stays off the drawing like every other fuse.
+
+**A cabinet's ways ARE its edges here.** The source way is its `parent`, each
+load way a child, and a normally-open way to another feeder is a `tie` anchored
+to it. That is why a cabinet needs no new concept beyond a kind and a model —
+and why `validate()` can check it: ways used = parent + children, and more than
+the model allows is `cabinet_over_connected`.
+
+**A PMH way switch is a load-interrupter, not a protective device.** It does not
+clear faults, so it leaves no oscillography and is *not* in `RECORDING_KINDS` —
+`fleet_gen.build_incident` never picks one as an event origin. It *is* in
+`SWITCHING_KINDS` and in the registry, because it carries customers and it
+matters for N-1. A cabinet with events would be a bug, and a test says so.
+
+On the drawing it is a box with a **P** and its model beneath the name — the
+model is the way count, which is what you need when asking whether another
+circuit can be brought into the cabinet.
 
 ## Relay settings
 

@@ -120,6 +120,25 @@ _FEEDERS = [
     ("DF", "Delta Flats 4411",   "breaker",  1, (),           498),
 ]
 
+# Automatic PMH cabinets: (feeder, tap position on the trunk, model). Only
+# automatic cabinets are mapped, and only their switch ways — a fused way is
+# not connectivity anyone switches. A cabinet's ways ARE its edges here: the
+# source way is its parent, each load way a child, and a normally-open way to
+# another feeder is a tie anchored to it.
+#
+# A PMH way switch is a load-interrupter, not a protective device: it does not
+# clear faults, so it never appears as the origin of an event.
+_PMH = [
+    ("Cedar Hollow 1212", 1, "PMH-10"),
+    ("Valley Oak 3305",   1, "PMH-11"),
+    ("Riverbend 4407",    1, "PMH-9"),
+]
+
+
+def _pmh_id(feeder: str) -> str:
+    return f"PMH_{_abbr(feeder)}{_feeder_number(feeder)}"
+
+
 # Normally-open ties, as (feeder, position) on each side. Position is the same
 # offset build_registry() numbers devices with: 0 the head, 1..n the trunk, and
 # 20+ the branch limbs. Naming them by position rather than by device id means a
@@ -139,11 +158,19 @@ _TIES = [
     (("Riverbend 4402", 1),     ("Delta Flats 4411", 1)),
     (("Ridgeline 2104", 22),    ("Bear Gulch 2110", 1)),
     (("Valley Oak 3301", 21),   ("Almond Row 3308", 1)),
+    # a normally-open way on a cabinet, rather than on a mid-line recloser
+    (("Valley Oak 3305", "PMH"), ("Almond Row 3308", 1)),
+    (("Riverbend 4407", "PMH"),  ("Delta Flats 4411", 1)),
 ]
 
 
-def _device_id(feeder: str, offset: int) -> str:
-    """The id build_registry() gives the device at `offset` on `feeder`."""
+def _device_id(feeder: str, offset) -> str:
+    """
+    The id build_registry() gives the device at `offset` on `feeder`.
+    `offset` is a position on the trunk, or "PMH" for that feeder's cabinet.
+    """
+    if offset == "PMH":
+        return _pmh_id(feeder)
     head_kind = next(k for _c, f, k, _t, _b, _cu in _FEEDERS if f == feeder)
     if offset == 0 and head_kind == "breaker":
         return _breaker_id(feeder)
@@ -158,7 +185,8 @@ class Device:
     zone: str
     risk_tier: int
     customers_served: int      # THIS device's section, not the whole feeder
-    kind: str                  # 'recloser' or 'breaker'
+    kind: str                  # breaker | recloser | pmh
+    model: str = ""            # PMH-9 / PMH-11 / PMH-10 on a cabinet
     parent: str = ""           # upstream device id, '' at the bus
     bus: str = ""              # substation bus node id
     kv_ll: float = 12.47       # from the substation — one voltage per bus
@@ -224,13 +252,14 @@ def build_registry(rng: random.Random) -> List[Device]:
         num = _feeder_number(feeder)
         sub = f"{label} Sub"
         bus = _bus_id(code)
-        total = 1 + n_trunk + sum(c for _, c in branches)
+        cabinets = [c for c in _PMH if c[0] == feeder]
+        total = 1 + n_trunk + sum(c for _, c in branches) + len(cabinets)
         sections = _split_customers(customers, total)
         nxt = iter(sections)
 
-        def _add(did, parent, kind="recloser"):
+        def _add(did, parent, kind="recloser", model=""):
             devices.append(Device(did, sub, feeder, zone, tier, next(nxt), kind,
-                                  parent=parent, bus=bus, kv_ll=kv,
+                                  model=model, parent=parent, bus=bus, kv_ll=kv,
                                   fs=rng.choice(SAMPLE_RATES)))
             return did
 
@@ -252,6 +281,9 @@ def build_registry(rng: random.Random) -> List[Device]:
             for _ in range(count):
                 off += 1
                 parent = _add(_grid_id(num, off), parent)
+
+        for _f, tap, model in cabinets:
+            _add(_pmh_id(feeder), trunk[min(tap, len(trunk) - 1)], "pmh", model)
     return devices
 
 
@@ -271,12 +303,12 @@ def write_topology(devices: List[Device], path: str) -> None:
     tables as the registry so the two can never drift.
     """
     by_id = {d.device_id: d for d in devices}
-    lines = ["feeder,node_id,kind,parent,tie_to"]
+    lines = ["feeder,node_id,kind,parent,tie_to,model"]
     for code, label, _zone, _tier, _kv in _SUBSTATIONS:
-        lines.append(f"{label} Sub,{_bus_id(code)},source,,")
+        lines.append(f"{label} Sub,{_bus_id(code)},source,,,")
         for d in devices:
             if d.bus == _bus_id(code):
-                lines.append(f"{d.feeder},{d.device_id},{d.kind},{d.parent},")
+                lines.append(f"{d.feeder},{d.device_id},{d.kind},{d.parent},,{d.model}")
     # A tie is a recloser, so it is named like one — numbered off the feeder it
     # hangs from, in a band clear of that feeder's own devices.
     tie_off = {}
@@ -284,7 +316,7 @@ def write_topology(devices: List[Device], path: str) -> None:
         near, far = _device_id(nf, no), _device_id(ff, fo)
         num = _feeder_number(nf)
         tie_off[num] = tie_off.get(num, 50) + 1
-        lines.append(f"{nf},{_grid_id(num, tie_off[num])},tie,{near},{far}")
+        lines.append(f"{nf},{_grid_id(num, tie_off[num])},tie,{near},{far},")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
 
@@ -998,8 +1030,12 @@ def build_incident(idx: int, rng: random.Random, net, devices: List[Device],
     """
     # Faults are weighted toward the mid-line: there are more line miles out
     # there than in the first section out of the substation.
-    weights = [1.0 + 0.6 * max(0, net.depth(d.device_id) - 1) for d in devices]
-    origin_dev = rng.choices(devices, weights=weights)[0]
+    # A PMH way switch does not clear faults, so it is never the origin of an
+    # event. It is still in `devices` — it carries customers and it matters for
+    # N-1 — but nothing records there.
+    recording = [d for d in devices if d.kind in ("breaker", "recloser")]
+    weights = [1.0 + 0.6 * max(0, net.depth(d.device_id) - 1) for d in recording]
+    origin_dev = rng.choices(recording, weights=weights)[0]
     depth = net.depth(origin_dev.device_id)
     below = net.customers_below(origin_dev.device_id, _as_registry(devices))
 

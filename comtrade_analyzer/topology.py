@@ -22,9 +22,10 @@ is one row per node and five columns:
 
   feeder   the feeder this node belongs to; the substation name on a source row
   node_id  matches device_id in devices.csv for anything that records events
-  kind     source | breaker | recloser | sectionalizer | tie
+  kind     source | breaker | recloser | sectionalizer | pmh | tie
   parent   the node immediately upstream; empty on a source row
   tie_to   the far-end node, on a tie row only
+  model    PMH-9 / PMH-11 / PMH-10 on a pmh row; how many ways the cabinet has
 
 Each protective device owns the section immediately downstream of it, so a
 feeder is a source row, a head device, a handful of mid-line reclosers and its
@@ -59,16 +60,27 @@ from .wso_impact import _normalize
 
 SOURCE_KINDS = ("source",)
 TIE_KINDS = ("tie",)
-SWITCHING_KINDS = ("breaker", "recloser", "sectionalizer")
+SWITCHING_KINDS = ("breaker", "recloser", "sectionalizer", "pmh")
 VALID_KINDS = SOURCE_KINDS + SWITCHING_KINDS + TIE_KINDS
+
+# Automatic pad-mounted gear. A cabinet's WAYS are its edges in this model:
+# the source way is its parent, each load way a child, and a normally-open way
+# to another feeder is a tie anchored to it. Only automatic cabinets are
+# mapped, and only switch ways — fused ways are not connectivity anyone
+# switches, so they stay off the drawing like every other fuse.
+PMH_WAYS = {"PMH-9": 2, "PMH-11": 3, "PMH-10": 4}
 
 # Kinds expected to appear in devices.csv and produce COMTRADE records. A tie
 # with a recloser control does record — that is how a FLISR restoration shows
 # up — so presence in the registry, not kind, is the real test. This is only
 # the default expectation used to pick the level of a validation finding.
+#
+# A PMH way switch is a load-interrupter, not a protective device: it does not
+# clear faults and so leaves no oscillography. It switches, so it is connectivity
+# and it matters for N-1 — but expecting records from it would be wrong.
 RECORDING_KINDS = ("breaker", "recloser")
 
-_HEADER = ("feeder", "node_id", "kind", "parent", "tie_to")
+_HEADER = ("feeder", "node_id", "kind", "parent", "tie_to", "model")
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +95,7 @@ class Node:
     kind: str
     parent: str = ""
     tie_to: str = ""
+    model: str = ""             # PMH-9 / PMH-11 / PMH-10 on a pmh row
     row: int = 0                # source line number, for error messages
 
     @property
@@ -307,6 +320,7 @@ def load_topology(csv_path: str) -> Network:
                 kind=row.get("kind", "").lower(),
                 parent=row.get("parent", ""),
                 tie_to=row.get("tie_to", ""),
+                model=row.get("model", ""),
                 row=i,
             ))
     return Network(nodes)
@@ -396,6 +410,40 @@ def validate(net: Network, registry: Optional[dict] = None) -> List[dict]:
                 f"{n.node_id}: tie_to is set but kind is {n.kind!r}",
                 f"row {n.row}",
                 "tie_to is only read on kind=tie rows; set kind=tie or clear it."))
+
+    # A cabinet cannot have more ways connected than it has.
+    for n in net.nodes():
+        if n.kind != "pmh":
+            if n.model:
+                out.append(_finding(
+                    "warning", "model_on_non_cabinet",
+                    f"{n.node_id}: model {n.model!r} is set but kind is {n.kind!r}",
+                    f"row {n.row}",
+                    "model is only read on kind=pmh rows; clear it or set kind=pmh."))
+            continue
+        if not n.model:
+            out.append(_finding(
+                "warning", "cabinet_without_model",
+                f"{n.node_id}: no model, so its way count cannot be checked",
+                f"row {n.row}",
+                f"Set model to one of: {', '.join(PMH_WAYS)}."))
+            continue
+        if n.model not in PMH_WAYS:
+            out.append(_finding(
+                "error", "unknown_cabinet_model",
+                f"{n.node_id}: {n.model!r} is not a cabinet model this knows",
+                f"row {n.row}",
+                f"Use one of: {', '.join(f'{m} ({w} ways)' for m, w in PMH_WAYS.items())}."))
+            continue
+        used = (1 if n.parent else 0) + len(net.children(n.node_id))
+        if used > PMH_WAYS[n.model]:
+            out.append(_finding(
+                "error", "cabinet_over_connected",
+                f"{n.node_id}: {used} ways connected, {n.model} has "
+                f"{PMH_WAYS[n.model]}",
+                f"row {n.row}",
+                "Count the source way, every load way and any normally-open "
+                "way to another feeder. Fused ways are not mapped."))
 
     # Reciprocal ties — the same pair authored from both sides.
     pairs: Dict[frozenset, Node] = {}
@@ -522,6 +570,7 @@ _GLYPH = {
     "breaker":      "▮",
     "recloser":     "◍",
     "sectionalizer": "◌",
+    "pmh":          "▣",
     "tie":          "○",
 }
 
@@ -554,7 +603,7 @@ def single_line(net: Network, feeder: str = "", registry: Optional[dict] = None)
 
     def tail(n: Node) -> str:
         """Everything right of the id column."""
-        bits = [n.kind]
+        bits = [n.kind + (f" {n.model}" if n.model else "")]
         if n.is_tie:
             far = net.node(n.tie_to)
             far_txt = far.node_id if far else f"{n.tie_to} (unknown)"

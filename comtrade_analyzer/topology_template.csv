@@ -1,13 +1,20 @@
-feeder,node_id,kind,parent,tie_to
+feeder,node_id,kind,parent,tie_to,model
 # One row per mainline node. Copy this to topology.csv and replace it with
 # your own feeders. node_id must match device_id in devices.csv for anything
 # that records events. A tie is a recloser and is named like one.
 # Any row whose first cell starts with # is ignored.
-Maple Ave Sub,BUS_MAPLE,source,,
-Maple Ave Feeder,BKR_FEED1234,breaker,BUS_MAPLE,
-Maple Ave Feeder,RCL_123-456,recloser,BKR_FEED1234,
-Maple Ave Feeder,RCL_123-789,recloser,RCL_123-456,
-Pine Ridge Sub,BUS_PINE,source,,
-Pine Ridge Feeder,BKR_FEED5678,breaker,BUS_PINE,
-Pine Ridge Feeder,RCL_555-001,recloser,BKR_FEED5678,
-Maple Ave Feeder,RCL_123-950,tie,RCL_123-789,RCL_555-001
+#
+# kind: source | breaker | recloser | sectionalizer | pmh | tie
+# model: PMH-9 (2 ways) / PMH-11 (3 ways) / PMH-10 (4 ways), on a pmh row.
+# A cabinet's ways are its edges here — the source way is its parent, each
+# load way a child, and a normally-open way to another feeder a tie on it.
+# Fused ways are not mapped.
+Maple Ave Sub,BUS_MAPLE,source,,,
+Maple Ave Feeder,BKR_FEED1234,breaker,BUS_MAPLE,,
+Maple Ave Feeder,RCL_123-456,recloser,BKR_FEED1234,,
+Maple Ave Feeder,PMH_MAPLE1234,pmh,RCL_123-456,,PMH-11
+Maple Ave Feeder,RCL_123-789,recloser,PMH_MAPLE1234,,
+Pine Ridge Sub,BUS_PINE,source,,,
+Pine Ridge Feeder,BKR_FEED5678,breaker,BUS_PINE,,
+Pine Ridge Feeder,RCL_555-001,recloser,BKR_FEED5678,,
+Maple Ave Feeder,RCL_123-950,tie,PMH_MAPLE1234,RCL_555-001,

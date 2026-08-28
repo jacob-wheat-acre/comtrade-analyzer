@@ -330,7 +330,10 @@ Maple Ave Feeder,   TIE_MAPLE_PINE,tie,      RCL_123-456,   RCL_555-001
   events. Breakers are `BKR_VALL3301` (feeder abbreviation plus circuit),
   reclosers are `RCL_123-456` (six-digit grid reference); a tie is a recloser
   and is named like one
-- **kind** — `source`, `breaker`, `recloser`, `sectionalizer` or `tie`
+- **kind** — `source`, `breaker`, `recloser`, `sectionalizer`, `pmh` or `tie`
+- **model** — on a `pmh` row, the cabinet: `PMH-9` (2 ways), `PMH-11` (3),
+  `PMH-10` (4). A cabinet's ways are its edges — source way, load ways, and a
+  normally-open way to another feeder as a tie on it; fused ways are not mapped
 - **parent** — the node immediately upstream; empty only on a `source` row
 - **tie_to** — the far-end device, on a `tie` row only
 
