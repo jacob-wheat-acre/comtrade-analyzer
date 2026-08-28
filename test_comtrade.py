@@ -2270,7 +2270,7 @@ class TestTheTieSymbol:
     def test_the_tie_is_drawn_as_an_open_switch(self):
         tpl = self.TPL.read_text(encoding="utf-8")
         assert "Blade, hinged at the first terminal" in tpl
-        assert "N.O. \\u2192" in tpl or "N.O. →" in tpl
+        assert "ol-tie-name" in tpl, "the tie is not drawn as a named device"
 
     def test_the_legend_draws_the_symbols_rather_than_naming_them(self):
         tpl = self.TPL.read_text(encoding="utf-8")
@@ -2288,3 +2288,51 @@ class TestTheTieSymbol:
         body = body[:body.index("\nfunction ")]
         assert "onelineNote" not in body and "onelineFoot" not in body
         assert "return L.placed.reduce" in body
+
+    def test_red_is_closed_and_green_is_open(self):
+        """
+        The utility's convention, and the opposite of the traffic-light
+        instinct — so it is worth a test that says which way round it goes.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "--sw-closed" in tpl and "--sw-open" in tpl
+        assert "red closed, green open" in tpl
+        # a tie is open in its normal state, so it draws with the open token
+        i = tpl.index("Normally-open ties")
+        j = tpl.index("/* Devices.", i)
+        assert '--sw-open' in tpl[i:j]
+
+    def test_state_is_never_carried_by_colour_alone(self):
+        """
+        Red/green is the worst pair for deuteranopia. An open device is drawn
+        hollow with a heavy ring, a tie's blade stands clear of its second
+        terminal, and both carry the word OPEN or CLOSED.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert '"OPEN" : "CLOSED"' in tpl or '"CLOSED"' in tpl
+        assert "Blade, hinged at the first terminal" in tpl
+        assert 'open ? "var(--surface)" : col' in tpl
+
+    def test_priority_moved_off_the_device_fill(self):
+        """
+        Fill cannot carry state and priority at once. Priority is a badge above
+        the device — icon plus count, so it is not colour alone either.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        i = tpl.index("/* Devices.")
+        j = tpl.index("host.innerHTML = `<svg", i)
+        body = tpl[i:j]
+        assert "ol-badge" in body
+        assert "meta.icon" in body
+        # the glyph fill must be the state colour, not the priority colour
+        assert 'olGlyph(p.n.kind, x, y, RAD,' in body
+        assert "meta.v}\")" not in body.split("olGlyph")[1].split(";")[0]
+
+    def test_ties_stagger_by_row_not_by_device(self):
+        """
+        Two ties on one row collide even when they hang off different devices —
+        the labels are long. Riverbend 4402 is the case that caught it.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "Stagger ties by ROW, not by device" in tpl
+        assert "const k = t.anchor.row;" in tpl

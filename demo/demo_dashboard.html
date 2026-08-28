@@ -38,6 +38,12 @@
   --c-clear:     #1baf7a;
   --c-candidate: #4a3aa7;
 
+  /* Switch state, the utility's convention: red closed, green open. Never
+     carried by colour alone — an open device is drawn hollow and a tie carries
+     the open blade, so the geometry says it too. */
+  --sw-closed:  #c62828;
+  --sw-open:    #1b8a4b;
+
   /* Status — fixed, never themed. Always shipped with an icon and a label. */
   --st-good:     #0ca30c;
   --st-warning:  #fab219;
@@ -68,7 +74,8 @@
     --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
     --chrome:    #86b6ef;
     --chrome-2:  #6da7ec;
-    --c-permanent: #3987e5;
+    --sw-closed: #ef5350; --sw-open:   #3ec07b;
+  --c-permanent: #3987e5;
     --c-exposed:   #d95926;
     --c-clear:     #199e70;
     --c-candidate: #9085e9;
@@ -90,6 +97,7 @@
   --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
   --chrome:    #86b6ef;
   --chrome-2:  #6da7ec;
+  --sw-closed: #ef5350; --sw-open:   #3ec07b;
   --c-permanent: #3987e5;
   --c-exposed:   #d95926;
   --c-clear:     #199e70;
@@ -626,7 +634,8 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 .ol-dev:focus { outline: 2px solid var(--chrome-2); outline-offset: 2px; }
 .ol-key { display: inline-flex; align-items: center; gap: 4px; }
 .ol-name { font-family: var(--mono); font-size: 10px; fill: var(--ink-2); }
-.ol-count { font-size: 10px; font-weight: 600; }
+.ol-badge { font-size: 10px; font-weight: 700; font-family: var(--sans); }
+.ol-tie-name { font-family: var(--mono); font-size: 9.5px; font-weight: 600; }
 .ol-tie-label { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
 .ol-dim { opacity: .28; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -2126,8 +2135,8 @@ let olIncident = null;    /* selected incident id, or null */
 
 /* Device glyphs. A breaker is drawn square and a recloser round, the way they
    are on a real one-line, so the symbol carries the kind without a legend. */
-function olGlyph(kind, x, y, r, fill, stroke) {
-  const common = `fill="${fill}" stroke="${stroke}" stroke-width="1.5"`;
+function olGlyph(kind, x, y, r, fill, stroke, sw = 1.5) {
+  const common = `fill="${fill}" stroke="${stroke}" stroke-width="${sw}"`;
   if (kind === "breaker")
     return `<rect x="${x - r}" y="${y - r}" width="${2 * r}" height="${2 * r}" rx="2" ${common}/>`;
   if (kind === "sectionalizer")
@@ -2164,11 +2173,13 @@ function olLayout(feeder) {
     ties.push({ tie: t, anchor: at.get(nkey(anchor.node_id)), other });
   });
 
-  /* A device can back up more than one feeder. Give each tie on one device its
-     own drop depth, or the labels land on top of each other and read as noise. */
+  /* Stagger ties by ROW, not by device. A device can back up more than one
+     feeder, and two devices on one row can each have a tie — either way the
+     labels are long enough to collide unless every tie on a row gets its own
+     drop depth. */
   const used = new Map();
   ties.forEach((t) => {
-    const k = nkey(t.anchor.n.node_id);
+    const k = t.anchor.row;
     const slot = used.get(k) || 0;
     t.slot = slot;
     used.set(k, slot + 1);
@@ -2213,27 +2224,34 @@ function renderOneline() {
     `<option value="${esc(f)}"${f === olFeeder ? " selected" : ""}>${esc(f)}</option>`).join("");
   sel.onchange = () => { olFeeder = sel.value; olIncident = null; renderOneline(); };
 
-  $("olLegend").innerHTML = [
-    [`--st-critical`, "Priority 1"], [`--st-warning`, "Priority 2"],
-    [`--muted`, "Priority 3"], [`--surface`, "No records"],
-  ].map(([v, label]) =>
-    `<span><i style="background:var(${v});border:1px solid var(--baseline)"></i>${esc(label)}</span>`
-  ).join("") + `<span class="ol-key">
-      <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
-        <rect x="2" y="2" width="8" height="8" rx="1.5" fill="none"
-              stroke="var(--ink-2)" stroke-width="1.6"/></svg>breaker</span>`
-    + `<span class="ol-key">
-      <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
-        <circle cx="6" cy="6" r="4.4" fill="none" stroke="var(--ink-2)" stroke-width="1.6"/>
-      </svg>recloser</span>`
-    + `<span class="ol-key">
-      <svg width="36" height="14" viewBox="0 0 36 14" aria-hidden="true">
-        <path d="M0 9 H4" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="3 3"/>
-        <path d="M4 9 L15 2" stroke="var(--muted)" stroke-width="1.6" stroke-linecap="round"/>
-        <circle cx="4" cy="9" r="2.4" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.6"/>
-        <circle cx="22" cy="9" r="2.4" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.6"/>
-        <path d="M24.4 9 H36" stroke="var(--muted)" stroke-width="1.6" stroke-dasharray="3 3"/>
-      </svg>normally-open tie</span>`;
+  $("olLegend").innerHTML =
+    `<span class="ol-key">
+       <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
+         <circle cx="6" cy="6" r="4.6" fill="var(--sw-closed)" stroke="var(--sw-closed)"
+                 stroke-width="1.8"/></svg>closed</span>`
+  + `<span class="ol-key">
+       <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
+         <circle cx="6" cy="6" r="4.6" fill="var(--surface)" stroke="var(--sw-open)"
+                 stroke-width="3"/></svg>open</span>`
+  + `<span class="ol-key">
+       <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
+         <rect x="1.6" y="1.6" width="8.8" height="8.8" rx="1.5" fill="none"
+               stroke="var(--ink-2)" stroke-width="1.6"/></svg>breaker</span>`
+  + `<span class="ol-key">
+       <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
+         <circle cx="6" cy="6" r="4.4" fill="none" stroke="var(--ink-2)"
+                 stroke-width="1.6"/></svg>recloser</span>`
+  + `<span class="ol-key">
+       <svg width="36" height="14" viewBox="0 0 36 14" aria-hidden="true">
+         <path d="M0 9 H4" stroke="var(--sw-open)" stroke-width="2" stroke-dasharray="3 3"/>
+         <path d="M4 9 L15 2" stroke="var(--sw-open)" stroke-width="2" stroke-linecap="round"/>
+         <circle cx="4" cy="9" r="2.6" fill="var(--surface)" stroke="var(--sw-open)" stroke-width="2"/>
+         <circle cx="22" cy="9" r="2.6" fill="var(--surface)" stroke="var(--sw-open)" stroke-width="2"/>
+         <path d="M24.6 9 H36" stroke="var(--sw-open)" stroke-width="2" stroke-dasharray="3 3"/>
+       </svg>tie (normally open)</span>`
+  + `<span class="ol-key" style="color:var(--muted)">badge = records \u00b7 ${
+       Object.values(PRIO_META).map((m) => `<b style="color:var(${m.v})">${m.icon}</b>`).join(" ")
+     } priority</span>`;
 
   olDrawDiagram();
   olDrawIncidents();
@@ -2263,12 +2281,15 @@ function olDraw(host, feeder, opts = {}) {
   const incDevices = new Set((inc ? inc.devices : []).map(nkey));
 
   const W = widthOf(host, 620);
-  /* padR clears the last device's centred name; padT clears the bus label. */
-  const padL = 74, padR = 72, padT = 34;
+  /* padR clears the last device's centred name; padT clears the count badge
+     that now sits above every device. */
+  const padL = 74, padR = 72, padT = 46;
   const colW = Math.max(120, (W - padL - padR) / Math.max(1, L.depth - 1 || 1));
-  const rowH = 74, tieDrop = 26;
-  /* Only reserve the tie lane if something actually hangs in it. */
-  const H = padT + (L.rows - 1) * rowH + 44 + L.tieSlots * tieDrop;
+  const tieDrop = 30;
+  /* A row has to clear its own device name, its badge, and every tie hanging
+     off it, or the next row lands on the tie labels. */
+  const rowH = 76 + Math.max(0, L.tieSlots - 1) * tieDrop;
+  const H = padT + (L.rows - 1) * rowH + 46 + L.tieSlots * tieDrop;
   const X = (d) => padL + (d - 1) * colW;
   const Y = (r) => padT + r * rowH;
   const RAD = 13;
@@ -2291,50 +2312,68 @@ function olDraw(host, feeder, opts = {}) {
          `stroke="var(--baseline)" stroke-width="2"/>`;
   });
 
-  /* Normally-open ties. Drawn as the open-switch symbol a one-line actually
-     uses — two terminals with the blade lifted clear of the second — because a
-     small circle on a dashed stub was being read as just another device. */
+  /* Normally-open ties. Green because they are open — the utility's
+     convention, red closed / green open — and drawn as the open-switch symbol
+     with the tie's own name on it, because a tie IS a device: a motor-operated
+     switch somebody can close. Colour never carries it alone; the blade stands
+     visibly clear of the second terminal. */
   L.ties.forEach((t) => {
-    const x = X(t.anchor.depth), y = Y(t.anchor.row) + RAD + 6;
-    const yEnd = y + tieDrop - 12 + (t.slot || 0) * tieDrop;
+    /* Drop starts below the device's own name, not beside it — the two labels
+       were landing on each other. */
+    const x = X(t.anchor.depth), y = Y(t.anchor.row) + RAD + 20;
+    const yEnd = y + 16 + (t.slot || 0) * tieDrop;
     const far = t.other;
-    const label = far ? `${far.node_id} · ${far.feeder}` : t.tie.tie_to;
-    const live = incDevices.size && far && incDevices.has(nkey(far.node_id));
-    const col = `var(${live ? "--c-clear" : "--muted"})`;
-    const wide = live ? 2.2 : 1.6;
+    const farTxt = far ? `${far.node_id} \u00b7 ${far.feeder}` : t.tie.tie_to;
 
-    /* Near the right edge the whole assembly mirrors rather than clipping. */
-    const flip = x + 34 + label.length * 5.6 > W - 4;
+    /* A tie the selected incident closed to restore the section is no longer
+       open, and is drawn closed. */
+    const closed = inc && inc.restored && far
+                   && incDevices.has(nkey(far.node_id));
+    const col = `var(${closed ? "--sw-closed" : "--sw-open"})`;
+    const wide = incDevices.size && !closed && !(far && incDevices.has(nkey(far.node_id)))
+                 ? 1.6 : 2.1;
+
+    const flip = x + 40 + farTxt.length * 5.6 > W - 4;
     const d = flip ? -1 : 1;
     const t2 = x + d * 20;
 
     g += `<path d="M${x} ${y} V${yEnd}" fill="none" stroke="${col}" ` +
          `stroke-width="${wide}" stroke-dasharray="4 3"/>`;
-    /* Blade, hinged at the first terminal and standing open. */
-    g += `<path d="M${x} ${yEnd} L${x + d * 13} ${yEnd - 9}" fill="none" ` +
-         `stroke="${col}" stroke-width="${wide}" stroke-linecap="round"/>`;
+    /* Blade, hinged at the first terminal. Standing open unless closed. */
+    const bx = closed ? t2 : x + d * 13, by = closed ? yEnd : yEnd - 9;
+    g += `<path d="M${x} ${yEnd} L${bx} ${by}" fill="none" stroke="${col}" ` +
+         `stroke-width="${wide}" stroke-linecap="round"/>`;
     [x, t2].forEach((cx) => {
-      g += `<circle cx="${cx}" cy="${yEnd}" r="2.6" fill="var(--surface)" ` +
+      g += `<circle cx="${cx}" cy="${yEnd}" r="2.8" fill="var(--surface)" ` +
            `stroke="${col}" stroke-width="${wide}"/>`;
     });
     g += `<path d="M${t2} ${yEnd} H${t2 + d * 7}" fill="none" stroke="${col}" ` +
          `stroke-width="${wide}" stroke-dasharray="3 3"/>`;
-    g += `<text x="${t2 + d * 11}" y="${yEnd + 3.5}" class="ol-tie-label" ` +
-         `text-anchor="${flip ? "end" : "start"}">N.O. \u2192 ${esc(label)}</text>`;
+    g += `<text x="${t2 + d * 11}" y="${yEnd - 4}" class="ol-tie-name" ` +
+         `fill="${col}" text-anchor="${flip ? "end" : "start"}">` +
+         `${esc(t.tie.node_id)} \u00b7 ${closed ? "CLOSED" : "OPEN"}</text>`;
+    g += `<text x="${t2 + d * 11}" y="${yEnd + 10}" class="ol-tie-label" ` +
+         `text-anchor="${flip ? "end" : "start"}">\u2192 ${esc(farTxt)}</text>`;
   });
 
-  /* Devices. */
+  /* Devices. Fill is switch STATE — red closed, green open, the utility's
+     convention — so it cannot also carry review priority; that moves to a
+     badge above the device. State is never colour alone: an open device is
+     drawn hollow with a heavy ring, a closed one solid. */
   L.placed.forEach((p) => {
     const id = p.n.node_id;
     const evs = byDev.get(nkey(id)) || [];
     const worst = evs.length ? Math.min(...evs.map((e) => e.priority)) : null;
     const meta = worst ? PRIO_META[worst] : null;
-    const fill = meta ? `var(${meta.v})` : "var(--surface)";
     const x = X(p.depth), y = Y(p.row);
 
     const dim = incDevices.size && !incDevices.has(nkey(id));
     const held = inc && (inc.devices_held || []).map(nkey).includes(nkey(id));
     const clearing = inc && nkey(inc.clearing_device) === nkey(id);
+    /* Only an incident tells us a device actually opened. With none selected
+       the drawing is the normal state of the system: everything closed. */
+    const open = inc && inc.locked_out && clearing;
+    const col = `var(${open ? "--sw-open" : "--sw-closed"})`;
 
     let ring = "";
     if (clearing)
@@ -2342,14 +2381,15 @@ function olDraw(host, feeder, opts = {}) {
              `stroke="var(--chrome-2)" stroke-width="2.5"/>`;
     else if (held)
       ring = `<circle cx="${x}" cy="${y}" r="${RAD + 6}" fill="none" ` +
-             `stroke="var(--c-clear)" stroke-width="2" stroke-dasharray="3 3"/>`;
+             `stroke="var(--ink-2)" stroke-width="1.8" stroke-dasharray="3 3"/>`;
 
     const tip = tipRef(tipHTML(esc(id), [
-      `${esc(p.n.kind)} · ${esc(p.n.feeder)}`,
+      `${esc(p.n.kind)} \u00b7 ${esc(p.n.feeder)}`,
+      `<b>${open ? "OPEN" : "CLOSED"}</b>` + (inc ? "" : " (normal state)"),
       evs.length ? `<b>${fmt(evs.length)}</b> record${evs.length === 1 ? "" : "s"} in view`
                  : "No records in view",
       meta ? `Worst: ${esc(meta.label)}` : "",
-      clearing ? "Cleared this incident" : (held ? "Saw it and held — coordinated" : ""),
+      clearing ? "Cleared this incident" : (held ? "Saw it and held \u2014 coordinated" : ""),
     ].filter(Boolean)));
 
     const click = clickRef(() => {
@@ -2359,12 +2399,21 @@ function olDraw(host, feeder, opts = {}) {
     });
 
     g += `<g class="ol-dev${dim ? " ol-dim" : ""}" data-tip="${tip}" data-click="${click}" ` +
-         `aria-label="${esc(id)}, ${evs.length} record${evs.length === 1 ? "" : "s"}">`;
+         `aria-label="${esc(id)}, ${open ? "open" : "closed"}, ` +
+         `${evs.length} record${evs.length === 1 ? "" : "s"}">`;
     g += ring;
-    g += olGlyph(p.n.kind, x, y, RAD, fill, "var(--ink-2)");
-    if (evs.length)
-      g += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" class="ol-count" ` +
-           `fill="${worst === 3 ? "var(--ink)" : "#fff"}">${fmt(evs.length)}</text>`;
+    g += olGlyph(p.n.kind, x, y, RAD,
+                 open ? "var(--surface)" : col, col, open ? 3 : 1.8);
+    /* Record count and its priority, above the device so the state colour
+       underneath stays unambiguous. */
+    if (evs.length) {
+      const label = `${meta ? meta.icon : ""} ${fmt(evs.length)}`.trim();
+      const bw = 13 + label.length * 6.2;
+      g += `<rect x="${x - bw / 2}" y="${y - RAD - 20}" width="${bw}" height="15" rx="7.5" ` +
+           `fill="var(--surface)" stroke="var(--hairline)"/>`;
+      g += `<text x="${x}" y="${y - RAD - 9}" text-anchor="middle" class="ol-badge" ` +
+           `fill="var(${meta ? meta.v : "--ink"})">${esc(label)}</text>`;
+    }
     g += `<text x="${x}" y="${y + RAD + 14}" text-anchor="middle" class="ol-name">${esc(id)}</text>`;
     g += `</g>`;
   });

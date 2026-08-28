@@ -360,13 +360,24 @@ machine.
 - Layout is orthogonal and left-to-right: substation bus at the left, depth is
   the column, a branch takes its own row. Never a diagonal — that is not how a
   one-line is drawn.
+- **Fill is switch STATE, on the utility's convention: red closed, green open**
+  (`--sw-closed` / `--sw-open`). This is the opposite of the traffic-light
+  instinct, so don't "fix" it. It also means fill cannot carry review priority
+  — that moved to a badge above the device, icon plus record count. The badge
+  follows the current filter, which is why `olRefresh()` hangs off every filter
+  change and off `applyDrill`.
+- **State is never colour alone.** Red/green is the worst pair for
+  deuteranopia: an open device draws hollow with a heavy ring, a tie's blade
+  stands clear of its second terminal, and both carry the word OPEN or CLOSED.
+- With no incident selected the drawing is the **normal state** of the system —
+  every protective device closed, every tie open. Selecting an incident opens
+  the device that locked out and closes the tie that restored the section.
 - A breaker is square, a recloser round, a sectionalizer a diamond, so the
-  symbol carries the kind without reading the legend. Fill is the worst
-  priority among that device's records *in the current filter*, which is why
-  `olRefresh()` hangs off every filter change and off `applyDrill`.
+  symbol carries the kind without reading the legend.
 - A tie is drawn as the **open-switch symbol** — two terminals with the blade
-  hinged at the first and standing clear of the second — not a circle on a
-  stub, which read as just another device. The legend draws the symbols rather
+  hinged at the first and standing clear of the second — and carries **its own
+  name and state**, because a tie *is* a device: a motor-operated switch
+  somebody can close. The legend draws the symbols rather
   than naming them. A tie is authored once, from whichever side, so `olLayout`
   anchors it to whichever end is on the drawn feeder and labels the other; near
   the right edge the whole assembly mirrors instead of clipping.
@@ -399,9 +410,11 @@ drift apart, and a test counts the definitions. The all-feeders page passes
 Build the card shells before drawing into them: an SVG sized from a container
 that is still `display:none` comes out at the fallback width.
 
-A device can back up more than one feeder, so ties on one anchor get a `slot`
-each and drop to their own depth. Without it the labels sit on top of each
-other and read as noise — `L.tieSlots` reserves the lane height.
+Ties stagger by **row**, not by device: a device can back up more than one
+feeder, *and* two devices on one row can each have a tie — the labels are long
+enough to collide either way. `L.tieSlots` reserves the lane height and widens
+`rowH` so the next row clears it. The tie drop starts below the device's own
+name, not beside it.
 
 ## Dashboard cross-filtering
 
