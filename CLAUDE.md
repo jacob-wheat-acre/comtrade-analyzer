@@ -289,6 +289,28 @@ trip actually drops is the subtree below it, which is `customers_below()` —
 `fleet_analyze` puts that on every event as `customers_affected`. Without a
 topology the two are equal, which is the right fallback for a plain folder.
 
+## Device naming
+
+The utility's convention, and the generator follows it:
+
+- **Breakers**: `BKR_<four letters of the feeder name><circuit>` — Valley Oak
+  3301 → `BKR_VALL3301`. `_breaker_id()`.
+- **Reclosers**: `RCL_###-###`, a six-digit grid reference. `_grid_id()` derives
+  it from `circuit * 100 + offset`, so numbers are unique and stable without a
+  global counter — inserting a device renumbers nothing else. Offsets: 0 head,
+  1..n trunk, 20+ branch limbs, 50+ ties.
+- **Ties are reclosers** and are named like them. There is no `TIE_` prefix.
+
+`_TIES` names its endpoints by **(feeder, offset)**, not by device id, so a
+change to the convention cannot silently break every tie — which is exactly
+what happened the first time.
+
+**Tests must derive ids from the tree, never write them down.** A stale id in a
+grouping test does not fail: `incidents._same_fault` falls back to matching on
+the feeder when a device is not in the topology, so the test passes with the
+path logic switched off. `TestIncidentGrouping._ev()` asserts the device exists
+(pass `unknown=True` for the deliberate no-topology case).
+
 ## Relay settings
 
 `relay_settings.py` reads the SUBNET export as a **catalog**, not a native SEL
@@ -376,10 +398,14 @@ machine.
   follows the current filter, which is why `olRefresh()` hangs off every filter
   change and off `applyDrill`.
 - **Every box is filled** with its state colour and carries a black letter.
-- **State is never colour alone.** Red/green is the worst pair for
-  deuteranopia; the boxes are filled and the conductors are all one grey, so the
-  **word is the only remaining cue and has to stay**: a tie reads `TIE_x · OPEN`
-  and an open device's own name becomes `RCL_y · OPEN` in the state colour.
+- **State is colour alone on the drawing** — filled boxes, one grey for every
+  conductor, no OPEN/CLOSED text. That is the utility's convention and was
+  asked for explicitly. Red/green is the worst pair for deuteranopia, so the
+  word survives in the **tooltip and the `aria-label`** on both devices and
+  ties, and a test asserts it stays there. Don't strip those.
+- A tie is labelled with its own id and, below it, the **feeder it backfeeds
+  from** — the far device id is in the tooltip. On the drawing what matters is
+  which circuit the backfeed comes from, and that is a feeder, not a device.
 - A tie's label is far wider than the box it sits under, so `clamped()` centres
   it but pulls it inside the canvas at either end rather than letting it run
   off.

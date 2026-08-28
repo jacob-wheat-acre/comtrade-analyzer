@@ -292,8 +292,14 @@ def load_topology(csv_path: str) -> Network:
         for i, raw in enumerate(reader, start=2):
             row = {(k or "").strip().lower(): (v or "").strip()
                    for k, v in raw.items()}
+            # A comment is any row whose FIRST cell starts with '#'. Checking
+            # only node_id misses a comment containing a comma, which the CSV
+            # reader then splits into columns — and people write commas.
+            if (row.get("feeder", "").startswith("#")
+                    or row.get("node_id", "").startswith("#")):
+                continue
             nid = row.get("node_id", "")
-            if not nid or nid.startswith("#"):
+            if not nid:
                 continue
             nodes.append(Node(
                 node_id=nid,

@@ -111,23 +111,34 @@ _FEEDERS = [
     ("RB", "Delta Flats 4411",   "recloser", 1, (),           498),
 ]
 
-# Normally-open ties, (near device, far device). Authored once, from either
-# side — the model is undirected. Four of these cross substations, which is
-# what makes a tie interesting.
+# Normally-open ties, as (feeder, position) on each side. Position is the same
+# offset build_registry() numbers devices with: 0 the head, 1..n the trunk, and
+# 20+ the branch limbs. Naming them by position rather than by device id means a
+# change to the ID convention does not silently break every tie.
+#
+# Four of these cross substations, which is what makes a tie interesting.
 _TIES = [
-    ("RCL_CH-1211R2", "RCL_CH-1212R1"),
-    ("RCL_CH-1215R1", "RCL_RG-2110R1"),
-    ("RCL_CH-1212R1", "RCL_VO-3305R1"),
-    ("RCL_RG-2104R2", "RCL_RG-2106R1"),
-    ("RCL_RG-2106R1", "RCL_RG-2112"),
-    ("RCL_RG-2110R1", "RCL_VO-3308R1"),
-    ("RCL_VO-3301R2", "RCL_VO-3305R1"),
-    ("RCL_VO-3308R1", "RCL_RB-4407R1"),
-    ("RCL_RB-4402R2", "RCL_RB-4407R1"),
-    ("RCL_RB-4402R1", "RCL_RB-4411R1"),
-    ("RCL_RG-2104B2", "RCL_RG-2110R1"),
-    ("RCL_VO-3301B1", "RCL_VO-3308R1"),
+    (("Cedar Hollow 1211", 2),  ("Cedar Hollow 1212", 1)),
+    (("Sawmill Grade 1215", 1), ("Bear Gulch 2110", 1)),
+    (("Cedar Hollow 1212", 1),  ("Valley Oak 3305", 1)),
+    (("Ridgeline 2104", 2),     ("Ridgeline 2106", 1)),
+    (("Ridgeline 2106", 1),     ("Summit Tap 2112", 0)),
+    (("Bear Gulch 2110", 1),    ("Almond Row 3308", 1)),
+    (("Valley Oak 3301", 2),    ("Valley Oak 3305", 1)),
+    (("Almond Row 3308", 1),    ("Riverbend 4407", 1)),
+    (("Riverbend 4402", 2),     ("Riverbend 4407", 1)),
+    (("Riverbend 4402", 1),     ("Delta Flats 4411", 1)),
+    (("Ridgeline 2104", 22),    ("Bear Gulch 2110", 1)),
+    (("Valley Oak 3301", 21),   ("Almond Row 3308", 1)),
 ]
+
+
+def _device_id(feeder: str, offset: int) -> str:
+    """The id build_registry() gives the device at `offset` on `feeder`."""
+    head_kind = next(k for _c, f, k, _t, _b, _cu in _FEEDERS if f == feeder)
+    if offset == 0 and head_kind == "breaker":
+        return _breaker_id(feeder)
+    return _grid_id(_feeder_number(feeder), offset)
 
 
 @dataclass
@@ -152,6 +163,28 @@ def _bus_id(code: str) -> str:
 def _feeder_number(feeder: str) -> str:
     """'Cedar Hollow 1211' -> '1211'. The circuit number, not the name."""
     return feeder.split()[-1]
+
+
+def _abbr(feeder: str) -> str:
+    """'Valley Oak 3301' -> 'VALL'. First four letters of the feeder name."""
+    letters = "".join(c for c in feeder if c.isalpha())
+    return letters[:4].upper()
+
+
+def _breaker_id(feeder: str) -> str:
+    """A substation breaker is named for its feeder: BKR_VALL3301."""
+    return f"BKR_{_abbr(feeder)}{_feeder_number(feeder)}"
+
+
+def _grid_id(circuit: str, offset: int) -> str:
+    """
+    A recloser is named for its six-digit grid reference: RCL_330-101.
+
+    Derived from the circuit number so the numbers are stable and unique
+    without a global counter — insert a device and nothing else renumbers.
+    """
+    n = int(circuit) * 100 + offset
+    return f"RCL_{n // 1000:03d}-{n % 1000:03d}"
 
 
 def _split_customers(total: int, n_sections: int) -> List[int]:
@@ -192,20 +225,24 @@ def build_registry(rng: random.Random) -> List[Device]:
                                   fs=rng.choice(SAMPLE_RATES)))
             return did
 
-        head_id = f"{'BKR' if head_kind == 'breaker' else 'RCL'}_{code}-{num}"
+        head_id = (_breaker_id(feeder) if head_kind == "breaker"
+                   else _grid_id(num, 0))
         _add(head_id, bus, head_kind)
 
         trunk = [head_id]
         parent = head_id
         for i in range(1, n_trunk + 1):
-            parent = _add(f"RCL_{code}-{num}R{i}", parent)
+            parent = _add(_grid_id(num, i), parent)
             trunk.append(parent)
 
-        for b, (tap, count) in enumerate(branches):
-            letter = chr(ord("B") + b)
+        # Branch limbs continue the same grid numbering, offset clear of the
+        # trunk so a limb device never collides with a trunk one.
+        off = 20
+        for tap, count in branches:
             parent = trunk[min(tap, len(trunk) - 1)]
-            for j in range(1, count + 1):
-                parent = _add(f"RCL_{code}-{num}{letter}{j}", parent)
+            for _ in range(count):
+                off += 1
+                parent = _add(_grid_id(num, off), parent)
     return devices
 
 
@@ -231,11 +268,14 @@ def write_topology(devices: List[Device], path: str) -> None:
         for d in devices:
             if d.bus == _bus_id(code):
                 lines.append(f"{d.feeder},{d.device_id},{d.kind},{d.parent},")
-    for near, far in _TIES:
-        n, f = by_id[near], by_id[far]
-        tie_id = (f"TIE_{n.device_id.split('_')[1].split('-')[0]}{_feeder_number(n.feeder)}"
-                  f"_{f.device_id.split('_')[1].split('-')[0]}{_feeder_number(f.feeder)}")
-        lines.append(f"{n.feeder},{tie_id},tie,{near},{far}")
+    # A tie is a recloser, so it is named like one — numbered off the feeder it
+    # hangs from, in a band clear of that feeder's own devices.
+    tie_off = {}
+    for (nf, no), (ff, fo) in _TIES:
+        near, far = _device_id(nf, no), _device_id(ff, fo)
+        num = _feeder_number(nf)
+        tie_off[num] = tie_off.get(num, 50) + 1
+        lines.append(f"{nf},{_grid_id(num, tie_off[num])},tie,{near},{far}")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
 

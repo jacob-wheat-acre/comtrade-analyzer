@@ -1,35 +1,35 @@
 device_id,station,feeder,zone,risk_tier,customers_served
-BKR_CH-1211,Cedar Hollow Sub,Cedar Hollow 1211,ZONE_A,3,684
-RCL_CH-1211R1,Cedar Hollow Sub,Cedar Hollow 1211,ZONE_A,3,342
-RCL_CH-1211R2,Cedar Hollow Sub,Cedar Hollow 1211,ZONE_A,3,342
-RCL_CH-1212,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,436
-RCL_CH-1212R1,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,436
-RCL_CH-1215,Cedar Hollow Sub,Sawmill Grade 1215,ZONE_A,3,218
-RCL_CH-1215R1,Cedar Hollow Sub,Sawmill Grade 1215,ZONE_A,3,217
-BKR_RG-2104,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,467
-RCL_RG-2104R1,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,115
-RCL_RG-2104R2,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,115
-RCL_RG-2104B1,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,115
-RCL_RG-2104B2,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,115
-RCL_RG-2106,Ridgeline Sub,Ridgeline 2106,ZONE_B,2,442
-RCL_RG-2106R1,Ridgeline Sub,Ridgeline 2106,ZONE_B,2,443
-RCL_RG-2110,Ridgeline Sub,Bear Gulch 2110,ZONE_B,2,287
-RCL_RG-2110R1,Ridgeline Sub,Bear Gulch 2110,ZONE_B,2,287
-RCL_RG-2112,Ridgeline Sub,Summit Tap 2112,ZONE_B,2,882
-BKR_VO-3301,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,1100
-RCL_VO-3301R1,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
-RCL_VO-3301R2,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
-RCL_VO-3301B1,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
-RCL_VO-3301C1,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
-RCL_VO-3305,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,179
-RCL_VO-3305R1,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,179
-RCL_VO-3308,Valley Oak Sub,Almond Row 3308,ZONE_C,2,400
-RCL_VO-3308R1,Valley Oak Sub,Almond Row 3308,ZONE_C,2,401
-BKR_RB-4402,Riverbend Sub,Riverbend 4402,ZONE_D,1,533
-RCL_RB-4402R1,Riverbend Sub,Riverbend 4402,ZONE_D,1,177
-RCL_RB-4402R2,Riverbend Sub,Riverbend 4402,ZONE_D,1,177
-RCL_RB-4402B1,Riverbend Sub,Riverbend 4402,ZONE_D,1,177
-RCL_RB-4407,Riverbend Sub,Riverbend 4407,ZONE_D,1,337
-RCL_RB-4407R1,Riverbend Sub,Riverbend 4407,ZONE_D,1,337
-RCL_RB-4411,Riverbend Sub,Delta Flats 4411,ZONE_D,1,249
-RCL_RB-4411R1,Riverbend Sub,Delta Flats 4411,ZONE_D,1,249
+BKR_CEDA1211,Cedar Hollow Sub,Cedar Hollow 1211,ZONE_A,3,684
+RCL_121-101,Cedar Hollow Sub,Cedar Hollow 1211,ZONE_A,3,342
+RCL_121-102,Cedar Hollow Sub,Cedar Hollow 1211,ZONE_A,3,342
+RCL_121-200,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,436
+RCL_121-201,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,436
+RCL_121-500,Cedar Hollow Sub,Sawmill Grade 1215,ZONE_A,3,218
+RCL_121-501,Cedar Hollow Sub,Sawmill Grade 1215,ZONE_A,3,217
+BKR_RIDG2104,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,467
+RCL_210-401,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,115
+RCL_210-402,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,115
+RCL_210-421,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,115
+RCL_210-422,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,115
+RCL_210-600,Ridgeline Sub,Ridgeline 2106,ZONE_B,2,442
+RCL_210-601,Ridgeline Sub,Ridgeline 2106,ZONE_B,2,443
+RCL_211-000,Ridgeline Sub,Bear Gulch 2110,ZONE_B,2,287
+RCL_211-001,Ridgeline Sub,Bear Gulch 2110,ZONE_B,2,287
+RCL_211-200,Ridgeline Sub,Summit Tap 2112,ZONE_B,2,882
+BKR_VALL3301,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,1100
+RCL_330-101,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
+RCL_330-102,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
+RCL_330-121,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
+RCL_330-122,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
+RCL_330-500,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,179
+RCL_330-501,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,179
+RCL_330-800,Valley Oak Sub,Almond Row 3308,ZONE_C,2,400
+RCL_330-801,Valley Oak Sub,Almond Row 3308,ZONE_C,2,401
+BKR_RIVE4402,Riverbend Sub,Riverbend 4402,ZONE_D,1,533
+RCL_440-201,Riverbend Sub,Riverbend 4402,ZONE_D,1,177
+RCL_440-202,Riverbend Sub,Riverbend 4402,ZONE_D,1,177
+RCL_440-221,Riverbend Sub,Riverbend 4402,ZONE_D,1,177
+RCL_440-700,Riverbend Sub,Riverbend 4407,ZONE_D,1,337
+RCL_440-701,Riverbend Sub,Riverbend 4407,ZONE_D,1,337
+RCL_441-100,Riverbend Sub,Delta Flats 4411,ZONE_D,1,249
+RCL_441-101,Riverbend Sub,Delta Flats 4411,ZONE_D,1,249

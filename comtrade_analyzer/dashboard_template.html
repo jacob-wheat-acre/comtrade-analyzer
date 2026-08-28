@@ -2283,7 +2283,7 @@ function renderOneline() {
   + `<span class="ol-key">${legendBox("R", "var(--sw-closed)", "var(--sw-closed)", 1.8, "#111")}recloser</span>`
   + `<span class="ol-key" style="color:var(--sw-closed)">closed</span>`
   + `<span class="ol-key">${legendBox("R", "var(--sw-open)", "var(--sw-open)", 1.8, "#111")}</span>`
-  + `<span class="ol-key" style="color:var(--sw-open)">open \u00b7 ties are reclosers, normally open</span>`
+  + `<span class="ol-key" style="color:var(--sw-open)">open</span>`
   + `<span class="ol-key" style="color:var(--muted)">badge = records \u00b7 ${
        Object.values(PRIO_META).map((m) => `<b style="color:var(${m.v})">${m.icon}</b>`).join(" ")
      } priority</span>`;
@@ -2320,7 +2320,8 @@ function olDraw(host, feeder, opts = {}) {
      that now sits above every device. */
   const padL = 74, padR = 72, padT = 46;
   const colW = Math.max(120, (W - padL - padR) / Math.max(1, L.depth - 1 || 1));
-  /* A tie carries two label lines under it, so every row must clear those. */
+  /* A tie carries a second line naming the feeder it backfeeds from, so every
+     row has to clear two. */
   const rowH = 86;
   const H = padT + (L.rows - 1) * rowH + 70;
 
@@ -2386,13 +2387,18 @@ function olDraw(host, feeder, opts = {}) {
          `aria-label="${esc(t.n.node_id)}, ${closed ? "closed" : "open"}, ` +
          `ties to ${esc(farTxt)}">`;
     g += olDevice("recloser", x, y, RAD, col, col, closed ? 1.8 : 2.6);
-    const nameTxt = `${t.n.node_id} \u00b7 ${closed ? "CLOSED" : "OPEN"}`;
-    const farLine = `\u2192 ${farTxt}`;
-    const a = clamped(x, nameTxt), c = clamped(x, farLine);
+    /* Its own name, then the feeder it ties to. The far DEVICE id is in the
+       tooltip — on the diagram what matters is where the backfeed comes from,
+       and that is a feeder, not a device. */
+    const goesTo = far && far.feeder ? `\u2192 ${far.feeder}` : "";
+    const a = clamped(x, t.n.node_id);
     g += `<text x="${a.x}" y="${y + RAD + 15}" text-anchor="${a.anchor}" ` +
-         `class="ol-tie-name" fill="${col}">${esc(nameTxt)}</text>`;
-    g += `<text x="${c.x}" y="${y + RAD + 29}" text-anchor="${c.anchor}" ` +
-         `class="ol-tie-label">${esc(farLine)}</text>`;
+         `class="ol-tie-name" fill="${col}">${esc(t.n.node_id)}</text>`;
+    if (goesTo) {
+      const c = clamped(x, goesTo);
+      g += `<text x="${c.x}" y="${y + RAD + 29}" text-anchor="${c.anchor}" ` +
+           `class="ol-tie-label">${esc(goesTo)}</text>`;
+    }
     g += `</g>`;
   });
 
@@ -2456,13 +2462,13 @@ function olDraw(host, feeder, opts = {}) {
       g += `<text x="${x}" y="${y - RAD - 9}" text-anchor="middle" class="ol-badge" ` +
            `fill="var(${meta ? meta.v : "--ink"})">${esc(label)}</text>`;
     }
-    /* An open device says so in words. Filled boxes mean state is otherwise
-       carried by colour alone, and red/green is the worst pair to rely on. */
-    const nameTxt = open ? `${id} \u00b7 OPEN` : id;
-    const nm = clamped(x, nameTxt);
+    /* Name only. State is the fill — red closed, green open — and the word is
+       kept in the tooltip and the aria-label so it is not lost to anyone
+       reading the page rather than looking at it. */
+    const nm = clamped(x, id);
     g += `<text x="${nm.x}" y="${y + RAD + 15}" text-anchor="${nm.anchor}" ` +
          `class="ol-name"${open ? ` fill="${col}" style="font-weight:700"` : ""}>` +
-         `${esc(nameTxt)}</text>`;
+         `${esc(id)}</text>`;
     g += `</g>`;
   });
 

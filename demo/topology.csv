@@ -1,51 +1,51 @@
 feeder,node_id,kind,parent,tie_to
 Cedar Hollow Sub,BUS_CH,source,,
-Cedar Hollow 1211,BKR_CH-1211,breaker,BUS_CH,
-Cedar Hollow 1211,RCL_CH-1211R1,recloser,BKR_CH-1211,
-Cedar Hollow 1211,RCL_CH-1211R2,recloser,RCL_CH-1211R1,
-Cedar Hollow 1212,RCL_CH-1212,recloser,BUS_CH,
-Cedar Hollow 1212,RCL_CH-1212R1,recloser,RCL_CH-1212,
-Sawmill Grade 1215,RCL_CH-1215,recloser,BUS_CH,
-Sawmill Grade 1215,RCL_CH-1215R1,recloser,RCL_CH-1215,
+Cedar Hollow 1211,BKR_CEDA1211,breaker,BUS_CH,
+Cedar Hollow 1211,RCL_121-101,recloser,BKR_CEDA1211,
+Cedar Hollow 1211,RCL_121-102,recloser,RCL_121-101,
+Cedar Hollow 1212,RCL_121-200,recloser,BUS_CH,
+Cedar Hollow 1212,RCL_121-201,recloser,RCL_121-200,
+Sawmill Grade 1215,RCL_121-500,recloser,BUS_CH,
+Sawmill Grade 1215,RCL_121-501,recloser,RCL_121-500,
 Ridgeline Sub,BUS_RG,source,,
-Ridgeline 2104,BKR_RG-2104,breaker,BUS_RG,
-Ridgeline 2104,RCL_RG-2104R1,recloser,BKR_RG-2104,
-Ridgeline 2104,RCL_RG-2104R2,recloser,RCL_RG-2104R1,
-Ridgeline 2104,RCL_RG-2104B1,recloser,RCL_RG-2104R1,
-Ridgeline 2104,RCL_RG-2104B2,recloser,RCL_RG-2104B1,
-Ridgeline 2106,RCL_RG-2106,recloser,BUS_RG,
-Ridgeline 2106,RCL_RG-2106R1,recloser,RCL_RG-2106,
-Bear Gulch 2110,RCL_RG-2110,recloser,BUS_RG,
-Bear Gulch 2110,RCL_RG-2110R1,recloser,RCL_RG-2110,
-Summit Tap 2112,RCL_RG-2112,recloser,BUS_RG,
+Ridgeline 2104,BKR_RIDG2104,breaker,BUS_RG,
+Ridgeline 2104,RCL_210-401,recloser,BKR_RIDG2104,
+Ridgeline 2104,RCL_210-402,recloser,RCL_210-401,
+Ridgeline 2104,RCL_210-421,recloser,RCL_210-401,
+Ridgeline 2104,RCL_210-422,recloser,RCL_210-421,
+Ridgeline 2106,RCL_210-600,recloser,BUS_RG,
+Ridgeline 2106,RCL_210-601,recloser,RCL_210-600,
+Bear Gulch 2110,RCL_211-000,recloser,BUS_RG,
+Bear Gulch 2110,RCL_211-001,recloser,RCL_211-000,
+Summit Tap 2112,RCL_211-200,recloser,BUS_RG,
 Valley Oak Sub,BUS_VO,source,,
-Valley Oak 3301,BKR_VO-3301,breaker,BUS_VO,
-Valley Oak 3301,RCL_VO-3301R1,recloser,BKR_VO-3301,
-Valley Oak 3301,RCL_VO-3301R2,recloser,RCL_VO-3301R1,
-Valley Oak 3301,RCL_VO-3301B1,recloser,RCL_VO-3301R1,
-Valley Oak 3301,RCL_VO-3301C1,recloser,RCL_VO-3301R2,
-Valley Oak 3305,RCL_VO-3305,recloser,BUS_VO,
-Valley Oak 3305,RCL_VO-3305R1,recloser,RCL_VO-3305,
-Almond Row 3308,RCL_VO-3308,recloser,BUS_VO,
-Almond Row 3308,RCL_VO-3308R1,recloser,RCL_VO-3308,
+Valley Oak 3301,BKR_VALL3301,breaker,BUS_VO,
+Valley Oak 3301,RCL_330-101,recloser,BKR_VALL3301,
+Valley Oak 3301,RCL_330-102,recloser,RCL_330-101,
+Valley Oak 3301,RCL_330-121,recloser,RCL_330-101,
+Valley Oak 3301,RCL_330-122,recloser,RCL_330-102,
+Valley Oak 3305,RCL_330-500,recloser,BUS_VO,
+Valley Oak 3305,RCL_330-501,recloser,RCL_330-500,
+Almond Row 3308,RCL_330-800,recloser,BUS_VO,
+Almond Row 3308,RCL_330-801,recloser,RCL_330-800,
 Riverbend Sub,BUS_RB,source,,
-Riverbend 4402,BKR_RB-4402,breaker,BUS_RB,
-Riverbend 4402,RCL_RB-4402R1,recloser,BKR_RB-4402,
-Riverbend 4402,RCL_RB-4402R2,recloser,RCL_RB-4402R1,
-Riverbend 4402,RCL_RB-4402B1,recloser,BKR_RB-4402,
-Riverbend 4407,RCL_RB-4407,recloser,BUS_RB,
-Riverbend 4407,RCL_RB-4407R1,recloser,RCL_RB-4407,
-Delta Flats 4411,RCL_RB-4411,recloser,BUS_RB,
-Delta Flats 4411,RCL_RB-4411R1,recloser,RCL_RB-4411,
-Cedar Hollow 1211,TIE_CH1211_CH1212,tie,RCL_CH-1211R2,RCL_CH-1212R1
-Sawmill Grade 1215,TIE_CH1215_RG2110,tie,RCL_CH-1215R1,RCL_RG-2110R1
-Cedar Hollow 1212,TIE_CH1212_VO3305,tie,RCL_CH-1212R1,RCL_VO-3305R1
-Ridgeline 2104,TIE_RG2104_RG2106,tie,RCL_RG-2104R2,RCL_RG-2106R1
-Ridgeline 2106,TIE_RG2106_RG2112,tie,RCL_RG-2106R1,RCL_RG-2112
-Bear Gulch 2110,TIE_RG2110_VO3308,tie,RCL_RG-2110R1,RCL_VO-3308R1
-Valley Oak 3301,TIE_VO3301_VO3305,tie,RCL_VO-3301R2,RCL_VO-3305R1
-Almond Row 3308,TIE_VO3308_RB4407,tie,RCL_VO-3308R1,RCL_RB-4407R1
-Riverbend 4402,TIE_RB4402_RB4407,tie,RCL_RB-4402R2,RCL_RB-4407R1
-Riverbend 4402,TIE_RB4402_RB4411,tie,RCL_RB-4402R1,RCL_RB-4411R1
-Ridgeline 2104,TIE_RG2104_RG2110,tie,RCL_RG-2104B2,RCL_RG-2110R1
-Valley Oak 3301,TIE_VO3301_VO3308,tie,RCL_VO-3301B1,RCL_VO-3308R1
+Riverbend 4402,BKR_RIVE4402,breaker,BUS_RB,
+Riverbend 4402,RCL_440-201,recloser,BKR_RIVE4402,
+Riverbend 4402,RCL_440-202,recloser,RCL_440-201,
+Riverbend 4402,RCL_440-221,recloser,BKR_RIVE4402,
+Riverbend 4407,RCL_440-700,recloser,BUS_RB,
+Riverbend 4407,RCL_440-701,recloser,RCL_440-700,
+Delta Flats 4411,RCL_441-100,recloser,BUS_RB,
+Delta Flats 4411,RCL_441-101,recloser,RCL_441-100,
+Cedar Hollow 1211,RCL_121-151,tie,RCL_121-102,RCL_121-201
+Sawmill Grade 1215,RCL_121-551,tie,RCL_121-501,RCL_211-001
+Cedar Hollow 1212,RCL_121-251,tie,RCL_121-201,RCL_330-501
+Ridgeline 2104,RCL_210-451,tie,RCL_210-402,RCL_210-601
+Ridgeline 2106,RCL_210-651,tie,RCL_210-601,RCL_211-200
+Bear Gulch 2110,RCL_211-051,tie,RCL_211-001,RCL_330-801
+Valley Oak 3301,RCL_330-151,tie,RCL_330-102,RCL_330-501
+Almond Row 3308,RCL_330-851,tie,RCL_330-801,RCL_440-701
+Riverbend 4402,RCL_440-251,tie,RCL_440-202,RCL_440-701
+Riverbend 4402,RCL_440-252,tie,RCL_440-201,RCL_441-101
+Ridgeline 2104,RCL_210-452,tie,RCL_210-422,RCL_211-001
+Valley Oak 3301,RCL_330-152,tie,RCL_330-121,RCL_330-801

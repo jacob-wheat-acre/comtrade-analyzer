@@ -1505,6 +1505,23 @@ class TestTheTopologyModel:
         from comtrade_analyzer.topology import load_topology
         return load_topology(str(self.DEMO))
 
+    # Device ids follow the utility's naming convention and will change again.
+    # Look them up by position in the tree instead of writing them down.
+    def _chain(self, net, feeder):
+        """The head of `feeder` and the trunk below it, deepest last."""
+        head = next(d for d in net.devices(feeder)
+                    if (p := net.parent_of(d.node_id)) is not None and p.is_source)
+        out = [head]
+        node = head
+        while True:
+            kids = [c for c in net.children(node.node_id)
+                    if c.kind in ("breaker", "recloser") and c.feeder == feeder]
+            if not kids:
+                break
+            node = kids[0]
+            out.append(node)
+        return [d.node_id for d in out]
+
     # -- the shipped files --------------------------------------------------
 
     def test_the_demo_topology_validates_without_errors_or_warnings(self):
@@ -1549,16 +1566,18 @@ class TestTheTopologyModel:
         at two depths only if the devices share a path to the source.
         """
         net = self._net()
-        assert net.is_upstream_of("BKR_CH-1211", "RCL_CH-1211R2")
-        assert not net.is_upstream_of("RCL_CH-1211R2", "BKR_CH-1211")
-        assert not net.is_upstream_of("RCL_CH-1212", "RCL_CH-1211R2")
-        assert net.on_same_path(["BKR_CH-1211", "RCL_CH-1211R1", "RCL_CH-1211R2"])
-        assert not net.on_same_path(["RCL_CH-1212", "RCL_CH-1211R2"])
+        a = self._chain(net, "Cedar Hollow 1211")
+        b = self._chain(net, "Cedar Hollow 1212")
+        assert net.is_upstream_of(a[0], a[-1])
+        assert not net.is_upstream_of(a[-1], a[0])
+        assert not net.is_upstream_of(b[0], a[-1])
+        assert net.on_same_path(a)
+        assert not net.on_same_path([b[0], a[-1]])
 
     def test_the_deepest_device_is_the_one_that_should_have_cleared(self):
         net = self._net()
-        seen = ["BKR_CH-1211", "RCL_CH-1211R2", "RCL_CH-1211R1"]
-        assert net.deepest(seen).node_id == "RCL_CH-1211R2"
+        chain = self._chain(net, "Cedar Hollow 1211")
+        assert net.deepest(list(reversed(chain))).node_id == chain[-1]
 
     def test_a_normally_open_tie_carries_nothing(self):
         """
@@ -1567,17 +1586,21 @@ class TestTheTopologyModel:
         the outage on every lockout.
         """
         net = self._net()
-        below = [n.node_id for n in net.subtree("BKR_CH-1211")]
-        assert "TIE_CH1211_CH1212" in below
-        assert "RCL_CH-1212R1" not in below
-        crossed = [n.node_id for n in net.subtree("BKR_CH-1211", cross_ties=True)]
-        assert "RCL_CH-1212R1" in crossed
+        head = self._chain(net, "Cedar Hollow 1211")[0]
+        tie = next(t for t in net.ties("Cedar Hollow 1211"))
+        far = net.node(tie.tie_to)
+        below = [n.node_id for n in net.subtree(head)]
+        assert tie.node_id in below
+        assert far.node_id not in below
+        crossed = [n.node_id for n in net.subtree(head, cross_ties=True)]
+        assert far.node_id in crossed
 
     def test_ids_join_across_punctuation_and_case(self):
         """Topology and registry are typed by hand, hours apart."""
         net = self._net()
-        assert "rcl ch 1211 r2" in net
-        assert net.node("RCL_CH_1211R2").node_id == "RCL_CH-1211R2"
+        real = self._chain(net, "Cedar Hollow 1211")[-1]
+        assert real.lower().replace("-", " ") in net
+        assert net.node(real.replace("-", "_")).node_id == real
 
     def test_customers_below_sums_the_subtree_from_the_registry(self):
         """
@@ -1587,19 +1610,21 @@ class TestTheTopologyModel:
         """
         from comtrade_analyzer.wso_impact import load_registry
         registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
+        from comtrade_analyzer.wso_impact import _normalize
         net = self._net()
-        head, own = "BKR_CH-1211", registry["bkrch1211"]["customers_served"]
-        below = net.customers_below(head, registry)
+        chain = self._chain(net, "Cedar Hollow 1211")
+        own = registry[_normalize(chain[0])]["customers_served"]
+        below = net.customers_below(chain[0], registry)
         assert below > own, "a feeder head must drop more than its own section"
-        assert below == sum(registry[k]["customers_served"]
-                            for k in ("bkrch1211", "rclch1211r1", "rclch1211r2"))
+        assert below == sum(registry[_normalize(d)]["customers_served"] for d in chain)
 
     def test_a_leaf_device_drops_only_its_own_section(self):
-        from comtrade_analyzer.wso_impact import load_registry
+        from comtrade_analyzer.wso_impact import load_registry, _normalize
         registry = load_registry(str(self.ROOT / "demo" / "devices.csv"))
         net = self._net()
-        assert (net.customers_below("RCL_CH-1211R2", registry)
-                == registry["rclch1211r2"]["customers_served"])
+        leaf = self._chain(net, "Cedar Hollow 1211")[-1]
+        assert (net.customers_below(leaf, registry)
+                == registry[_normalize(leaf)]["customers_served"])
 
     # -- authoring mistakes -------------------------------------------------
 
@@ -1654,11 +1679,16 @@ class TestTheTopologyModel:
         the Sawmill Grade row, and must still appear when Bear Gulch is drawn.
         """
         from comtrade_analyzer.topology import single_line
-        txt = single_line(self._net(), "Bear Gulch 2110")
-        assert "TIE_CH1215_RG2110" in txt
-        assert "TIE_RG2110_VO3308" in txt
-        # A feeder with no tie into this one, at another substation, stays out.
-        assert "RCL_RB-4411" not in txt
+        net = self._net()
+        txt = single_line(net, "Bear Gulch 2110")
+        for tie in net.ties("Bear Gulch 2110"):
+            assert tie.node_id in txt, f"{tie.node_id} is missing from the view"
+        # A feeder with no tie into this one stays out entirely.
+        untied = next(f for f in net.feeders()
+                      if f != "Bear Gulch 2110"
+                      and not any(t in net.ties("Bear Gulch 2110")
+                                  for t in net.ties(f)))
+        assert all(d.node_id not in txt for d in net.devices(untied))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1799,7 +1829,38 @@ class TestIncidentGrouping:
         from comtrade_analyzer.topology import load_topology
         return load_topology(str(self.ROOT / "demo" / "topology.csv"))
 
-    def _ev(self, eid, device, feeder, t, inception=0.05, **kw):
+    def _chain(self, net, feeder):
+        """Head then trunk of `feeder`. Ids follow a naming convention that
+        changes; the shape of the tree does not."""
+        head = next(d for d in net.devices(feeder)
+                    if (p := net.parent_of(d.node_id)) is not None and p.is_source)
+        out, node = [head], head
+        while True:
+            kids = [c for c in net.children(node.node_id)
+                    if c.kind in ("breaker", "recloser") and c.feeder == feeder]
+            if not kids:
+                break
+            node = kids[0]
+            out.append(node)
+        return [d.node_id for d in out]
+
+    def _limbs(self, net, feeder):
+        """Two devices on sibling limbs of a fork — neither above the other."""
+        for n in net.devices(feeder):
+            kids = [c for c in net.children(n.node_id)
+                    if c.kind in ("breaker", "recloser") and c.feeder == feeder]
+            if len(kids) > 1:
+                return [kids[0].node_id, kids[1].node_id]
+        pytest.skip(f"{feeder} does not fork")
+
+    def _ev(self, eid, device, feeder, t, inception=0.05, unknown=False, **kw):
+        # A device id that is not in the topology silently falls back to
+        # matching on the feeder, which quietly disables the path logic these
+        # tests exist to exercise. Ids change; catch a stale one here.
+        if not unknown:
+            assert device in self._net(), (
+                f"{device!r} is not in demo/topology.csv — derive the id from "
+                "the tree rather than writing it down")
         e = {"event_id": eid, "device_id": device, "feeder": feeder,
              "timestamp": t, "fault_inception_s": inception,
              "fault_type": "SLG", "total_shots": 1, "locked_out": False,
@@ -1811,49 +1872,63 @@ class TestIncidentGrouping:
 
     def test_records_on_one_path_at_one_instant_are_one_fault(self):
         from comtrade_analyzer.incidents import group_events
+        net = self._net()
+        c = self._chain(net, "Cedar Hollow 1211")
         evs = [
-            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
-            self._ev("b", "BKR_CH-1211", "Cedar Hollow 1211", "2026-06-01T00:00:00.02",
+            self._ev("a", c[-1], "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", c[0], "Cedar Hollow 1211", "2026-06-01T00:00:00.02",
                      total_shots=0),
         ]
-        incs = group_events(evs, self._net())
+        incs = group_events(evs, net)
         assert len(incs) == 1
         assert incs[0]["record_count"] == 2
 
     def test_the_same_instant_on_another_feeder_is_a_different_fault(self):
         """A storm drops faults all over the fleet in the same second."""
         from comtrade_analyzer.incidents import group_events
+        net = self._net()
         evs = [
-            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
-            self._ev("b", "RCL_RG-2106R1", "Ridgeline 2106", "2026-06-01T00:00:00.01"),
+            self._ev("a", self._chain(net, "Cedar Hollow 1211")[-1],
+                     "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", self._chain(net, "Ridgeline 2106")[-1],
+                     "Ridgeline 2106", "2026-06-01T00:00:00.01"),
         ]
-        assert len(group_events(evs, self._net())) == 2
+        assert len(group_events(evs, net)) == 2
 
     def test_the_same_path_much_later_is_a_different_fault(self):
         from comtrade_analyzer.incidents import group_events
+        net = self._net()
+        c = self._chain(net, "Cedar Hollow 1211")
         evs = [
-            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
-            self._ev("b", "BKR_CH-1211", "Cedar Hollow 1211", "2026-06-01T00:05:00"),
+            self._ev("a", c[-1], "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", c[0], "Cedar Hollow 1211", "2026-06-01T00:05:00"),
         ]
-        assert len(group_events(evs, self._net())) == 2
+        assert len(group_events(evs, net)) == 2
 
     def test_a_sibling_branch_is_not_the_same_path(self):
-        """Both on one feeder, neither above the other — two faults."""
+        """
+        Two devices on opposite limbs of a fork, at the same instant. One
+        feeder, but neither is above the other, so the fault current never
+        flowed through both — two faults, not one seen twice.
+        """
         from comtrade_analyzer.incidents import group_events
+        net = self._net()
+        a, b = self._limbs(net, "Valley Oak 3301")
         evs = [
-            self._ev("a", "RCL_RB-4402R2", "Riverbend 4402", "2026-06-01T00:00:00"),
-            self._ev("b", "RCL_RB-4402R1", "Riverbend 4402", "2026-06-01T00:00:00.01"),
+            self._ev("a", a, "Valley Oak 3301", "2026-06-01T00:00:00"),
+            self._ev("b", b, "Valley Oak 3301", "2026-06-01T00:00:00.01"),
         ]
-        # R1 IS above R2, so these DO join — the guard is the reverse case.
-        assert len(group_events(evs, self._net())) == 1
+        assert not net.on_same_path([a, b])
+        assert len(group_events(evs, net)) == 2
 
     def test_the_window_is_tunable(self):
         from comtrade_analyzer.incidents import group_events
-        evs = [
-            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
-            self._ev("b", "BKR_CH-1211", "Cedar Hollow 1211", "2026-06-01T00:00:05"),
-        ]
         net = self._net()
+        c = self._chain(net, "Cedar Hollow 1211")
+        evs = [
+            self._ev("a", c[-1], "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", c[0], "Cedar Hollow 1211", "2026-06-01T00:00:05"),
+        ]
         assert len(group_events(evs, net, window_s=2.0)) == 2
         assert len(group_events(evs, net, window_s=10.0)) == 1
 
@@ -1865,22 +1940,29 @@ class TestIncidentGrouping:
         under a different device id. Only the tree connects them.
         """
         from comtrade_analyzer.incidents import group_events
+        net = self._net()
+        # a lockout, and the device on the far side of a tie below it
+        tie = net.ties("Cedar Hollow 1211")[0]
+        near = net.node(tie.parent)
+        far = net.node(tie.tie_to)
         evs = [
-            self._ev("lock", "RCL_CH-1211R2", "Cedar Hollow 1211",
+            self._ev("lock", near.node_id, near.feeder,
                      "2026-06-01T00:00:00", locked_out=True),
-            self._ev("tie", "RCL_CH-1212R1", "Cedar Hollow 1212",
+            self._ev("tie", far.node_id, far.feeder,
                      "2026-06-01T00:01:00", fault_type="LOAD", total_shots=0),
         ]
-        incs = group_events(evs, self._net())
+        incs = group_events(evs, net)
         assert len(incs) == 1
         assert incs[0]["restored"] is True
         assert incs[0]["restore_delay_s"] == 60.0
 
     def test_a_load_step_with_no_lockout_to_explain_it_stands_alone(self):
         from comtrade_analyzer.incidents import group_events
-        evs = [self._ev("tie", "RCL_CH-1212R1", "Cedar Hollow 1212",
+        net = self._net()
+        dev = self._chain(net, "Cedar Hollow 1212")[-1]
+        evs = [self._ev("tie", dev, "Cedar Hollow 1212",
                         "2026-06-01T00:01:00", fault_type="LOAD", total_shots=0)]
-        incs = group_events(evs, self._net())
+        incs = group_events(evs, net)
         assert len(incs) == 1 and incs[0]["restored"] is True
         assert incs[0]["locked_out"] is False
 
@@ -1888,27 +1970,31 @@ class TestIncidentGrouping:
 
     def test_the_clearing_device_is_the_deepest_one_that_operated(self):
         from comtrade_analyzer.incidents import group_events
+        net = self._net()
+        c = self._chain(net, "Cedar Hollow 1211")
         evs = [
-            self._ev("a", "BKR_CH-1211", "Cedar Hollow 1211",
+            self._ev("a", c[0], "Cedar Hollow 1211",
                      "2026-06-01T00:00:00", total_shots=0),
-            self._ev("b", "RCL_CH-1211R2", "Cedar Hollow 1211",
+            self._ev("b", c[-1], "Cedar Hollow 1211",
                      "2026-06-01T00:00:00.01", total_shots=1),
         ]
-        inc = group_events(evs, self._net())[0]
-        assert inc["clearing_device"] == "RCL_CH-1211R2"
-        assert inc["devices_held"] == ["BKR_CH-1211"]
+        inc = group_events(evs, net)[0]
+        assert inc["clearing_device"] == c[-1]
+        assert inc["devices_held"] == [c[0]]
         assert inc["upstream_also_tripped"] is False
 
     def test_two_devices_on_one_path_both_operating_is_reported(self):
         """The one thing neither record can show on its own."""
         from comtrade_analyzer.incidents import group_events
+        net = self._net()
+        c = self._chain(net, "Cedar Hollow 1211")
         evs = [
-            self._ev("a", "BKR_CH-1211", "Cedar Hollow 1211",
+            self._ev("a", c[0], "Cedar Hollow 1211",
                      "2026-06-01T00:00:00", total_shots=1),
-            self._ev("b", "RCL_CH-1211R2", "Cedar Hollow 1211",
+            self._ev("b", c[-1], "Cedar Hollow 1211",
                      "2026-06-01T00:00:00.01", total_shots=1),
         ]
-        assert group_events(evs, self._net())[0]["upstream_also_tripped"] is True
+        assert group_events(evs, net)[0]["upstream_also_tripped"] is True
 
     # -- degradation and skew -----------------------------------------------
 
@@ -1916,9 +2002,9 @@ class TestIncidentGrouping:
         """A plain folder still groups; it just cannot tell path from sibling."""
         from comtrade_analyzer.incidents import group_events
         evs = [
-            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
-            self._ev("b", "BKR_CH-1211", "Cedar Hollow 1211", "2026-06-01T00:00:00.02"),
-            self._ev("c", "RCL_RG-2106R1", "Ridgeline 2106", "2026-06-01T00:00:00.01"),
+            self._ev("a", "ANY_1", "Cedar Hollow 1211", "2026-06-01T00:00:00", unknown=True),
+            self._ev("b", "ANY_2", "Cedar Hollow 1211", "2026-06-01T00:00:00.02", unknown=True),
+            self._ev("c", "ANY_3", "Ridgeline 2106", "2026-06-01T00:00:00.01", unknown=True),
         ]
         incs = group_events(evs, None)
         assert len(incs) == 2
@@ -1929,11 +2015,13 @@ class TestIncidentGrouping:
         incident silently is the failure; saying so is the fix.
         """
         from comtrade_analyzer.incidents import clock_suspects
+        net = self._net()
+        chain = self._chain(net, "Cedar Hollow 1211")
         evs = [
-            self._ev("a", "RCL_CH-1211R2", "Cedar Hollow 1211", "2026-06-01T00:00:00"),
-            self._ev("b", "BKR_CH-1211", "Cedar Hollow 1211", "2026-06-01T00:04:00"),
+            self._ev("a", chain[-1], "Cedar Hollow 1211", "2026-06-01T00:00:00"),
+            self._ev("b", chain[0], "Cedar Hollow 1211", "2026-06-01T00:04:00"),
         ]
-        sus = clock_suspects(evs, self._net())
+        sus = clock_suspects(evs, net)
         assert len(sus) == 1
         assert sus[0]["gap_s"] == 240.0
 
@@ -1943,7 +2031,8 @@ class TestIncidentGrouping:
         anywhere in it; inception is when the fault actually started.
         """
         from comtrade_analyzer.incidents import fault_instant
-        e = self._ev("a", "D", "F", "2026-06-01T00:00:00", inception=0.25)
+        e = self._ev("a", "D", "F", "2026-06-01T00:00:00", inception=0.25,
+                     unknown=True)
         assert fault_instant(e).microsecond == 250000
 
     # -- against the shipped corpus -----------------------------------------
@@ -2326,15 +2415,21 @@ class TestTheDeviceSymbols:
         j = tpl.index("/* Devices.", i)
         assert "--sw-open" in tpl[i:j]
 
-    def test_state_is_never_carried_by_colour_alone(self):
+    def test_state_survives_for_anyone_not_looking_at_the_colours(self):
         """
-        Red/green is the worst pair for deuteranopia, every box is filled, and
-        every conductor is the same grey — so the ONLY non-colour cue left is
-        the word. Both a device and a tie must say it.
+        On the drawing, open vs closed is now colour alone — filled boxes, one
+        grey for every conductor, and no OPEN/CLOSED text, which is the
+        utility's own convention and what was asked for. Red/green is the worst
+        pair for deuteranopia, so the word has to survive somewhere: the
+        tooltip and the aria-label both carry it, for both a device and a tie.
         """
         tpl = self.TPL.read_text(encoding="utf-8")
-        assert '`${id} \\u00b7 OPEN`' in tpl, "an open device does not say OPEN"
-        assert '? "CLOSED" : "OPEN"' in tpl, "a tie does not say its state"
+        dev = tpl[tpl.index("/* Devices."):tpl.index("host.innerHTML = `<svg")]
+        assert '${open ? "OPEN" : "CLOSED"}' in dev, "device tooltip lost its state"
+        assert '${open ? "open" : "closed"}' in dev, "device aria-label lost its state"
+        tie = tpl[tpl.index("/* Ties, drawn where"):tpl.index("/* Devices.")]
+        assert '${closed ? "CLOSED" : "OPEN"}' in tie, "tie tooltip lost its state"
+        assert '${closed ? "closed" : "open"}' in tie, "tie aria-label lost its state"
 
     def test_every_conductor_is_the_same_grey(self):
         """Line is line. What is open is said by the device on it."""

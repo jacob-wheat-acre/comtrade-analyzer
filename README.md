@@ -310,7 +310,10 @@ Maple Ave Feeder,   TIE_MAPLE_PINE,tie,      RCL_123-456,   RCL_555-001
 ```
 
 - **feeder** — the feeder this node is on; the *station* name on a `source` row
-- **node_id** — matches `device_id` in `devices.csv` for anything that records events
+- **node_id** — matches `device_id` in `devices.csv` for anything that records
+  events. Breakers are `BKR_VALL3301` (feeder abbreviation plus circuit),
+  reclosers are `RCL_123-456` (six-digit grid reference); a tie is a recloser
+  and is named like one
 - **kind** — `source`, `breaker`, `recloser`, `sectionalizer` or `tie`
 - **parent** — the node immediately upstream; empty only on a `source` row
 - **tie_to** — the far-end device, on a `tie` row only
