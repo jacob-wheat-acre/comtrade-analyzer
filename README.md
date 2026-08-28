@@ -253,12 +253,16 @@ python main.py reclose_event.cfg \
 
 ---
 
-### Scoping to one substation
+### Scoping to one feeder
 
-A **Showing** dropdown at the top of the review scopes the entire page — tiles,
-hero, charts, event table and one-line — to a single substation, or to all of
-them. Each substation's aggregate is computed alongside the fleet's, so the
-scoped numbers are the same arithmetic, not a second implementation of it.
+The **Feeder** dropdown in the one-line card scopes the entire review page —
+tiles, hero, fault mix, triage backlog, reclose shots, clearing time, devices
+driving exposure and the event table — to that one circuit. A **Showing**
+dropdown at the top scopes coarser, to a substation or the whole fleet.
+
+Each feeder's and each substation's aggregate is computed alongside the fleet's,
+so the scoped numbers are the same arithmetic, not a second implementation of
+it.
 
 The other filters (zone, fault, priority, EPSS class, search) narrow the event
 table and the one-line but leave the headline tiles on the substation scope.

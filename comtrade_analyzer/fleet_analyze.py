@@ -542,6 +542,21 @@ def aggregate_by_station(events: list, registry: dict, epss_tiers: list,
     return out
 
 
+def aggregate_by_feeder(events: list, registry: dict, epss_tiers: list,
+                        response_hours: float, net=None) -> dict:
+    """
+    The same, one per feeder — the scope a protection engineer actually works
+    in. Reclose shots, clearing time, fault mix and the triage backlog only
+    mean something against a circuit; across the fleet they are an average of
+    thirteen unrelated ones.
+    """
+    out = {}
+    for feeder in sorted({e.get("feeder", "") for e in events if e.get("feeder")}):
+        subset = [e for e in events if e.get("feeder") == feeder]
+        out[feeder] = aggregate(subset, registry, epss_tiers, response_hours, net)
+    return out
+
+
 def aggregate(events: list, registry: dict, epss_tiers: list,
               response_hours: float, net=None) -> dict:
     """
@@ -1049,6 +1064,8 @@ def main():
     skew = clock_suspects(events, net, args.incident_window_s)
     by_station = aggregate_by_station(events, registry, args.epss_tiers,
                                       args.response_hours, net)
+    by_feeder = aggregate_by_feeder(events, registry, args.epss_tiers,
+                                    args.response_hours, net)
     aggregates = by_station[ALL_STATIONS]
     validation = validate(events, truth_path) if truth_path else None
 
@@ -1066,6 +1083,7 @@ def main():
         "incidents": incidents,
         "clock_suspects": skew,
         "aggregates_by_station": by_station,
+        "aggregates_by_feeder": by_feeder,
         "settings": {
             "feeder_z_ohm_per_mile": args.feeder_z,
             "epss_tiers": args.epss_tiers,

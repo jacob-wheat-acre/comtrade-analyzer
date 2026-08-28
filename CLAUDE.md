@@ -484,13 +484,19 @@ A device can back up more than one feeder; laid out as children, the second and
 later ties fall to their own rows like any other sibling, which is what keeps
 their labels apart.
 
-## Scoping the review to one substation
+## Scoping the review to one feeder
 
-`#fStation` scopes the whole review page. The tiles, hero and charts render a
-**precomputed aggregate**, so scoping them means handing them a different one —
-`fleet_analyze.aggregate_by_station()` runs `aggregate()` once per substation
-plus once for the fleet, and the page swaps `AGG`/`TOT`. Re-deriving those sums
-in JavaScript is how the page and `fleet_events.csv` would start disagreeing.
+**The one-line's own feeder dropdown is the page scope.** A feeder is the level
+an engineer works at: reclose shots, clearing time, fault mix and the triage
+backlog only mean something against one circuit, and averaged over thirteen they
+say nothing. `#fStation` scopes coarser, to a substation.
+
+The tiles, hero and charts render a **precomputed aggregate**, so scoping means
+handing them a different one — `aggregate_by_station()` and
+`aggregate_by_feeder()` run `aggregate()` once per substation, once per feeder
+and once for the fleet, and the page swaps `AGG`/`TOT`. **Narrowest wins**:
+feeder, else substation, else fleet. Re-deriving those sums in JavaScript is how
+this page and `fleet_events.csv` would start disagreeing.
 
 `applyStation()` must redraw **every** panel that reads `AGG` — hero, units,
 tiles, charts — plus the table and the one-line, which read `currentRows()`. A
@@ -499,8 +505,12 @@ no scope: the numbers are simply wrong. A test lists the calls.
 
 Three things that are easy to miss:
 
-- `renderUnits()` read `EV` directly, so the one-cell-per-event grid ignored the
-  scope. It filters now.
+- **A panel that filters `EV` itself keeps showing the fleet while everything
+  around it narrows.** `renderUnits()` and the clearing-time histogram in
+  `renderTrip()` each did exactly that, and the histogram is the one nobody
+  spots — it still draws bars, just the wrong ones. Everything that counts
+  events itself goes through `scopedEvents()`, and a test greps the render
+  block for stray `EV.filter` / `EV.slice` / `EV.forEach`.
 - The one-line offers **only that substation's feeders** when scoped, or it
   sits on a feeder with nothing in view and reads as empty.
 - Following a tie to another substation calls `applyStation()`, and that must

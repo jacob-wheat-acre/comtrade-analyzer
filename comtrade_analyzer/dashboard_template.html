@@ -685,16 +685,44 @@ const SET  = FLEET.settings || {};
    than re-deriving the arithmetic here — two implementations of the same sums
    is how the numbers on this page would start disagreeing with the CSV. */
 const BY_STATION = FLEET.aggregates_by_station || {};
+const BY_FEEDER  = FLEET.aggregates_by_feeder || {};
 const ALL_STATIONS = "All substations";
+const ALL_FEEDERS  = "";          /* "" = do not narrow past the substation */
 let station = ALL_STATIONS;
+let scopeFeeder = ALL_FEEDERS;
 
 let AGG = FLEET.aggregates || {};
 let TOT = AGG.totals || {};
 
+/* Narrowest wins: a feeder if one is picked, else the substation, else the
+   fleet. Reclose shots, clearing time, fault mix and the triage backlog only
+   mean something against one circuit — across thirteen they are an average of
+   unrelated things. */
 function setStation(name) {
   station = BY_STATION[name] ? name : ALL_STATIONS;
-  AGG = BY_STATION[station] || FLEET.aggregates || {};
+  if (scopeFeeder && olStationOf(scopeFeeder) !== station && station !== ALL_STATIONS) {
+    scopeFeeder = ALL_FEEDERS;
+  }
+  AGG = (scopeFeeder && BY_FEEDER[scopeFeeder])
+     || BY_STATION[station] || FLEET.aggregates || {};
   TOT = AGG.totals || {};
+}
+
+/* The events the scope covers. Panels that count rows themselves rather than
+   reading AGG must go through this, or they silently keep showing the fleet
+   while everything around them narrows — which is exactly what the clearing
+   time histogram and the unit grid each did. */
+function scopedEvents() {
+  if (scopeFeeder) return EV.filter((e) => e.feeder === scopeFeeder);
+  if (station !== ALL_STATIONS) return EV.filter((e) => e.station === station);
+  return EV;
+}
+
+/* Called when the one-line's feeder dropdown moves. */
+function applyFeederScope(feeder) {
+  scopeFeeder = BY_FEEDER[feeder] ? feeder : ALL_FEEDERS;
+  if (scopeFeeder) olFeeder = scopeFeeder;
+  applyStation(station);
 }
 
 /* ---------------------------------------------------------------------------
@@ -997,7 +1025,7 @@ function renderHeader() {
       ? ` · ${FLEET.parse_errors.length} unreadable` : ""}` +
     (gen ? ` · analyzed ${gen.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "");
 
-  const withSettings = EV.filter((e) => e.settings_eval).length;
+  const withSettings = scopedEvents().filter((e) => e.settings_eval).length;
   const chips = ((FLEET.validation) ? [["", "DEMO DATA — synthetic events, not real plant"]] : [])
     .concat(withSettings ? [["Settings", `${fmt(withSettings)} events matched`]] : [])
     .concat([
@@ -1039,10 +1067,8 @@ function renderHero() {
 function renderUnits() {
   const grid = $("unitGrid");
   /* One cell per event IN SCOPE — the grid read the whole fleet and so did not
-     move when the page was scoped to a substation. */
-  const scoped = station === ALL_STATIONS
-    ? EV : EV.filter((e) => e.station === station);
-  const sorted = scoped.slice().sort((a, b) =>
+     move when the page was scoped. */
+  const sorted = scopedEvents().slice().sort((a, b) =>
     (CLASS_META[a.wso_class].order - CLASS_META[b.wso_class].order) ||
     String(a.timestamp).localeCompare(String(b.timestamp)));
   const n = sorted.length;
@@ -1234,7 +1260,8 @@ function renderTrip() {
   const thresholdCycles = SET.slow_trip_cycles || 10;
   const bins = edges.slice(0, -1).map((lo, i) => {
     const hi = edges[i + 1];
-    const count = EV.filter((e) => e.trip_delay_cycles !== null && e.trip_delay_cycles !== undefined &&
+    const count = scopedEvents().filter((e) =>
+      e.trip_delay_cycles !== null && e.trip_delay_cycles !== undefined &&
       e.trip_delay_cycles >= lo && e.trip_delay_cycles < hi).length;
     return {
       label: hi === edges[edges.length - 1] ? `${lo}+` : `${lo}–${hi}`,
@@ -1250,7 +1277,9 @@ function renderTrip() {
     };
   });
   const at = edges.findIndex((e) => e >= thresholdCycles);
-  const noTrip = EV.length - EV.filter((e) => e.trip_delay_cycles !== null && e.trip_delay_cycles !== undefined).length;
+  const scoped = scopedEvents();
+  const noTrip = scoped.length - scoped.filter((e) =>
+    e.trip_delay_cycles !== null && e.trip_delay_cycles !== undefined).length;
   $("tripNote").textContent = `Fault inception → trip${noTrip ? ` · ${noTrip} with no trip` : ""}`;
   histogram($("chartTrip"), bins, {
     axisLabel: "Cycles at 60 Hz",
@@ -1368,6 +1397,7 @@ function currentRows() {
         p = $("fPrio").value, c = $("fClass").value,
         q = $("fSearch").value.trim().toLowerCase();
   return EV.filter((e) => {
+    if (scopeFeeder && e.feeder !== scopeFeeder) return false;
     if (station !== ALL_STATIONS && e.station !== station) return false;
     if (drill && !drill.test(e)) return false;
     if (z && e.zone !== z) return false;
@@ -1418,9 +1448,10 @@ function renderHead() {
 
 function renderBody() {
   const rows = sortRows(currentRows());
-  $("filterCount").textContent = rows.length === EV.length
-    ? `${fmt(EV.length)} events`
-    : `${fmt(rows.length)} of ${fmt(EV.length)} events`;
+  const inScope = scopedEvents().length;
+  $("filterCount").textContent = rows.length === inScope
+    ? `${fmt(inScope)} events`
+    : `${fmt(rows.length)} of ${fmt(inScope)} events`;
   $("tableEmpty").hidden = rows.length > 0;
 
   const html = rows.map((e) => {
@@ -1947,9 +1978,14 @@ function applyStation(name) {
   if (olPage === "feeders") renderFeederPage();
   const note = $("scopeNote");
   if (note) {
-    note.textContent = station === ALL_STATIONS
-      ? `Everything below covers all ${Object.keys(BY_STATION).length - 1} substations.`
-      : `Everything below — tiles, charts, table and one-line — covers ${station} only.`;
+    const what = scopeFeeder
+      || (station === ALL_STATIONS
+          ? `all ${Object.keys(BY_STATION).length - 1} substations` : station);
+    note.textContent = scopeFeeder || station !== ALL_STATIONS
+      ? `Every tile, chart and table below covers ${what} only — pick a feeder `
+        + `in the one-line to narrow it further.`
+      : `Everything below covers ${what}. Pick one, or a feeder in the one-line, `
+        + `to scope the whole page.`;
   }
 }
 
@@ -2056,8 +2092,9 @@ function renderClasses() {
     });
   });
 
-  const confirmed = EV.filter((e) => e.settings_verdict === "confirmed").length;
-  const ruled = EV.filter((e) => e.settings_verdict === "ruled_out").length;
+  const sc = scopedEvents();
+  const confirmed = sc.filter((e) => e.settings_verdict === "confirmed").length;
+  const ruled = sc.filter((e) => e.settings_verdict === "ruled_out").length;
   const cand = TOT.epss_candidate || 0, indet = TOT.indeterminate || 0;
   $("classFoot").innerHTML =
     `EPSS does two things — it disables reclosing <em>and</em> makes the relay more ` +
@@ -2344,13 +2381,20 @@ function renderOneline() {
     olIncident = null;
   }
 
+  /* This dropdown IS the page's feeder scope. Picking a circuit here scopes
+     every tile and chart above to it, because that is the only level at which
+     "reclose shots per event" or "clearing time" says anything. */
   const sel = $("olFeeder");
-  sel.innerHTML = groups.map((st) =>
-    `<optgroup label="${esc(st.station)}">` +
-    st.feeders.map((f) =>
-      `<option value="${esc(f)}"${f === olFeeder ? " selected" : ""}>${esc(f)}</option>`
-    ).join("") + `</optgroup>`).join("");
-  sel.onchange = () => { olFeeder = sel.value; olIncident = null; renderOneline(); };
+  const wider = station === ALL_STATIONS ? "the whole fleet" : station;
+  sel.innerHTML =
+    `<option value=""${scopeFeeder ? "" : " selected"}>` +
+    `All feeders \u00b7 ${esc(wider)}</option>` +
+    groups.map((st) =>
+      `<optgroup label="${esc(st.station)}">` +
+      st.feeders.map((f) =>
+        `<option value="${esc(f)}"${f === scopeFeeder ? " selected" : ""}>${esc(f)}</option>`
+      ).join("") + `</optgroup>`).join("");
+  sel.onchange = () => { olIncident = null; applyFeederScope(sel.value); };
 
   const legendBox = (letter, fill, stroke, sw, ink) =>
     `<svg width="20" height="16" viewBox="0 0 20 16" aria-hidden="true">
@@ -2380,8 +2424,12 @@ function olDrawDiagram() {
     `${L.devices.length} device${L.devices.length === 1 ? "" : "s"}, ` +
     `${L.ties.length} tie${L.ties.length === 1 ? "" : "s"} · ${fmt(shown)} record(s) in view`;
   $("onelineFoot").textContent =
-    "Mainline connectivity only — no laterals, fuses or impedance. Counts follow the "
-    + "filters above; click a device to filter the table to it.";
+    (scopeFeeder
+      ? `Every tile and chart above covers ${olFeeder} only. `
+      : `Showing ${olFeeder}; the tiles and charts above cover the wider scope `
+        + `until you pick a feeder here. `)
+    + "Mainline connectivity only — no laterals, fuses or impedance. Click a "
+    + "device to filter the table to it.";
 }
 
 /* Draws one feeder into `host`. Returns how many records it accounted for.

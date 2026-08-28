@@ -2635,7 +2635,7 @@ class TestScopingByStation:
         tpl = self.TPL.read_text(encoding="utf-8")
         assert "if (station !== ALL_STATIONS && e.station !== station) return false;" in tpl
         # and the unit grid, which read the whole fleet
-        assert "station === ALL_STATIONS\n    ? EV : EV.filter((e) => e.station === station)" in tpl
+        assert "const sorted = scopedEvents()" in tpl
 
     def test_the_control_shows_what_happened(self):
         """
@@ -2672,3 +2672,49 @@ class TestScopingByStation:
         body = tpl[tpl.index("function applyStation("):]
         body = body[:body.index("\nfunction renderScope")]
         assert 'if (olPage === "feeders") renderFeederPage();' in body
+
+    def test_there_is_an_aggregate_for_every_feeder(self):
+        """
+        A feeder is the scope an engineer works in. Reclose shots, clearing
+        time, fault mix and the triage backlog only mean something against one
+        circuit; over thirteen they are an average of unrelated things.
+        """
+        d = self._events()
+        by = d.get("aggregates_by_feeder")
+        assert by, "analysis carries no per-feeder aggregates"
+        feeders = {e["feeder"] for e in d["events"] if e.get("feeder")}
+        assert set(by) == feeders
+
+    def test_the_feeders_account_for_the_whole_fleet(self):
+        from comtrade_analyzer.fleet_analyze import ALL_STATIONS
+        d = self._events()
+        parts = sum(v["totals"]["events"] for v in d["aggregates_by_feeder"].values())
+        assert parts == d["aggregates_by_station"][ALL_STATIONS]["totals"]["events"]
+
+    def test_the_one_line_dropdown_is_the_feeder_scope(self):
+        """It is the control the request named — picking a circuit there scopes
+        the tiles and charts above it."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "function applyFeederScope(" in tpl
+        assert "sel.onchange = () => { olIncident = null; applyFeederScope(sel.value); };" in tpl
+        assert 'if (scopeFeeder && e.feeder !== scopeFeeder) return false;' in tpl
+
+    def test_the_narrowest_scope_wins(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert ("AGG = (scopeFeeder && BY_FEEDER[scopeFeeder])\n"
+                "     || BY_STATION[station] || FLEET.aggregates || {};") in tpl
+
+    def test_panels_that_count_events_themselves_go_through_the_scope(self):
+        """
+        A panel that filters EV directly keeps showing the fleet while
+        everything around it narrows. The clearing-time histogram and the unit
+        grid each did exactly that.
+        """
+        import re
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "function scopedEvents()" in tpl
+        block = tpl[tpl.index("function renderHeader()"):tpl.index("function currentRows()")]
+        stray = [ln.strip() for ln in block.splitlines()
+                 if re.search(r"\bEV\.(filter|slice|forEach)\b", ln)]
+        assert not stray, ("these count the whole fleet regardless of scope:\n  "
+                           + "\n  ".join(stray))

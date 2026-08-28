@@ -64,6 +64,7 @@ def build_payload(data: dict) -> dict:
         "events":        events,
         "aggregates":    data.get("aggregates", {}),
         "aggregates_by_station": data.get("aggregates_by_station", {}),
+        "aggregates_by_feeder": data.get("aggregates_by_feeder", {}),
         "topology":      data.get("topology", []),
         "incidents":     data.get("incidents", []),
         "validation":    data.get("validation"),
