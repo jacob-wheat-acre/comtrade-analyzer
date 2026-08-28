@@ -467,10 +467,36 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
     </div>
   </section>
 
+  <section class="card" id="onelineCard" hidden>
+    <div class="card-head">
+      <h2>Feeder one-line</h2>
+      <span class="card-note" id="onelineNote"></span>
+    </div>
+    <div class="ol-controls">
+      <label class="fld"><span>Feeder</span>
+        <select id="olFeeder"></select>
+      </label>
+      <span class="ol-legend" id="olLegend"></span>
+    </div>
+    <div class="ol-split">
+      <div>
+        <div class="chart ol-canvas" id="olDiagram"></div>
+        <p class="note" id="onelineFoot"></p>
+      </div>
+      <div class="ol-side">
+        <div class="ol-side-head">
+          <strong>Incidents on this feeder</strong>
+          <button type="button" class="ol-clear" id="olClear" hidden>Clear</button>
+        </div>
+        <div class="ol-list" id="olIncidents"></div>
+      </div>
+    </div>
+  </section>
+
   <section class="card">
     <div class="card-head">
       <h2>Event register</h2>
-      <span class="card-note">Click any chart above to filter · select a row for the reclose sequence, phasors and screens</span>
+      <span class="card-note">Click a chart, a device on the one-line, or an incident to filter · select a row for the reclose sequence, phasors and screens</span>
     </div>
     <div class="filters">
       <div class="field"><label for="fZone">Zone</label><select id="fZone"></select></div>
@@ -492,30 +518,6 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
       </table>
     </div>
     <div class="empty" id="tableEmpty" hidden>No events match these filters.</div>
-  </section>
-
-  <section class="card" id="onelineCard" hidden>
-    <div class="card-head">
-      <h2>Feeder one-line</h2>
-      <span class="card-note" id="onelineNote"></span>
-    </div>
-    <div class="ol-controls">
-      <label class="fld"><span>Feeder</span>
-        <select id="olFeeder"></select>
-      </label>
-      <span class="ol-legend" id="olLegend"></span>
-    </div>
-    <div class="ol-split">
-      <div class="chart ol-canvas" id="olDiagram"></div>
-      <div class="ol-side">
-        <div class="ol-side-head">
-          <strong>Incidents on this feeder</strong>
-          <button type="button" class="ol-clear" id="olClear" hidden>Clear</button>
-        </div>
-        <div class="ol-list" id="olIncidents"></div>
-      </div>
-    </div>
-    <p class="note" id="onelineFoot"></p>
   </section>
 
   <section class="card" id="classCard">
@@ -568,7 +570,7 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
                 gap: 8px; font-size: 12px; margin-bottom: 6px; }
 .ol-clear { font: inherit; font-size: 11px; color: var(--chrome-2); background: none;
             border: 0; cursor: pointer; padding: 0; text-decoration: underline; }
-.ol-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.ol-list { max-height: 264px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 .ol-inc { text-align: left; width: 100%; font: inherit; font-size: 11.5px; cursor: pointer;
           background: var(--surface-2); border: 1px solid var(--hairline);
           border-radius: var(--r-sm); padding: 6px 8px; color: var(--ink); line-height: 1.35; }
