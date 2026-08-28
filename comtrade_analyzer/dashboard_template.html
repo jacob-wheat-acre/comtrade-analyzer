@@ -2720,6 +2720,28 @@ function olDraw(host, feeder, opts = {}) {
          `stroke="var(--baseline)" stroke-width="2"/>`;
   });
 
+  /* PMH enclosures, behind their ways. Each way is its own switch — any one
+     of them can be the one that opens — so the cabinet is drawn as the box
+     around them rather than as a device in its own right. */
+  const cabs = new Map();
+  L.devices.forEach((p) => {
+    if (!p.n.cabinet) return;
+    if (!cabs.has(p.n.cabinet)) cabs.set(p.n.cabinet, []);
+    cabs.get(p.n.cabinet).push(p);
+  });
+  cabs.forEach((ways, name) => {
+    const xs = ways.map((p) => X(p.depth)), ys = ways.map((p) => Y(p.row));
+    const pad = RAD + 13;
+    const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad;
+    const y0 = Math.min(...ys) - pad - 6, y1 = Math.max(...ys) + pad + 8;
+    g += `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" rx="8" ` +
+         `fill="var(--surface-2)" stroke="var(--baseline)" stroke-width="1.5" ` +
+         `stroke-dasharray="5 4"/>`;
+    const model = (ways.find((p) => p.n.model) || { n: {} }).n.model || "";
+    g += `<text x="${x0 + 8}" y="${y0 - 5}" class="ol-tie-label">` +
+         `${esc(name)}${model ? " \u00b7 " + esc(model) : ""}</text>`;
+  });
+
   /* Ties, drawn where the layout put them: at the end of the line, one column
      out from the device they hang off. Same box as any other recloser, green
      because it is normally open, with the run to it dashed until it closes. */
@@ -2830,17 +2852,15 @@ function olDraw(host, feeder, opts = {}) {
     /* Name only. State is the fill — red closed, green open — and the word is
        kept in the tooltip and the aria-label so it is not lost to anyone
        reading the page rather than looking at it. */
-    const nm = clamped(x, id);
+    /* Inside an enclosure the cabinet name is already on the box, so a way
+       is labelled by its way number alone. */
+    const label = p.n.cabinet && id.startsWith(p.n.cabinet)
+      ? id.slice(p.n.cabinet.length).replace(/^[_-]/, "") || id
+      : id;
+    const nm = clamped(x, label);
     g += `<text x="${nm.x}" y="${y + RAD + 17}" text-anchor="${nm.anchor}" ` +
          `class="ol-name"${open ? ` fill="${col}" style="font-weight:700"` : ""}>` +
-         `${esc(id)}</text>`;
-    /* A cabinet's model is its way count, which is the thing you need when
-       asking whether another circuit can be brought into it. */
-    if (p.n.model) {
-      const md = clamped(x, p.n.model);
-      g += `<text x="${md.x}" y="${y + RAD + 33}" text-anchor="${md.anchor}" ` +
-           `class="ol-tie-label">${esc(p.n.model)}</text>`;
-    }
+         `${esc(label)}</text>`;
     g += `</g>`;
   });
 

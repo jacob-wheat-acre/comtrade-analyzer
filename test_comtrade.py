@@ -2392,7 +2392,8 @@ class TestBranchingFeeders:
         from comtrade_analyzer import fleet_gen as fg
         devices = {d.device_id: d for d in fg.build_registry(random.Random(1))}
         for code, feeder, _kind, trunk, branches, _cust in fg._FEEDERS:
-            cabinets = sum(1 for c in fg._PMH if c[0] == feeder)
+            from comtrade_analyzer.topology import PMH_WAYS
+            cabinets = sum(PMH_WAYS[c[2]] for c in fg._PMH if c[0] == feeder)
             want = 1 + trunk + sum(c for _, c in branches) + cabinets
             got = sum(1 for d in devices.values() if d.feeder == feeder)
             assert got == want, f"{feeder}: {got} devices, expected {want}"
@@ -2484,7 +2485,7 @@ class TestTheDeviceSymbols:
         """Line is line. What is open is said by the device on it."""
         tpl = self.TPL.read_text(encoding="utf-8")
         body = tpl[tpl.index("function olDraw("):tpl.index("\nfunction olRefresh")]
-        conductors = body[body.index("L.placed.forEach"):body.index("/* Ties,")]
+        conductors = body[body.index("L.placed.forEach"):body.index("/* PMH enclosures")]
         assert "stroke-dasharray" not in conductors
         assert "--sw-open" not in conductors and "--sw-closed" not in conductors
         assert 'stroke="var(--baseline)"' in conductors
@@ -2976,9 +2977,18 @@ class TestPmhCabinets:
     def test_the_demo_has_cabinets_and_they_validate(self):
         from comtrade_analyzer.topology import validate
         net = self._net()
-        cabs = [n for n in net.nodes() if n.kind == "pmh"]
-        assert cabs, "no PMH cabinet in the demo topology"
-        assert all(c.model for c in cabs), "a cabinet with no model cannot be checked"
+        ways = [n for n in net.nodes() if n.kind == "pmh"]
+        assert ways, "no PMH way in the demo topology"
+        assert all(w.cabinet and w.model for w in ways), \
+            "a way with no cabinet or model cannot be checked"
+        # and every enclosure has as many ways as its model says
+        from comtrade_analyzer.topology import PMH_WAYS
+        groups = {}
+        for w in ways:
+            groups.setdefault(w.cabinet, []).append(w)
+        for name, g in groups.items():
+            assert len(g) == PMH_WAYS[g[0].model], \
+                f"{name}: {len(g)} ways, {g[0].model} has {PMH_WAYS[g[0].model]}"
         bad = [f for f in validate(net) if f["level"] != "info"]
         assert not bad, [f["code"] for f in bad]
 
@@ -2987,18 +2997,18 @@ class TestPmhCabinets:
         net = self._net()
         anchored = [t for t in net.ties()
                     if (p := net.node(t.parent)) is not None and p.kind == "pmh"]
-        assert anchored, "no tie hangs off a cabinet"
+        assert anchored, "no tie hangs off a cabinet way"
 
     def test_an_over_connected_cabinet_is_an_error(self, tmp_path):
         from comtrade_analyzer.topology import load_topology, validate
         f = tmp_path / "t.csv"
         f.write_text(
-            "feeder,node_id,kind,parent,tie_to,model\n"
-            "S,BUS,source,,,\n"
-            "F,BKR_1,breaker,BUS,,\n"
-            "F,PMH_1,pmh,BKR_1,,PMH-9\n"          # 2 ways: source + one load
-            "F,RCL_1,recloser,PMH_1,,\n"
-            "F,RCL_2,recloser,PMH_1,,\n",         # one way too many
+            "feeder,node_id,kind,parent,tie_to,cabinet,model\n"
+            "S,BUS,source,,,,\n"
+            "F,BKR_1,breaker,BUS,,,\n"
+            "F,C_W1,pmh,BKR_1,,CAB,PMH-9\n"       # PMH-9 has two ways
+            "F,C_W2,pmh,C_W1,,CAB,PMH-9\n"
+            "F,C_W3,pmh,C_W1,,CAB,PMH-9\n",       # a third is one too many
             encoding="utf-8")
         codes = [x["code"] for x in validate(load_topology(str(f)))]
         assert "cabinet_over_connected" in codes
@@ -3006,8 +3016,9 @@ class TestPmhCabinets:
     def test_an_unknown_model_is_an_error(self, tmp_path):
         from comtrade_analyzer.topology import load_topology, validate
         f = tmp_path / "t.csv"
-        f.write_text("feeder,node_id,kind,parent,tie_to,model\n"
-                     "S,BUS,source,,,\nF,PMH_1,pmh,BUS,,PMH-42\n", encoding="utf-8")
+        f.write_text("feeder,node_id,kind,parent,tie_to,cabinet,model\n"
+                     "S,BUS,source,,,,\nF,C_W1,pmh,BUS,,CAB,PMH-42\n",
+                     encoding="utf-8")
         codes = [x["code"] for x in validate(load_topology(str(f)))]
         assert "unknown_cabinet_model" in codes
 
@@ -3022,10 +3033,10 @@ class TestPmhCabinets:
         assert "pmh" not in RECORDING_KINDS
         truth = json.loads((self.ROOT / "demo" / "fleet_truth.json")
                            .read_text(encoding="utf-8"))
-        cabs = {n.node_id for n in self._net().nodes() if n.kind == "pmh"}
-        assert cabs
-        assert not (cabs & {e["device_id"] for e in truth["events"]}), \
-            "a cabinet produced an event"
+        ways = {n.node_id for n in self._net().nodes() if n.kind == "pmh"}
+        assert ways
+        assert not (ways & {e["device_id"] for e in truth["events"]}), \
+            "a cabinet way produced an event"
 
     def test_a_cabinet_is_still_in_the_registry(self):
         from comtrade_analyzer.wso_impact import load_registry, _normalize
@@ -3033,8 +3044,25 @@ class TestPmhCabinets:
         for c in (n for n in self._net().nodes() if n.kind == "pmh"):
             assert _normalize(c.node_id) in registry, f"{c.node_id} carries no customers"
 
-    def test_the_page_draws_a_cabinet_as_a_lettered_box(self):
+    def test_each_way_is_its_own_switch_and_can_open_alone(self):
+        """
+        The reason a cabinet is not one node: any way can be the one that
+        opens, and opening way 2 drops only what is below way 2.
+        """
+        net = self._net()
+        ways = [n for n in net.nodes() if n.kind == "pmh"]
+        by_cab = {}
+        for w in ways:
+            by_cab.setdefault(w.cabinet, []).append(w)
+        cab, g = next(iter(by_cab.items()))
+        sizes = {w.node_id: len(net.subtree(w.node_id)) for w in g}
+        assert len(set(sizes.values())) > 1, (
+            f"{cab}: every way drops the same thing, so they are not "
+            "independent switches")
+
+    def test_the_page_draws_the_ways_inside_an_enclosure(self):
         tpl = (self.ROOT / "comtrade_analyzer" / "dashboard_template.html").read_text(
             encoding="utf-8")
         assert 'pmh: "P"' in tpl
-        assert "p.n.model" in tpl, "the cabinet's way count is not shown"
+        assert "PMH enclosures, behind their ways" in tpl
+        assert "p.n.cabinet" in tpl, "ways are not grouped into an enclosure"

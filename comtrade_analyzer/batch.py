@@ -222,7 +222,8 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
         "registry_path": args.devices,
         "topology_path": topo_path,
         "topology": ([{"node_id": n.node_id, "feeder": n.feeder, "kind": n.kind,
-                       "parent": n.parent, "tie_to": n.tie_to, "model": n.model,
+                       "parent": n.parent, "tie_to": n.tie_to,
+                       "cabinet": n.cabinet, "model": n.model,
                        # for the contingency view: what this section serves.
                        # Devices with no events are still part of an outage.
                        "customers": ((registry.get(_normalize(n.node_id)) or {})

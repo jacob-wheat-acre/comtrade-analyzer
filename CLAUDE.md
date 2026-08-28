@@ -328,11 +328,16 @@ path logic switched off. `TestIncidentGrouping._ev()` asserts the device exists
 are mapped, and only their **switch** ways — a fused way is not connectivity
 anyone switches, so it stays off the drawing like every other fuse.
 
-**A cabinet's ways ARE its edges here.** The source way is its `parent`, each
-load way a child, and a normally-open way to another feeder is a `tie` anchored
-to it. That is why a cabinet needs no new concept beyond a kind and a model —
-and why `validate()` can check it: ways used = parent + children, and more than
-the model allows is `cabinet_over_connected`.
+**Every way is its own switch — one row per way, not one per cabinet.** Any of
+the two, three or four ways can be the one that opens, and opening way 2 drops
+only what is below way 2, so a cabinet cannot be a single node. Ways of one
+enclosure share a `cabinet` id and agree on `model`; way 1 is the source way
+under the upstream device and the rest hang off it, which is what being on one
+bus means. A normally-open way is a `tie` anchored to that way.
+
+`validate()` checks the group: ways counted against the model
+(`cabinet_over_connected`), ways disagreeing on model
+(`cabinet_model_disagrees`), a way with no cabinet (`way_without_cabinet`).
 
 **A PMH way switch is a load-interrupter, not a protective device.** It does not
 clear faults, so it leaves no oscillography and is *not* in `RECORDING_KINDS` —
@@ -340,9 +345,11 @@ clear faults, so it leaves no oscillography and is *not* in `RECORDING_KINDS` �
 `SWITCHING_KINDS` and in the registry, because it carries customers and it
 matters for N-1. A cabinet with events would be a bug, and a test says so.
 
-On the drawing it is a box with a **P** and its model beneath the name — the
-model is the way count, which is what you need when asking whether another
-circuit can be brought into the cabinet.
+On the drawing each way is a box with a **P** labelled by its way number, and
+the enclosure is a dashed box drawn behind them carrying the cabinet name and
+model. The enclosure is drawn *before* the ties and devices so it sits behind
+them — and it is inside the region the "every conductor is the same grey" test
+scans, so that test stops at the enclosure comment rather than at the ties.
 
 ## Relay settings
 

@@ -25,7 +25,8 @@ is one row per node and five columns:
   kind     source | breaker | recloser | sectionalizer | pmh | tie
   parent   the node immediately upstream; empty on a source row
   tie_to   the far-end node, on a tie row only
-  model    PMH-9 / PMH-11 / PMH-10 on a pmh row; how many ways the cabinet has
+  cabinet  the cabinet a pmh way belongs to; ways sharing it are one enclosure
+  model    PMH-9 / PMH-11 / PMH-10 on a pmh row; how many ways that cabinet has
 
 Each protective device owns the section immediately downstream of it, so a
 feeder is a source row, a head device, a handful of mid-line reclosers and its
@@ -63,11 +64,16 @@ TIE_KINDS = ("tie",)
 SWITCHING_KINDS = ("breaker", "recloser", "sectionalizer", "pmh")
 VALID_KINDS = SOURCE_KINDS + SWITCHING_KINDS + TIE_KINDS
 
-# Automatic pad-mounted gear. A cabinet's WAYS are its edges in this model:
-# the source way is its parent, each load way a child, and a normally-open way
-# to another feeder is a tie anchored to it. Only automatic cabinets are
-# mapped, and only switch ways — fused ways are not connectivity anyone
-# switches, so they stay off the drawing like every other fuse.
+# Automatic pad-mounted gear, by number of switch ways.
+#
+# EVERY WAY IS ITS OWN SWITCH. Any one of the two, three or four ways can be
+# the one that opens, and opening way 2 drops only what is below way 2 — so a
+# cabinet cannot be a single node. It is a GROUP of way switches sharing a
+# `cabinet` id: the source way sits under the upstream device, and the other
+# ways hang off it, which is what being on one bus means.
+#
+# Only automatic cabinets are mapped, and only switch ways — fused ways are not
+# connectivity anyone switches, so they stay off the drawing like other fuses.
 PMH_WAYS = {"PMH-9": 2, "PMH-11": 3, "PMH-10": 4}
 
 # Kinds expected to appear in devices.csv and produce COMTRADE records. A tie
@@ -80,7 +86,7 @@ PMH_WAYS = {"PMH-9": 2, "PMH-11": 3, "PMH-10": 4}
 # and it matters for N-1 — but expecting records from it would be wrong.
 RECORDING_KINDS = ("breaker", "recloser")
 
-_HEADER = ("feeder", "node_id", "kind", "parent", "tie_to", "model")
+_HEADER = ("feeder", "node_id", "kind", "parent", "tie_to", "cabinet", "model")
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +101,7 @@ class Node:
     kind: str
     parent: str = ""
     tie_to: str = ""
+    cabinet: str = ""           # the enclosure a pmh way belongs to
     model: str = ""             # PMH-9 / PMH-11 / PMH-10 on a pmh row
     row: int = 0                # source line number, for error messages
 
@@ -173,6 +180,10 @@ class Network:
             seen.add(n.feeder)
             out.append(n.feeder)
         return out
+
+    def cabinet_ways(self, cabinet: str) -> List[Node]:
+        """Every way switch in one enclosure, in file order."""
+        return [n for n in self.nodes() if n.kind == "pmh" and n.cabinet == cabinet]
 
     def devices(self, feeder: str = "") -> List[Node]:
         """Switching devices — the things that can open and can hold a record."""
@@ -320,6 +331,7 @@ def load_topology(csv_path: str) -> Network:
                 kind=row.get("kind", "").lower(),
                 parent=row.get("parent", ""),
                 tie_to=row.get("tie_to", ""),
+                cabinet=row.get("cabinet", ""),
                 model=row.get("model", ""),
                 row=i,
             ))
@@ -411,39 +423,57 @@ def validate(net: Network, registry: Optional[dict] = None) -> List[dict]:
                 f"row {n.row}",
                 "tie_to is only read on kind=tie rows; set kind=tie or clear it."))
 
-    # A cabinet cannot have more ways connected than it has.
+    # A cabinet cannot have more ways than its model does.
+    cabinets: Dict[str, List[Node]] = {}
     for n in net.nodes():
-        if n.kind != "pmh":
-            if n.model:
+        if n.kind == "pmh":
+            if not n.cabinet:
                 out.append(_finding(
-                    "warning", "model_on_non_cabinet",
-                    f"{n.node_id}: model {n.model!r} is set but kind is {n.kind!r}",
+                    "error", "way_without_cabinet",
+                    f"{n.node_id}: a pmh way with no cabinet",
                     f"row {n.row}",
-                    "model is only read on kind=pmh rows; clear it or set kind=pmh."))
-            continue
-        if not n.model:
+                    "Every way switch belongs to an enclosure — put the "
+                    "cabinet's name in the cabinet column on each of its ways."))
+                continue
+            cabinets.setdefault(n.cabinet, []).append(n)
+        elif n.cabinet or n.model:
+            out.append(_finding(
+                "warning", "cabinet_fields_on_non_way",
+                f"{n.node_id}: cabinet/model are set but kind is {n.kind!r}",
+                f"row {n.row}",
+                "Those columns are read on kind=pmh rows only; clear them or "
+                "set kind=pmh."))
+
+    for name, ways in cabinets.items():
+        models = {w.model for w in ways if w.model}
+        if not models:
             out.append(_finding(
                 "warning", "cabinet_without_model",
-                f"{n.node_id}: no model, so its way count cannot be checked",
-                f"row {n.row}",
-                f"Set model to one of: {', '.join(PMH_WAYS)}."))
+                f"{name}: no model on any of its ways, so the way count cannot "
+                "be checked", f"{len(ways)} way(s)",
+                f"Set model on the cabinet's ways: {', '.join(PMH_WAYS)}."))
             continue
-        if n.model not in PMH_WAYS:
+        if len(models) > 1:
+            out.append(_finding(
+                "error", "cabinet_model_disagrees",
+                f"{name}: its ways give different models — {', '.join(sorted(models))}",
+                ", ".join(w.node_id for w in ways),
+                "One enclosure, one model. Make them agree."))
+            continue
+        model = models.pop()
+        if model not in PMH_WAYS:
             out.append(_finding(
                 "error", "unknown_cabinet_model",
-                f"{n.node_id}: {n.model!r} is not a cabinet model this knows",
-                f"row {n.row}",
+                f"{name}: {model!r} is not a cabinet model this knows", "",
                 f"Use one of: {', '.join(f'{m} ({w} ways)' for m, w in PMH_WAYS.items())}."))
             continue
-        used = (1 if n.parent else 0) + len(net.children(n.node_id))
-        if used > PMH_WAYS[n.model]:
+        if len(ways) > PMH_WAYS[model]:
             out.append(_finding(
                 "error", "cabinet_over_connected",
-                f"{n.node_id}: {used} ways connected, {n.model} has "
-                f"{PMH_WAYS[n.model]}",
-                f"row {n.row}",
-                "Count the source way, every load way and any normally-open "
-                "way to another feeder. Fused ways are not mapped."))
+                f"{name}: {len(ways)} ways, {model} has {PMH_WAYS[model]}",
+                ", ".join(w.node_id for w in ways),
+                "One row per switch way — the source way and each load way. "
+                "Fused ways are not mapped."))
 
     # Reciprocal ties — the same pair authored from both sides.
     pairs: Dict[frozenset, Node] = {}
@@ -603,7 +633,7 @@ def single_line(net: Network, feeder: str = "", registry: Optional[dict] = None)
 
     def tail(n: Node) -> str:
         """Everything right of the id column."""
-        bits = [n.kind + (f" {n.model}" if n.model else "")]
+        bits = [n.kind + (f" {n.cabinet} {n.model}".rstrip() if n.cabinet else "")]
         if n.is_tie:
             far = net.node(n.tie_to)
             far_txt = far.node_id if far else f"{n.tie_to} (unknown)"

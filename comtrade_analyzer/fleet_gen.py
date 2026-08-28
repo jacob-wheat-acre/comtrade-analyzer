@@ -41,6 +41,8 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
+from .topology import PMH_WAYS
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -120,11 +122,12 @@ _FEEDERS = [
     ("DF", "Delta Flats 4411",   "breaker",  1, (),           498),
 ]
 
-# Automatic PMH cabinets: (feeder, tap position on the trunk, model). Only
-# automatic cabinets are mapped, and only their switch ways — a fused way is
-# not connectivity anyone switches. A cabinet's ways ARE its edges here: the
-# source way is its parent, each load way a child, and a normally-open way to
-# another feeder is a tie anchored to it.
+# Automatic PMH cabinets: (feeder, tap position on the trunk, model).
+#
+# EVERY WAY IS ITS OWN SWITCH — any one of them can be the one that opens, and
+# opening way 2 drops only what is below way 2. So a cabinet is a group of way
+# nodes sharing a `cabinet` id: way 1 is the source way, sitting under the trunk
+# device, and the rest hang off it, which is what being on one bus means.
 #
 # A PMH way switch is a load-interrupter, not a protective device: it does not
 # clear faults, so it never appears as the origin of an event.
@@ -136,7 +139,12 @@ _PMH = [
 
 
 def _pmh_id(feeder: str) -> str:
+    """The enclosure's name. Its ways are this plus a way number."""
     return f"PMH_{_abbr(feeder)}{_feeder_number(feeder)}"
+
+
+def _pmh_way_id(feeder: str, way: int) -> str:
+    return f"{_pmh_id(feeder)}_W{way}"
 
 
 # Normally-open ties, as (feeder, position) on each side. Position is the same
@@ -159,8 +167,8 @@ _TIES = [
     (("Ridgeline 2104", 22),    ("Bear Gulch 2110", 1)),
     (("Valley Oak 3301", 21),   ("Almond Row 3308", 1)),
     # a normally-open way on a cabinet, rather than on a mid-line recloser
-    (("Valley Oak 3305", "PMH"), ("Almond Row 3308", 1)),
-    (("Riverbend 4407", "PMH"),  ("Delta Flats 4411", 1)),
+    (("Valley Oak 3305", "W3"), ("Almond Row 3308", 1)),
+    (("Riverbend 4407", "W2"),  ("Delta Flats 4411", 1)),
 ]
 
 
@@ -169,8 +177,8 @@ def _device_id(feeder: str, offset) -> str:
     The id build_registry() gives the device at `offset` on `feeder`.
     `offset` is a position on the trunk, or "PMH" for that feeder's cabinet.
     """
-    if offset == "PMH":
-        return _pmh_id(feeder)
+    if isinstance(offset, str) and offset.startswith("W"):
+        return _pmh_way_id(feeder, int(offset[1:]))
     head_kind = next(k for _c, f, k, _t, _b, _cu in _FEEDERS if f == feeder)
     if offset == 0 and head_kind == "breaker":
         return _breaker_id(feeder)
@@ -187,6 +195,7 @@ class Device:
     customers_served: int      # THIS device's section, not the whole feeder
     kind: str                  # breaker | recloser | pmh
     model: str = ""            # PMH-9 / PMH-11 / PMH-10 on a cabinet
+    cabinet: str = ""          # the enclosure a way switch belongs to
     parent: str = ""           # upstream device id, '' at the bus
     bus: str = ""              # substation bus node id
     kv_ll: float = 12.47       # from the substation — one voltage per bus
@@ -253,14 +262,15 @@ def build_registry(rng: random.Random) -> List[Device]:
         sub = f"{label} Sub"
         bus = _bus_id(code)
         cabinets = [c for c in _PMH if c[0] == feeder]
-        total = 1 + n_trunk + sum(c for _, c in branches) + len(cabinets)
+        total = (1 + n_trunk + sum(c for _, c in branches)
+                 + sum(PMH_WAYS[m] for _f, _t, m in cabinets))
         sections = _split_customers(customers, total)
         nxt = iter(sections)
 
-        def _add(did, parent, kind="recloser", model=""):
+        def _add(did, parent, kind="recloser", model="", cabinet=""):
             devices.append(Device(did, sub, feeder, zone, tier, next(nxt), kind,
-                                  model=model, parent=parent, bus=bus, kv_ll=kv,
-                                  fs=rng.choice(SAMPLE_RATES)))
+                                  model=model, cabinet=cabinet, parent=parent,
+                                  bus=bus, kv_ll=kv, fs=rng.choice(SAMPLE_RATES)))
             return did
 
         head_id = (_breaker_id(feeder) if head_kind == "breaker"
@@ -282,8 +292,14 @@ def build_registry(rng: random.Random) -> List[Device]:
                 off += 1
                 parent = _add(_grid_id(num, off), parent)
 
+        # One node per way. Way 1 is the source way under the trunk; the rest
+        # sit on the same bus, so they hang off it.
         for _f, tap, model in cabinets:
-            _add(_pmh_id(feeder), trunk[min(tap, len(trunk) - 1)], "pmh", model)
+            cab = _pmh_id(feeder)
+            src = _add(_pmh_way_id(feeder, 1), trunk[min(tap, len(trunk) - 1)],
+                       "pmh", model, cab)
+            for w in range(2, PMH_WAYS[model] + 1):
+                _add(_pmh_way_id(feeder, w), src, "pmh", model, cab)
     return devices
 
 
@@ -303,12 +319,13 @@ def write_topology(devices: List[Device], path: str) -> None:
     tables as the registry so the two can never drift.
     """
     by_id = {d.device_id: d for d in devices}
-    lines = ["feeder,node_id,kind,parent,tie_to,model"]
+    lines = ["feeder,node_id,kind,parent,tie_to,cabinet,model"]
     for code, label, _zone, _tier, _kv in _SUBSTATIONS:
-        lines.append(f"{label} Sub,{_bus_id(code)},source,,,")
+        lines.append(f"{label} Sub,{_bus_id(code)},source,,,,")
         for d in devices:
             if d.bus == _bus_id(code):
-                lines.append(f"{d.feeder},{d.device_id},{d.kind},{d.parent},,{d.model}")
+                lines.append(f"{d.feeder},{d.device_id},{d.kind},{d.parent},,"
+                             f"{d.cabinet},{d.model}")
     # A tie is a recloser, so it is named like one — numbered off the feeder it
     # hangs from, in a band clear of that feeder's own devices.
     tie_off = {}
@@ -316,7 +333,7 @@ def write_topology(devices: List[Device], path: str) -> None:
         near, far = _device_id(nf, no), _device_id(ff, fo)
         num = _feeder_number(nf)
         tie_off[num] = tie_off.get(num, 50) + 1
-        lines.append(f"{nf},{_grid_id(num, tie_off[num])},tie,{near},{far},")
+        lines.append(f"{nf},{_grid_id(num, tie_off[num])},tie,{near},{far},,")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
 

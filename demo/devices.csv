@@ -2,9 +2,12 @@ device_id,station,feeder,zone,risk_tier,customers_served
 BKR_CEDA1211,Cedar Hollow Sub,Cedar Hollow 1211,ZONE_A,3,684
 RCL_121-101,Cedar Hollow Sub,Cedar Hollow 1211,ZONE_A,3,342
 RCL_121-102,Cedar Hollow Sub,Cedar Hollow 1211,ZONE_A,3,342
-RCL_121-200,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,436
-RCL_121-201,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,218
-PMH_CEDA1212,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,218
+RCL_121-200,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,437
+RCL_121-201,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,87
+PMH_CEDA1212_W1,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,87
+PMH_CEDA1212_W2,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,87
+PMH_CEDA1212_W3,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,87
+PMH_CEDA1212_W4,Cedar Hollow Sub,Cedar Hollow 1212,ZONE_A,3,87
 BKR_SAWM1215,Sawmill Grade Sub,Sawmill Grade 1215,ZONE_A,3,218
 RCL_121-501,Sawmill Grade Sub,Sawmill Grade 1215,ZONE_A,3,217
 BKR_RIDG2104,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,467
@@ -22,9 +25,11 @@ RCL_330-101,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
 RCL_330-102,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
 RCL_330-121,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
 RCL_330-122,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
-RCL_330-500,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,180
-RCL_330-501,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,89
-PMH_VALL3305,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,89
+RCL_330-500,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,182
+RCL_330-501,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,44
+PMH_VALL3305_W1,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,44
+PMH_VALL3305_W2,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,44
+PMH_VALL3305_W3,Valley Oak Sub,Valley Oak 3305,ZONE_C,2,44
 BKR_ALMO3308,Almond Row Sub,Almond Row 3308,ZONE_C,2,400
 RCL_330-801,Almond Row Sub,Almond Row 3308,ZONE_C,2,401
 BKR_RIVE4402,Riverbend Sub,Riverbend 4402,ZONE_D,1,533
@@ -32,7 +37,8 @@ RCL_440-201,Riverbend Sub,Riverbend 4402,ZONE_D,1,177
 RCL_440-202,Riverbend Sub,Riverbend 4402,ZONE_D,1,177
 RCL_440-221,Riverbend Sub,Riverbend 4402,ZONE_D,1,177
 RCL_440-700,Riverbend Sub,Riverbend 4407,ZONE_D,1,338
-RCL_440-701,Riverbend Sub,Riverbend 4407,ZONE_D,1,168
-PMH_RIVE4407,Riverbend Sub,Riverbend 4407,ZONE_D,1,168
+RCL_440-701,Riverbend Sub,Riverbend 4407,ZONE_D,1,112
+PMH_RIVE4407_W1,Riverbend Sub,Riverbend 4407,ZONE_D,1,112
+PMH_RIVE4407_W2,Riverbend Sub,Riverbend 4407,ZONE_D,1,112
 BKR_DELT4411,Delta Flats Sub,Delta Flats 4411,ZONE_D,1,249
 RCL_441-101,Delta Flats Sub,Delta Flats 4411,ZONE_D,1,249
