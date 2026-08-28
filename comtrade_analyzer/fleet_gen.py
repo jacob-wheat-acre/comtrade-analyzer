@@ -81,6 +81,7 @@ _SUBSTATIONS = [
     ("CH", "Cedar Hollow",  "ZONE_A", 3, 12.47),
     ("SG", "Sawmill Grade", "ZONE_A", 3, 12.47),
     ("RG", "Ridgeline",     "ZONE_B", 2, 12.47),
+    ("BG", "Bear Gulch",    "ZONE_B", 2, 12.47),
     ("ST", "Summit Tap",    "ZONE_B", 2, 12.47),
     ("VO", "Valley Oak",    "ZONE_C", 2, 21.0),
     ("AR", "Almond Row",    "ZONE_C", 2, 21.0),
@@ -99,16 +100,17 @@ _SUBSTATIONS = [
 #
 # Customers are explicit rather than drawn from the RNG: the registry is a
 # fixture, and an inserted feeder must not silently renumber every other one.
-# A feeder named for somewhere its substation is not named for belongs to its
-# own substation. Sawmill Grade, Summit Tap, Almond Row and Delta Flats each
-# have a bus of their own, so each starts at its own breaker.
+# A feeder is named for the substation it comes out of. Where the two differ
+# the feeder has a bus of its own — so it starts at its own breaker rather than
+# a mid-line recloser. A test enforces the rule outright; there are no
+# exceptions to it.
 _FEEDERS = [
     ("CH", "Cedar Hollow 1211",  "breaker",  2, (),          1368),
     ("CH", "Cedar Hollow 1212",  "recloser", 1, (),           872),
     ("SG", "Sawmill Grade 1215", "breaker",  1, (),           435),
     ("RG", "Ridgeline 2104",     "breaker",  2, ((1, 2),),    927),
     ("RG", "Ridgeline 2106",     "recloser", 1, (),           885),
-    ("RG", "Bear Gulch 2110",    "recloser", 1, (),           574),
+    ("BG", "Bear Gulch 2110",    "breaker",  1, (),           574),
     ("ST", "Summit Tap 2112",    "breaker",  0, (),           882),
     ("VO", "Valley Oak 3301",    "breaker",  2, ((1, 1), (2, 1)), 2200),
     ("VO", "Valley Oak 3305",    "recloser", 1, (),           358),

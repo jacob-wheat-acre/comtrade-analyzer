@@ -301,17 +301,15 @@ The utility's convention, and the generator follows it:
   1..n trunk, 20+ branch limbs, 50+ ties.
 - **Ties are reclosers** and are named like them. There is no `TIE_` prefix.
 
-**Sawmill Grade, Summit Tap, Almond Row and Delta Flats have buses of their
-own.** They were feeders off Cedar Hollow / Ridgeline / Valley Oak / Riverbend,
-which made the pickers read as though they shared a bus with a substation they
-are not named for. Eight substations, thirteen feeders, and a feeder alone on
-its bus heads with a **breaker**.
+**A feeder sits on the bus it is named for.** Sawmill Grade, Summit Tap,
+Almond Row, Delta Flats and Bear Gulch were feeders off Cedar Hollow /
+Ridgeline / Valley Oak / Riverbend, which made the pickers read as though they
+shared a bus with a substation they are not named for. Nine substations,
+thirteen feeders, and a feeder alone on its bus heads with a **breaker**.
 
-**Bear Gulch 2110 deliberately does not** — a feeder named for a place but fed
-from a neighbouring substation is an ordinary arrangement, and this one is fed
-from Ridgeline. That is recorded in `_FED_FROM_A_NEIGHBOUR` in the tests, so any
-*other* feeder sitting on a bus it is not named for fails rather than looking
-like the bug that was just fixed.
+The rule is **absolute** and a test enforces it outright. It was briefly written
+with Bear Gulch as a recorded exception; an exception list is how the next one
+added under the wrong bus would have looked deliberate.
 
 `_TIES` names its endpoints by **(feeder, offset)**, not by device id, so a
 change to the convention cannot silently break every tie — which is exactly

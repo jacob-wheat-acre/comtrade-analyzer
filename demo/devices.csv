@@ -13,8 +13,8 @@ RCL_210-421,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,115
 RCL_210-422,Ridgeline Sub,Ridgeline 2104,ZONE_B,2,115
 RCL_210-600,Ridgeline Sub,Ridgeline 2106,ZONE_B,2,442
 RCL_210-601,Ridgeline Sub,Ridgeline 2106,ZONE_B,2,443
-RCL_211-000,Ridgeline Sub,Bear Gulch 2110,ZONE_B,2,287
-RCL_211-001,Ridgeline Sub,Bear Gulch 2110,ZONE_B,2,287
+BKR_BEAR2110,Bear Gulch Sub,Bear Gulch 2110,ZONE_B,2,287
+RCL_211-001,Bear Gulch Sub,Bear Gulch 2110,ZONE_B,2,287
 BKR_SUMM2112,Summit Tap Sub,Summit Tap 2112,ZONE_B,2,882
 BKR_VALL3301,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,1100
 RCL_330-101,Valley Oak Sub,Valley Oak 3301,ZONE_C,2,275
