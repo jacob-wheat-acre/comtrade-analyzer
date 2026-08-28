@@ -46,7 +46,7 @@ from .fleet_analyze import (
 from .incidents import clock_suspects, group_events
 from .fleet_dashboard import render as render_dashboard
 from .triage import rule_table
-from .wso_impact import class_table, load_registry
+from .wso_impact import _normalize, class_table, load_registry
 
 MANIFEST = "analyzed.json"
 _HERE = Path(__file__).parent
@@ -222,7 +222,11 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
         "registry_path": args.devices,
         "topology_path": topo_path,
         "topology": ([{"node_id": n.node_id, "feeder": n.feeder, "kind": n.kind,
-                       "parent": n.parent, "tie_to": n.tie_to}
+                       "parent": n.parent, "tie_to": n.tie_to,
+                       # for the contingency view: what this section serves.
+                       # Devices with no events are still part of an outage.
+                       "customers": ((registry.get(_normalize(n.node_id)) or {})
+                                     .get("customers_served", 0))}
                       for n in net.nodes()] if net is not None else []),
         "incidents": incidents,
         "clock_suspects": skew,

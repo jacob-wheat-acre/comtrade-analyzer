@@ -595,6 +595,32 @@ Other filters (zone, fault, priority, class, search) still drive only the table
 and the one-line. Making the tiles follow those too needs per-combination
 aggregates or client-side arithmetic; neither is worth it yet.
 
+## N-1: the contingency view
+
+`#olOutage` takes one device out of service and shows what it costs. This needs
+**no live switching state and no load flow** — with the device open the island
+is its subtree, and any normally-open tie inside that island can back-feed the
+whole of it, because nothing between the tie and the open device stops it.
+
+- **The gap is the point.** A section with no tie below it is customers who stay
+  out until the device itself is fixed. `olGapSummary()` reports that per feeder,
+  and it is the number the exercise exists to produce.
+- **It does not claim the transfer is feasible.** Customers moved comes from
+  connectivity; whether the receiving feeder can carry them needs load and
+  capacity this model deliberately does not hold. Report the count, not a
+  verdict, and do not invent a threshold — a test holds the wording.
+- The contingency and the incident overlay are **mutually exclusive**. Selecting
+  either clears the other; two different stories on one drawing is unreadable.
+- `olSubtree()` in the page mirrors `topology.subtree()`: a normally-open tie is
+  a leaf and is never traversed. If one changes, change the other.
+
+Per-device customers travel in the **topology payload**, not the event table —
+a device with no events is still part of an outage.
+
+**Next, and not yet built:** tie type. An automatic PMH throws over in seconds,
+an ADMS tie takes tens of minutes, a manual one takes hours. Same connectivity,
+very different customer-minutes, so restoration time belongs on the tie.
+
 ## Dashboard cross-filtering
 
 Chart marks carry `data-click` and are registered through `clickRef()` /

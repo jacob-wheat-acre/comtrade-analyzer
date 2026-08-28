@@ -2744,7 +2744,8 @@ class TestScopingByStation:
         the tiles and charts above it."""
         tpl = self.TPL.read_text(encoding="utf-8")
         assert "function applyFeederScope(" in tpl
-        assert "sel.onchange = () => { olIncident = null; applyFeederScope(sel.value); };" in tpl
+        assert ('sel.onchange = () => { olIncident = null; olOutage = ""; '
+                'applyFeederScope(sel.value); };') in tpl
         assert 'if (scopeFeeder && fkey(e.feeder) !== fkey(scopeFeeder)) return false;' in tpl
 
     def test_the_narrowest_scope_wins(self):
@@ -2861,3 +2862,89 @@ class TestScopingByStation:
         for code, feeder, kind, *_ in fg._FEEDERS:
             if code in alone:
                 assert kind == "breaker", f"{feeder} is alone on its bus but heads with a {kind}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 27. N-1: what one device out of service costs
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTheContingencyView:
+    """
+    N-1 capability is a pure function of the tree and where the normally-open
+    points are — no live switching state, no load flow. With a device open the
+    island is its subtree, and any tie inside that island can back-feed the
+    whole of it. An island with no tie is the number worth knowing.
+    """
+
+    ROOT = Path(__file__).parent
+    TPL = ROOT / "comtrade_analyzer" / "dashboard_template.html"
+
+    def _net(self):
+        from comtrade_analyzer.topology import load_topology
+        return load_topology(str(self.ROOT / "demo" / "topology.csv"))
+
+    def _registry(self):
+        from comtrade_analyzer.wso_impact import load_registry
+        return load_registry(str(self.ROOT / "demo" / "devices.csv"))
+
+    def test_the_page_carries_customers_for_every_device(self):
+        """
+        A device with no events is still part of an outage, so the count cannot
+        come from the event table — it has to travel with the topology.
+        """
+        f = self.ROOT / "demo" / "analysis" / "fleet_analysis.json"
+        if not f.is_file():
+            pytest.skip("run fleet_analyze on demo/ first")
+        nodes = json.loads(f.read_text(encoding="utf-8"))["topology"]
+        switching = [n for n in nodes if n["kind"] in ("breaker", "recloser")]
+        assert switching and all("customers" in n for n in switching)
+        assert any(n["customers"] > 0 for n in switching)
+
+    def test_an_outage_drops_the_whole_subtree(self):
+        net, reg = self._net(), self._registry()
+        head = next(d for d in net.devices("Riverbend 4402")
+                    if (p := net.parent_of(d.node_id)) is not None and p.is_source)
+        below = net.customers_below(head.node_id, reg)
+        for d in net.devices("Riverbend 4402"):
+            if d.node_id != head.node_id:
+                assert net.customers_below(d.node_id, reg) < below
+
+    def test_a_tie_inside_the_island_can_back_feed_it(self):
+        """Nothing between the tie and the open device stops it."""
+        net = self._net()
+        head = next(d for d in net.devices("Riverbend 4402")
+                    if (p := net.parent_of(d.node_id)) is not None and p.is_source)
+        assert net.backup_ties(head.node_id), "no tie below the feeder head"
+
+    def test_some_section_somewhere_has_no_way_back(self):
+        """
+        The gap is the point of the exercise. If the demo ever becomes fully
+        N-1 covered this stops testing anything, so assert it is not.
+        """
+        net, reg = self._net(), self._registry()
+        gaps = [d for d in net.devices()
+                if not net.backup_ties(d.node_id)
+                and net.customers_below(d.node_id, reg) > 0]
+        assert gaps, "no N-1 gap anywhere — the contingency view has nothing to show"
+
+    def test_the_view_does_not_claim_the_transfer_is_feasible(self):
+        """
+        Customers moved is computable from connectivity. Whether the receiving
+        feeder can carry them needs load and capacity this model does not hold,
+        and inventing a threshold would be worse than saying so.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "load and capacity this model does not hold" in tpl
+
+    def test_the_contingency_and_the_incident_overlays_do_not_fight(self):
+        """Two different stories on one drawing would be unreadable."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "if (olOutage) olIncident = null;" in tpl
+        assert "if (olIncident) olOutage = \"\";" in tpl
+
+    def test_the_page_walks_the_tree_the_way_python_does(self):
+        """A normally-open tie carries nothing, so it is never traversed."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        i = tpl.index("function olSubtree(")
+        body = tpl[i:i + 500]
+        assert 'if (n.kind === "tie") return;' in body

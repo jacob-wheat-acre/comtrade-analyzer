@@ -480,6 +480,9 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
       <label class="fld"><span>Feeder</span>
         <select id="olFeeder"></select>
       </label>
+      <label class="fld"><span>Out of service</span>
+        <select id="olOutage"></select>
+      </label>
       <span class="ol-legend" id="olLegend"></span>
     </div>
     <div class="ol-split">
@@ -2412,6 +2415,47 @@ const OL_FEEDERS = [...new Set(TOPO.filter((n) => n.kind !== "source" && n.feede
 
 let olFeeder = null;      /* selected feeder name */
 let olIncident = null;    /* selected incident id, or null */
+let olOutage = "";        /* device taken out of service in the N-1 view */
+
+/* What an outage at `id` costs, from connectivity alone.
+
+   No live switching state and none needed: with the device open, the island is
+   its subtree, and any normally-open tie inside that island can back-feed the
+   whole of it — there is nothing between the tie and the open device to stop
+   it. An island with no tie in it is the number worth knowing, because those
+   customers stay out until the device itself is fixed.
+
+   It does NOT say whether the receiving feeder can carry the load. That needs
+   load and capacity this model deliberately does not have, so the transfer is
+   reported as customers moved and not as a verdict. */
+function olContingency(id) {
+  const node = olNode(id);
+  if (!node) return null;
+  const island = olSubtree(id);
+  const out = island.filter((n) => n.kind !== "tie")
+                    .reduce((a, n) => a + (n.customers || 0), 0);
+  const ties = island.filter((n) => n.kind === "tie").map((t) => {
+    const far = olNode(t.tie_to) || olNode(t.parent);
+    return { tie: t, far, feeder: far ? far.feeder : "" };
+  }).filter((t) => t.far && t.far.feeder !== node.feeder);
+  return { node, island, out, ties, restorable: ties.length > 0 };
+}
+
+/* The subtree below a node, ties included as leaves — the same rule the Python
+   side uses: a normally-open tie carries nothing, so it is never traversed. */
+function olSubtree(id) {
+  const seen = new Set(), out = [];
+  const walk = (n) => {
+    const k = nkey(n.node_id);
+    if (seen.has(k)) return;
+    seen.add(k); out.push(n);
+    if (n.kind === "tie") return;
+    olKids(n.node_id).forEach(walk);
+  };
+  const start = olNode(id);
+  if (start) walk(start);
+  return out;
+}
 
 /* Every device is a box; the letter inside says what it is. B breaker,
    R recloser, S sectionalizer. That is the drawing convention in use at the
@@ -2536,7 +2580,19 @@ function renderOneline() {
       st.feeders.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join("") +
       `</optgroup>`).join(""),
     scopeFeeder);
-  sel.onchange = () => { olIncident = null; applyFeederScope(sel.value); };
+  sel.onchange = () => { olIncident = null; olOutage = ""; applyFeederScope(sel.value); };
+
+  /* N-1: take one device out and see what it costs. Only the devices on the
+     drawn feeder — an outage elsewhere is a different picture. */
+  const osel = $("olOutage");
+  const devs = olLayout(olFeeder).devices.map((d) => d.n.node_id);
+  fillSelect(osel,
+    `<option value="">Nothing — normal state</option>` +
+    devs.map((d) => `<option value="${esc(d)}">${esc(d)} open</option>`).join(""),
+    devs.includes(olOutage) ? olOutage : "");
+  if (!devs.includes(olOutage)) olOutage = "";
+  osel.onchange = () => { olOutage = osel.value; if (olOutage) olIncident = null;
+                          renderOneline(); };
 
   const legendBox = (letter, fill, stroke, sw, ink) =>
     `<svg width="20" height="16" viewBox="0 0 20 16" aria-hidden="true">
@@ -2560,11 +2616,32 @@ function renderOneline() {
 }
 
 function olDrawDiagram() {
-  const shown = olDraw($("olDiagram"), olFeeder, { incident: olIncident });
+  const shown = olDraw($("olDiagram"), olFeeder,
+                       { incident: olIncident, outage: olOutage });
   const L = olLayout(olFeeder);
   $("onelineNote").textContent =
     `${L.devices.length} device${L.devices.length === 1 ? "" : "s"}, ` +
     `${L.ties.length} tie${L.ties.length === 1 ? "" : "s"} · ${fmt(shown)} record(s) in view`;
+  if (olOutage) {
+    /* N-1 read-out replaces the usual caption: with a device out, what the
+       diagram is showing is a contingency, not the events. */
+    const c = olContingency(olOutage);
+    const foot = $("onelineFoot");
+    if (c) {
+      const moves = c.ties.map((t) =>
+        `${fmt(c.out)} to ${t.feeder} through ${t.tie.node_id}`).join("; ");
+      foot.innerHTML = c.restorable
+        ? `<b>${olOutage} open</b> — <b>${fmt(c.out)}</b> customer${c.out === 1 ? "" : "s"} `
+          + `out, back-fed by ${moves}. Whether that feeder can carry them needs `
+          + `load and capacity this model does not hold.`
+        : `<b>${olOutage} open</b> — <b>${fmt(c.out)}</b> customer${c.out === 1 ? "" : "s"} `
+          + `out with <b>no tie below it</b>. Nothing can pick this section up; `
+          + `they stay out until the device itself is restored.`;
+    }
+    $("onelineNote").textContent = olGapSummary(olFeeder);
+    return;
+  }
+
   /* The scope bar is hidden when a run carries no per-station totals, so any
      caveat has to appear here too — this footer is always visible. */
   $("onelineFoot").textContent =
@@ -2590,6 +2667,12 @@ function olDraw(host, feeder, opts = {}) {
 
   const inc = opts.incident ? INCIDENTS.find((i) => i.incident_id === opts.incident) : null;
   const incDevices = new Set((inc ? inc.devices : []).map(nkey));
+
+  /* N-1 overlay. The device is open, its island is de-energised, and any tie
+     inside the island is shown closed — that is the back-feed. */
+  const cont = opts.outage ? olContingency(opts.outage) : null;
+  const dark = new Set((cont ? cont.island : []).map((n) => nkey(n.node_id)));
+  const backfeed = new Set((cont ? cont.ties : []).map((t) => nkey(t.tie.node_id)));
 
   const W = widthOf(host, 620);
   /* padR clears the last device's centred name; padT clears the count badge
@@ -2644,9 +2727,11 @@ function olDraw(host, feeder, opts = {}) {
     const x = X(t.depth), y = Y(t.row);
     const far = t.other;
     const farTxt = far ? `${far.node_id} \u00b7 ${far.feeder}` : t.n.tie_to;
-    const closed = inc && inc.restored && far && incDevices.has(nkey(far.node_id));
+    const closed = backfeed.has(nkey(t.n.node_id))
+                || (inc && inc.restored && far && incDevices.has(nkey(far.node_id)));
     const col = `var(${closed ? "--sw-closed" : "--sw-open"})`;
-    const dim = incDevices.size && !closed && !(far && incDevices.has(nkey(far.node_id)));
+    const dim = (incDevices.size && !closed && !(far && incDevices.has(nkey(far.node_id))))
+             || (cont && !closed);
 
     const tip = tipRef(tipHTML(esc(t.n.node_id), [
       `tie recloser \u00b7 ${esc(t.n.feeder)}`,
@@ -2689,12 +2774,15 @@ function olDraw(host, feeder, opts = {}) {
     const meta = worst ? PRIO_META[worst] : null;
     const x = X(p.depth), y = Y(p.row);
 
-    const dim = incDevices.size && !incDevices.has(nkey(id));
+    const dim = (incDevices.size && !incDevices.has(nkey(id)))
+             || (cont && !dark.has(nkey(id)));
     const held = inc && (inc.devices_held || []).map(nkey).includes(nkey(id));
     const clearing = inc && nkey(inc.clearing_device) === nkey(id);
     /* Only an incident tells us a device actually opened. With none selected
        the drawing is the normal state of the system: everything closed. */
-    const open = inc && inc.locked_out && clearing;
+    const isOut = cont && nkey(cont.node.node_id) === nkey(id);
+    const open = isOut || (inc && inc.locked_out && clearing);
+    const deEnergised = cont && dark.has(nkey(id)) && !isOut;
     const col = `var(${open ? "--sw-open" : "--sw-closed"})`;
 
     /* Incident role, drawn as a box around the box — everything on this
@@ -2727,7 +2815,8 @@ function olDraw(host, feeder, opts = {}) {
          `aria-label="${esc(id)}, ${open ? "open" : "closed"}, ` +
          `${evs.length} record${evs.length === 1 ? "" : "s"}">`;
     g += ring;
-    g += olDevice(p.n.kind, x, y, RAD, col, col, open ? 2.6 : 1.8);
+    g += olDevice(p.n.kind, x, y, RAD,
+                  deEnergised ? "var(--surface-3)" : col, col, open ? 2.6 : 1.8);
     /* Record count and its priority, above the device so the state colour
        underneath stays unambiguous. */
     if (evs.length) {
@@ -2766,6 +2855,23 @@ function olRefresh() {
   if ($("onelineCard") && !$("onelineCard").hidden) olDrawDiagram();
 }
 
+/* Where this feeder is not N-1 secure: sections whose outage no tie can
+   cover. The point of the whole exercise — it needs no live data, only the
+   tree and where the normally-open points are. */
+function olGapSummary(feeder) {
+  const devs = olLayout(feeder).devices;
+  const gaps = devs.map((d) => olContingency(d.n.node_id))
+                   .filter((c) => c && !c.restorable && c.out > 0);
+  if (!gaps.length) {
+    return `Every section on ${feeder} has a tie below it — N-1 covered.`;
+  }
+  const worst = gaps.reduce((a, b) => (b.out > a.out ? b : a));
+  return `${gaps.length} of ${devs.length} device${devs.length === 1 ? "" : "s"} `
+       + `${gaps.length === 1 ? "has" : "have"} no tie below `
+       + `${gaps.length === 1 ? "it" : "them"} — worst is ${worst.node.node_id} `
+       + `at ${fmt(worst.out)} customers with no way back.`;
+}
+
 function olDrawIncidents() {
   const host = $("olIncidents");
   const list = olIncidentsFor(olFeeder);
@@ -2800,6 +2906,7 @@ function olDrawIncidents() {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-inc");
       olIncident = olIncident === id ? null : id;
+      if (olIncident) olOutage = "";
       const chosen = INCIDENTS.find((x) => x.incident_id === olIncident);
       if (chosen) {
         const ids = new Set(chosen.event_ids);
