@@ -379,6 +379,13 @@ which `fleet_analyze` embeds as **nodes, not a path** — the dashboard is one
 self-contained file and cannot go back to `topology.csv` on someone else's
 machine.
 
+- **The SVG label sizes and the geometry move together.** `.ol-name`,
+  `.ol-tie-name`, `.ol-tie-label`, `.ol-badge` and `.ol-letter` are sized in
+  CSS, but `RAD`, `rowH`, `colW`, the paddings, the badge width and the
+  `clamped()` width estimate are all in the drawing code. Change a font size
+  without them and labels start colliding — sweep every feeder and every
+  substation for clipping and overlap afterwards, which is what caught it each
+  time.
 - Layout is orthogonal and left-to-right: substation bus at the left, depth is
   the column, a branch takes its own row. Never a diagonal — that is not how a
   one-line is drawn.
@@ -483,6 +490,19 @@ that is still `display:none` comes out at the fallback width.
 A device can back up more than one feeder; laid out as children, the second and
 later ties fall to their own rows like any other sibling, which is what keeps
 their labels apart.
+
+## The hero states what was analysed
+
+The hero used to be three paragraphs arguing the EPSS conversion, above the
+fold and before any number. It now says what the run contains — records,
+devices, feeders, days, and how many need same-day review — and follows the
+scope like everything else. **The EPSS argument lives on the "EPSS exposure by
+zone" card** (`#zoneFoot`) and in the class table, which is where the decision
+is actually made.
+
+`.grid-2` is `align-items: start`. Stretched, the tallest card in a row set the
+height for all of them, and the zone card's paragraph left the fault-mix and
+triage charts sitting in several hundred pixels of nothing.
 
 ## Scoping the review to one feeder
 

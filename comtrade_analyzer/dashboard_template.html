@@ -205,14 +205,18 @@ h2 { font-size: 13px; font-weight: 600; }
 .tile-meter > i { display: block; height: 100%; border-radius: 2px; }
 
 /* ---- Cards / charts ------------------------------------------------------ */
-.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 12px; margin-bottom: 14px; }
+/* align-items:start so each card is its own height. Stretched, the tallest
+   card in a row — the zone breakdown, which carries a paragraph — left the
+   fault mix and triage charts sitting in several hundred pixels of nothing. */
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+          gap: 12px; margin-bottom: 14px; align-items: start; }
 .card {
   background: var(--surface); border: 1px solid var(--hairline);
   border-radius: var(--r-lg); padding: 16px 18px 18px; box-shadow: var(--shadow);
   min-width: 0;
 }
 .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.card-note { font-size: 11.5px; color: var(--muted); }
+.card-note { font-size: 12.5px; color: var(--muted); }
 .chart { width: 100%; overflow-x: auto; }
 svg { display: block; max-width: 100%; }
 svg text { font-family: var(--sans); }
@@ -239,7 +243,7 @@ select:focus-visible, input:focus-visible, button:focus-visible {
 .filter-count { margin-left: auto; font-size: 12px; color: var(--muted); }
 
 .table-scroll { overflow-x: auto; border-radius: var(--r-md); }
-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 thead th {
   position: sticky; top: 0; z-index: 3;
   text-align: left; font-family: var(--display); font-size: 10.5px; font-weight: 600;
@@ -284,7 +288,7 @@ tr.detail > td { background: var(--surface-2); padding: 0; border-bottom: 1px so
 .shot-table { width: 100%; font-size: 11.5px; }
 .shot-table th { font-family: var(--display); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 3px 8px 3px 0; }
 .shot-table td { padding: 3px 8px 3px 0; border: 0; font-variant-numeric: tabular-nums; }
-.note { font-size: 11.5px; color: var(--ink-2); line-height: 1.5; }
+.note { font-size: 12.5px; color: var(--ink-2); line-height: 1.55; }
 
 /* ---- Oscillography viewer ------------------------------------------------ */
 .wave { grid-column: 1 / -1; border-top: 1px solid var(--grid); margin-top: 4px; padding-top: 14px; }
@@ -333,7 +337,7 @@ tr.detail > td { background: var(--surface-2); padding: 0; border-bottom: 1px so
 .why h3 { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
 .why table { max-width: 780px; }
 .why tbody tr:not(.decisive) { opacity: .58; }
-.rules-tbl { width: 100%; border-collapse: collapse; font-size: 12px; max-width: 100%; }
+.rules-tbl { width: 100%; border-collapse: collapse; font-size: 13px; max-width: 100%; }
 .rules-tbl th { font-family: var(--display); font-size: 10px; letter-spacing: .06em;
                 text-transform: uppercase; color: var(--muted); text-align: left;
                 padding: 4px 12px 5px 0; border-bottom: 1px solid var(--baseline); }
@@ -368,7 +372,7 @@ svg [data-click]:focus-visible { outline: 2px solid var(--chrome); outline-offse
 .mini { grid-column: 1 / -1; border-top: 1px solid var(--grid); margin-top: 4px; padding-top: 14px;
         display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
 .mini h3 { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
-table.mini-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+table.mini-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 table.mini-tbl th { font-family: var(--display); font-size: 10px; letter-spacing: .06em;
                     text-transform: uppercase; color: var(--muted); text-align: left;
                     padding: 2px 8px 3px 0; border-bottom: 1px solid var(--grid); }
@@ -446,7 +450,7 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 
   <section class="hero">
     <div>
-      <div class="eyebrow">EPSS exposure</div>
+      <div class="eyebrow" id="heroEyebrow">Events analyzed</div>
       <div class="hero-figure" id="heroFigure">—</div>
       <p class="hero-claim" id="heroClaim"></p>
       <p class="hero-note" id="heroNote"></p>
@@ -471,6 +475,7 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
     </div>
     <div class="card">
       <div class="card-head"><h2>EPSS exposure by zone</h2><span class="card-note" id="zoneNote"></span></div>
+      <p class="note" id="zoneFoot" style="margin:0 0 10px"></p>
       <div class="chart" id="chartZones"></div>
       <div class="legend" id="zoneLegend" style="margin-top:12px"></div>
     </div>
@@ -607,7 +612,7 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
             border: 1px solid var(--hairline); border-radius: var(--r-md);
             box-shadow: var(--shadow); }
 .scopebar select { font-size: 13px; font-weight: 600; }
-.scope-note { font-size: 11.5px; color: var(--muted); padding-bottom: 5px; }
+.scope-note { font-size: 12.5px; color: var(--muted); padding-bottom: 5px; }
 
 /* ---- Page switcher -------------------------------------------------------- */
 .pagenav { display: inline-flex; gap: 2px; margin: 0 0 18px; padding: 3px;
@@ -621,7 +626,7 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 .pagenav button:hover:not([aria-selected="true"]) { color: var(--ink); }
 .feeder-card { margin-bottom: 14px; }
 .feeder-card .card-head { margin-bottom: 8px; }
-.feeder-sub { font-size: 11.5px; color: var(--muted); }
+.feeder-sub { font-size: 12.5px; color: var(--muted); }
 .station-head { font-family: var(--display); font-size: 13px; font-weight: 600;
                 letter-spacing: .02em; text-transform: uppercase; color: var(--ink-2);
                 margin: 22px 0 10px; padding-bottom: 6px;
@@ -638,7 +643,7 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 
 /* ---- Feeder one-line ------------------------------------------------------ */
 .ol-controls { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
-.ol-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-2);
+.ol-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2);
              align-items: center; padding-bottom: 4px; }
 .ol-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
                margin-right: 5px; vertical-align: -1px; }
@@ -648,24 +653,24 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
              background: var(--surface-2); padding: 4px 0; }
 .ol-side-head { display: flex; align-items: baseline; justify-content: space-between;
                 gap: 8px; font-size: 12px; margin-bottom: 6px; }
-.ol-clear { font: inherit; font-size: 11px; color: var(--chrome-2); background: none;
+.ol-clear { font: inherit; font-size: 12.5px; color: var(--chrome-2); background: none;
             border: 0; cursor: pointer; padding: 0; text-decoration: underline; }
-.ol-list { max-height: 264px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-.ol-inc { text-align: left; width: 100%; font: inherit; font-size: 11.5px; cursor: pointer;
+.ol-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.ol-inc { text-align: left; width: 100%; font: inherit; font-size: 13px; cursor: pointer;
           background: var(--surface-2); border: 1px solid var(--hairline);
           border-radius: var(--r-sm); padding: 6px 8px; color: var(--ink); line-height: 1.35; }
 .ol-inc:hover { background: var(--surface-3); }
 .ol-inc[aria-pressed="true"] { border-color: var(--chrome-2); background: var(--surface-3); }
 .ol-inc .ol-inc-top { display: flex; justify-content: space-between; gap: 8px; }
-.ol-inc .ol-inc-sub { color: var(--muted); font-size: 10.5px; margin-top: 2px; }
+.ol-inc .ol-inc-sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .ol-dev { cursor: pointer; }
 .ol-dev:focus { outline: 2px solid var(--chrome-2); outline-offset: 2px; }
 .ol-key { display: inline-flex; align-items: center; gap: 4px; }
-.ol-name { font-family: var(--mono); font-size: 10px; fill: var(--ink-2); }
-.ol-badge { font-size: 10px; font-weight: 700; font-family: var(--sans); }
-.ol-letter { font-family: var(--sans); font-size: 13px; font-weight: 700; }
-.ol-tie-name { font-family: var(--mono); font-size: 9.5px; font-weight: 600; }
-.ol-tie-label { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+.ol-name { font-family: var(--mono); font-size: 12px; fill: var(--ink-2); }
+.ol-badge { font-size: 12px; font-weight: 700; font-family: var(--sans); }
+.ol-letter { font-family: var(--sans); font-size: 15px; font-weight: 700; }
+.ol-tie-name { font-family: var(--mono); font-size: 11.5px; font-weight: 600; }
+.ol-tie-label { font-family: var(--mono); font-size: 11.5px; fill: var(--muted); }
 .ol-dim { opacity: .28; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
            overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -1158,26 +1163,37 @@ function renderHeader() {
     .join("");
 }
 
+/* What was analysed, in one line. The EPSS conversion argument lives in the
+   "EPSS exposure by zone" card and in the class table below — it was three
+   paragraphs of it here, above the fold, before you could see any of the
+   numbers. */
 function renderHero() {
   const n = TOT.events || EV.length;
-  const exposed = TOT.wso_exposed || 0;
-  $("heroFigure").textContent = fmt(exposed);
-  const cand = TOT.epss_candidate || 0;
-  const indet = TOT.indeterminate || 0;
-  $("heroClaim").innerHTML =
-    `of <strong>${fmt(n)}</strong> analyzed events were a blink today — tripped and reclosed. ` +
-    `With reclosing removed, each becomes a sustained outage.` +
-    (cand ? ` A further <strong>${fmt(cand)}</strong> rode through without tripping and may ` +
-            `trip under more sensitive EPSS settings, which would be a new outage.` : "");
+  const rows = scopedEvents();
+  const days = new Set(rows.map((e) => (e.timestamp || "").slice(0, 10))).size;
+  const devices = new Set(rows.map((e) => e.device_id).filter(Boolean)).size;
+  const feeders = new Set(rows.map((e) => e.feeder).filter(Boolean)).size;
 
-  const hrs = TOT.est_customer_hours_per_wso_day || 0;
-  const inactive = Object.values(AGG.zones || {}).filter((z) => !z.epss_active);
-  const held = inactive.reduce((a, z) => a + z.wso_exposed, 0);
-  $("heroNote").innerHTML =
-    `<b>${fmt(Math.round(hrs))}</b> estimated customer-hours per WSO day across ` +
-    `<b>${fmt(TOT.customers_covered)}</b> customers, at ${fmtF(SET.response_hours, 1)} h average crew response.` +
-    (held ? ` A further <b>${fmt(held)}</b> exposed events sit in Tier ${inactive.map((z) => z.risk_tiers.join("/")).join(", ")} zones, which EPSS does not cover today.` : "") +
-    (indet ? ` <b>${fmt(indet)}</b> events tripped but their record ends before any reclose could show, so their outcome is unknown — see the register.` : "");
+  $("heroEyebrow").textContent = scopeFeeder ? scopeFeeder
+    : (station !== ALL_STATIONS ? station : "Events analyzed");
+  $("heroFigure").textContent = fmt(n);
+
+  const p1 = TOT.priority_1 || 0;
+  $("heroClaim").innerHTML =
+    `COMTRADE records from <strong>${fmt(devices)}</strong> ` +
+    `device${devices === 1 ? "" : "s"} on <strong>${fmt(feeders)}</strong> ` +
+    `feeder${feeders === 1 ? "" : "s"}` +
+    (days ? `, over ${fmt(days)} day${days === 1 ? "" : "s"}` : "") +
+    `. <strong>${fmt(p1)}</strong> need same-day review.`;
+
+  const lock = TOT.locked_out || 0, hif = TOT.hif_suspect || 0;
+  const bits = [];
+  if (lock) bits.push(`<b>${fmt(lock)}</b> locked out`);
+  if (hif) bits.push(`<b>${fmt(hif)}</b> flagged high-impedance`);
+  if (TOT.no_trip) bits.push(`<b>${fmt(TOT.no_trip)}</b> rode through without tripping`);
+  $("heroNote").innerHTML = bits.length
+    ? bits.join(" · ") + ". What EPSS would do to each is broken out by zone below."
+    : "What EPSS would do to each is broken out by zone below.";
 }
 
 function renderUnits() {
@@ -1330,6 +1346,25 @@ const FLAG_PRIORITY = new Proxy({}, {
 
 function renderZones() {
   const zones = Object.values(AGG.zones || {}).sort((a, b) => b.wso_exposed - a.wso_exposed);
+
+  /* The headline that used to fill the hero. It belongs against the zones,
+     which is where EPSS is actually decided. */
+  const exposed = TOT.wso_exposed || 0, cand = TOT.epss_candidate || 0;
+  const hrs = TOT.est_customer_hours_per_wso_day;
+  const inactive = zones.filter((z) => !z.epss_active);
+  const held = inactive.reduce((a, z) => a + z.wso_exposed, 0);
+  const foot = $("zoneFoot");
+  if (foot) {
+    foot.innerHTML =
+      `<b>${fmt(exposed)}</b> momentary today become sustained with reclosing removed` +
+      (cand ? `, and <b>${fmt(cand)}</b> that rode through may trip under more `
+            + `sensitive EPSS pickups — a new outage, usually a larger one` : "") +
+      (hrs !== null && hrs !== undefined
+        ? `. About <b>${fmt(Math.round(hrs))}</b> customer-hours per WSO day at `
+          + `${fmtF(SET.response_hours, 1)} h crew response` : "") +
+      (held ? `. <b>${fmt(held)}</b> exposed events sit in a tier EPSS does not cover today` : "")
+      + ".";
+  }
   const rows = zones.map((z) => ({
     label: z.zone.replace(/_/g, " "),
     sub: `Tier ${z.risk_tiers.join("/") || "—"} · ${z.epss_active ? "EPSS active" : "EPSS inactive"}`,
@@ -2582,17 +2617,17 @@ function olDraw(host, feeder, opts = {}) {
   const W = widthOf(host, 620);
   /* padR clears the last device's centred name; padT clears the count badge
      that now sits above every device. */
-  const padL = 74, padR = 72, padT = 46;
-  const colW = Math.max(120, (W - padL - padR) / Math.max(1, L.depth - 1 || 1));
+  const padL = 82, padR = 86, padT = 52;
+  const colW = Math.max(140, (W - padL - padR) / Math.max(1, L.depth - 1 || 1));
   /* A tie carries a second line naming the feeder it backfeeds from, so every
      row has to clear two. */
-  const rowH = 86;
-  const H = padT + (L.rows - 1) * rowH + 70;
+  const rowH = 96;
+  const H = padT + (L.rows - 1) * rowH + 80;
 
   /* A tie's label is far wider than the box it sits under. Centre it, but pull
      it inside the canvas at the ends rather than letting it run off. */
   const clamped = (cx, text, cls, extra = "") => {
-    const half = text.length * 2.9;
+    const half = text.length * 3.5;
     let x = cx, anchor = "middle";
     if (cx + half > W - 4) { x = W - 4; anchor = "end"; }
     else if (cx - half < 4) { x = 4; anchor = "start"; }
@@ -2600,7 +2635,7 @@ function olDraw(host, feeder, opts = {}) {
   };
   const X = (d) => padL + (d - 1) * colW;
   const Y = (r) => padT + r * rowH;
-  const RAD = 13;
+  const RAD = 15;
 
   let g = "";
 
@@ -2656,11 +2691,11 @@ function olDraw(host, feeder, opts = {}) {
        and that is a feeder, not a device. */
     const goesTo = far && far.feeder ? `\u2192 ${far.feeder}` : "";
     const a = clamped(x, t.n.node_id);
-    g += `<text x="${a.x}" y="${y + RAD + 15}" text-anchor="${a.anchor}" ` +
+    g += `<text x="${a.x}" y="${y + RAD + 17}" text-anchor="${a.anchor}" ` +
          `class="ol-tie-name" fill="${col}">${esc(t.n.node_id)}</text>`;
     if (goesTo) {
       const c = clamped(x, goesTo);
-      g += `<text x="${c.x}" y="${y + RAD + 29}" text-anchor="${c.anchor}" ` +
+      g += `<text x="${c.x}" y="${y + RAD + 33}" text-anchor="${c.anchor}" ` +
            `class="ol-tie-label">${esc(goesTo)}</text>`;
     }
     g += `</g>`;
@@ -2720,17 +2755,17 @@ function olDraw(host, feeder, opts = {}) {
        underneath stays unambiguous. */
     if (evs.length) {
       const label = `${meta ? meta.icon : ""} ${fmt(evs.length)}`.trim();
-      const bw = 13 + label.length * 6.2;
-      g += `<rect x="${x - bw / 2}" y="${y - RAD - 20}" width="${bw}" height="15" rx="7.5" ` +
+      const bw = 15 + label.length * 7.4;
+      g += `<rect x="${x - bw / 2}" y="${y - RAD - 23}" width="${bw}" height="18" rx="9" ` +
            `fill="var(--surface)" stroke="var(--hairline)"/>`;
-      g += `<text x="${x}" y="${y - RAD - 9}" text-anchor="middle" class="ol-badge" ` +
+      g += `<text x="${x}" y="${y - RAD - 10}" text-anchor="middle" class="ol-badge" ` +
            `fill="var(${meta ? meta.v : "--ink"})">${esc(label)}</text>`;
     }
     /* Name only. State is the fill — red closed, green open — and the word is
        kept in the tooltip and the aria-label so it is not lost to anyone
        reading the page rather than looking at it. */
     const nm = clamped(x, id);
-    g += `<text x="${nm.x}" y="${y + RAD + 15}" text-anchor="${nm.anchor}" ` +
+    g += `<text x="${nm.x}" y="${y + RAD + 17}" text-anchor="${nm.anchor}" ` +
          `class="ol-name"${open ? ` fill="${col}" style="font-weight:700"` : ""}>` +
          `${esc(id)}</text>`;
     g += `</g>`;
