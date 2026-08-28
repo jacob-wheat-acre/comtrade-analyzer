@@ -360,8 +360,21 @@ machine.
 operational data; a leaked one ships to everyone who clones the repo. A test
 scans for `BKR_`, `RCL_`, `TIE_` and `BUS_`.
 
-`olRefresh()` redraws the diagram only. Rebuilding the incident list there
-would fight the click that triggered it.
+`olRefresh()` redraws the diagram only on the review page. Rebuilding the
+incident list there would fight the click that triggered it.
+
+**Two pages, one drawer.** `#pageNav` switches between the fleet review and
+`#pageFeeders`, which stacks every feeder grouped by substation. Both go through
+`olDraw(host, feeder, opts)` — a second copy of the layout is how the two would
+drift apart, and a test counts the definitions. The all-feeders page passes
+`opts.onDevice` so a click there filters the table *and* returns you to it.
+
+Build the card shells before drawing into them: an SVG sized from a container
+that is still `display:none` comes out at the fallback width.
+
+A device can back up more than one feeder, so ties on one anchor get a `slot`
+each and drop to their own depth. Without it the labels sit on top of each
+other and read as noise — `L.tieSlots` reserves the lane height.
 
 ## Dashboard cross-filtering
 

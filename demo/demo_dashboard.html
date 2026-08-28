@@ -423,6 +423,13 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 
   <div id="dqBanner"></div>
 
+  <nav class="pagenav" id="pageNav" role="tablist" aria-label="Views" hidden>
+    <button type="button" role="tab" data-page="review" aria-selected="true">Fleet review</button>
+    <button type="button" role="tab" data-page="feeders" aria-selected="false">Feeder one-lines</button>
+  </nav>
+
+  <div id="pageReview">
+
   <section class="hero">
     <div>
       <div class="eyebrow">EPSS exposure</div>
@@ -538,6 +545,19 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
     <p class="note" id="rulesFoot" style="margin-top:10px"></p>
   </section>
 
+  </div><!-- /pageReview -->
+
+  <div id="pageFeeders" hidden>
+    <section class="card">
+      <div class="card-head">
+        <h2>Every feeder</h2>
+        <span class="card-note" id="feedersNote"></span>
+      </div>
+      <p class="note" id="feedersIntro"></p>
+    </section>
+    <div id="feederStack"></div>
+  </div>
+
   <footer class="foot">
     <div>
       <h2>How an event is classified</h2>
@@ -556,6 +576,25 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
 <div id="tip" role="status" aria-live="polite"></div>
 
 <style>
+/* ---- Page switcher -------------------------------------------------------- */
+.pagenav { display: inline-flex; gap: 2px; margin: 0 0 18px; padding: 3px;
+           background: var(--surface-2); border: 1px solid var(--hairline);
+           border-radius: var(--r-md); }
+.pagenav button { font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;
+                  border: 0; background: none; color: var(--ink-2); padding: 6px 14px;
+                  border-radius: var(--r-sm); }
+.pagenav button[aria-selected="true"] { background: var(--surface); color: var(--ink);
+                                        box-shadow: var(--shadow); font-weight: 600; }
+.pagenav button:hover:not([aria-selected="true"]) { color: var(--ink); }
+.feeder-card { margin-bottom: 14px; }
+.feeder-card .card-head { margin-bottom: 8px; }
+.feeder-sub { font-size: 11.5px; color: var(--muted); }
+.station-head { font-family: var(--display); font-size: 13px; font-weight: 600;
+                letter-spacing: .02em; text-transform: uppercase; color: var(--ink-2);
+                margin: 22px 0 10px; padding-bottom: 6px;
+                border-bottom: 1px solid var(--hairline); }
+.station-head:first-child { margin-top: 0; }
+
 /* ---- Feeder one-line ------------------------------------------------------ */
 .ol-controls { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
 .ol-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-2);
@@ -2119,7 +2158,18 @@ function olLayout(feeder) {
     ties.push({ tie: t, anchor: at.get(nkey(anchor.node_id)), other });
   });
 
-  return { placed, at, ties, rows: row + 1,
+  /* A device can back up more than one feeder. Give each tie on one device its
+     own drop depth, or the labels land on top of each other and read as noise. */
+  const used = new Map();
+  ties.forEach((t) => {
+    const k = nkey(t.anchor.n.node_id);
+    const slot = used.get(k) || 0;
+    t.slot = slot;
+    used.set(k, slot + 1);
+  });
+  const tieSlots = Math.max(0, ...[...used.values()]);
+
+  return { placed, at, ties, tieSlots, rows: row + 1,
            depth: Math.max(1, ...placed.map((p) => p.depth)) };
 }
 
@@ -2169,12 +2219,26 @@ function renderOneline() {
 }
 
 function olDrawDiagram() {
-  const host = $("olDiagram");
+  const shown = olDraw($("olDiagram"), olFeeder, { incident: olIncident });
   const L = olLayout(olFeeder);
+  $("onelineNote").textContent =
+    `${L.placed.length} device${L.placed.length === 1 ? "" : "s"}, ` +
+    `${L.ties.length} tie${L.ties.length === 1 ? "" : "s"} · ${fmt(shown)} record(s) in view`;
+  $("onelineFoot").textContent =
+    "Mainline connectivity only — no laterals, fuses or impedance. Counts follow the "
+    + "filters above; click a device to filter the table to it.";
+}
+
+/* Draws one feeder into `host`. Returns how many records it accounted for.
+   `opts.incident` highlights that incident; `opts.onDevice` replaces the
+   default click, which is what the all-feeders page needs so a click there can
+   also carry you back to the table. */
+function olDraw(host, feeder, opts = {}) {
+  const L = olLayout(feeder);
   const rows = currentRows();
   const byDev = olEventsByDevice(rows);
 
-  const inc = olIncident ? INCIDENTS.find((i) => i.incident_id === olIncident) : null;
+  const inc = opts.incident ? INCIDENTS.find((i) => i.incident_id === opts.incident) : null;
   const incDevices = new Set((inc ? inc.devices : []).map(nkey));
 
   const W = widthOf(host, 620);
@@ -2183,7 +2247,7 @@ function olDrawDiagram() {
   const colW = Math.max(120, (W - padL - padR) / Math.max(1, L.depth - 1 || 1));
   const rowH = 74, tieDrop = 26;
   /* Only reserve the tie lane if something actually hangs in it. */
-  const H = padT + (L.rows - 1) * rowH + 44 + (L.ties.length ? tieDrop : 0);
+  const H = padT + (L.rows - 1) * rowH + 44 + L.tieSlots * tieDrop;
   const X = (d) => padL + (d - 1) * colW;
   const Y = (r) => padT + r * rowH;
   const RAD = 13;
@@ -2209,7 +2273,7 @@ function olDrawDiagram() {
   /* Normally-open ties, dropped below the device they hang off. */
   L.ties.forEach((t) => {
     const x = X(t.anchor.depth), y = Y(t.anchor.row) + RAD + 6;
-    const yEnd = y + tieDrop - 12;
+    const yEnd = y + tieDrop - 12 + (t.slot || 0) * tieDrop;
     const live = incDevices.size && t.other && incDevices.has(nkey(t.other.node_id));
     g += `<path d="M${x} ${y} V${yEnd}" fill="none" stroke="var(${live ? "--c-clear" : "--baseline"})" ` +
          `stroke-width="${live ? 2.5 : 1.5}" stroke-dasharray="4 3"/>`;
@@ -2252,9 +2316,11 @@ function olDrawDiagram() {
       clearing ? "Cleared this incident" : (held ? "Saw it and held — coordinated" : ""),
     ].filter(Boolean)));
 
-    const click = clickRef(() => applyDrill({
-      reset: true, chip: { label: id, test: (e) => nkey(e.device_id) === nkey(id) },
-    }));
+    const click = clickRef(() => {
+      applyDrill({ reset: true,
+        chip: { label: id, test: (e) => nkey(e.device_id) === nkey(id) } });
+      if (opts.onDevice) opts.onDevice(id);
+    });
 
     g += `<g class="ol-dev${dim ? " ol-dim" : ""}" data-tip="${tip}" data-click="${click}" ` +
          `aria-label="${esc(id)}, ${evs.length} record${evs.length === 1 ? "" : "s"}">`;
@@ -2284,6 +2350,7 @@ function olDrawDiagram() {
 /* Redraw the diagram only. The incident list does not depend on the filters,
    and rebuilding it here would fight the click that got us here. */
 function olRefresh() {
+  if (olPage === "feeders") { renderFeederPage(); return; }
   if ($("onelineCard") && !$("onelineCard").hidden) olDrawDiagram();
 }
 
@@ -2336,6 +2403,93 @@ function olDrawIncidents() {
 }
 
 
+
+/* ---------------------------------------------------------------------------
+   Every feeder, on its own page
+
+   The review page shows one feeder at a time, which is right when you are
+   working a single event. This is the other question — what does the whole
+   system look like — and it does not fit in a dropdown.
+   --------------------------------------------------------------------------- */
+let olPage = "review";
+
+/* Substations, and the feeders hanging off each bus. Read from the tree so a
+   new substation appears here the moment it appears in topology.csv. */
+function olStations() {
+  return TOPO.filter((n) => n.kind === "source").map((src) => {
+    const feeders = [];
+    const walk = (n) => olKids(n.node_id).forEach((k) => {
+      if (k.kind === "tie") return;
+      if (k.feeder && !feeders.includes(k.feeder)) feeders.push(k.feeder);
+      walk(k);
+    });
+    walk(src);
+    return { station: src.feeder || src.node_id, feeders };
+  }).filter((st) => st.feeders.length);
+}
+
+function showPage(name) {
+  olPage = name;
+  $("pageReview").hidden = name !== "review";
+  $("pageFeeders").hidden = name !== "feeders";
+  $("pageNav").querySelectorAll("button").forEach((b) =>
+    b.setAttribute("aria-selected", String(b.getAttribute("data-page") === name)));
+  if (name === "feeders") renderFeederPage();
+  window.scrollTo({ top: 0 });
+}
+
+function renderFeederPage() {
+  const host = $("feederStack");
+  if (!TOPO.length) return;
+  const stations = olStations();
+  const rows = currentRows();
+  const byDev = olEventsByDevice(rows);
+
+  const incByFeeder = new Map();
+  INCIDENTS.forEach((i) => (i.feeders || []).forEach((f) =>
+    incByFeeder.set(f, (incByFeeder.get(f) || 0) + 1)));
+
+  $("feedersNote").textContent =
+    `${stations.length} substation(s), ` +
+    `${stations.reduce((a, s) => a + s.feeders.length, 0)} feeder(s), ` +
+    `${TOPO.filter((n) => n.kind === "tie").length} tie(s)`;
+  $("feedersIntro").textContent =
+    "Mainline connectivity only — no laterals, fuses or impedance. Device counts "
+    + "follow the filters on the review page. Clicking a device filters the event "
+    + "table to it and takes you back there.";
+
+  /* Build the shells first, then draw into them: an SVG sized from a container
+     that is still display:none comes out at the fallback width. */
+  host.innerHTML = stations.map((st) => `
+    <div class="station-head">${esc(st.station)}</div>
+    ${st.feeders.map((f) => {
+      const L = olLayout(f);
+      const n = L.placed.reduce((a, p) => a + ((byDev.get(nkey(p.n.node_id)) || []).length), 0);
+      const p1 = L.placed.reduce((a, p) => a +
+        ((byDev.get(nkey(p.n.node_id)) || []).filter((e) => e.priority === 1).length), 0);
+      const bits = [
+        `${L.placed.length} device${L.placed.length === 1 ? "" : "s"}`,
+        `${L.ties.length} tie${L.ties.length === 1 ? "" : "s"}`,
+        `${fmt(n)} record${n === 1 ? "" : "s"}`,
+        `${fmt(incByFeeder.get(f) || 0)} incident${(incByFeeder.get(f) || 0) === 1 ? "" : "s"}`,
+      ];
+      if (p1) bits.push(`<b style="color:var(--st-critical)">${fmt(p1)} Priority 1</b>`);
+      return `<section class="card feeder-card">
+        <div class="card-head">
+          <h2>${esc(f)}</h2>
+          <span class="card-note feeder-sub">${bits.join(" · ")}</span>
+        </div>
+        <div class="chart ol-canvas" data-feeder="${esc(f)}"></div>
+      </section>`;
+    }).join("")}`).join("");
+
+  host.querySelectorAll("[data-feeder]").forEach((el) => {
+    olDraw(el, el.getAttribute("data-feeder"), {
+      onDevice: () => showPage("review"),
+    });
+  });
+}
+
 /* ---------------------------------------------------------------------------
    Init
    --------------------------------------------------------------------------- */
@@ -2343,12 +2497,18 @@ function init() {
   renderHeader(); renderHero(); renderUnits(); renderTiles(); renderCharts();
   renderFilters(); renderHead(); renderBody(); renderOneline(); renderDataQuality();
   renderClasses(); renderRules(); renderFooter(); renderFeedback();
+
+  if (TOPO.length) {
+    $("pageNav").hidden = false;
+    $("pageNav").querySelectorAll("button").forEach((b) =>
+      b.addEventListener("click", () => showPage(b.getAttribute("data-page"))));
+  }
 }
 
 let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { TIPS.clear(); CLICKS.clear(); renderCharts(); renderOneline(); drawExpandedWaveform(); }, 150);
+  resizeTimer = setTimeout(() => { TIPS.clear(); CLICKS.clear(); renderCharts(); renderOneline(); olRefresh(); drawExpandedWaveform(); }, 150);
 });
 
 if (document.readyState === "loading") {

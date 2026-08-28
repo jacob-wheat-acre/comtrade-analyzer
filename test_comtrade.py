@@ -2034,3 +2034,31 @@ class TestTheFeederOneLine:
                 r = subprocess.run(["node", "--check", str(f)],
                                    capture_output=True, text=True)
                 assert r.returncode == 0, f"block {i}: {r.stderr[:400]}"
+
+    def test_the_page_switcher_and_the_all_feeders_page_exist(self):
+        """
+        The review page shows one feeder at a time, which is right for working
+        a single event. Seeing the whole system is a different question and
+        does not fit in a dropdown.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        for hook in ("pageNav", "pageReview", "pageFeeders", "feederStack"):
+            assert f'id="{hook}"' in tpl, f"missing #{hook}"
+        assert 'data-page="feeders"' in tpl
+
+    def test_both_pages_draw_through_one_function(self):
+        """
+        Two copies of the layout is how the diagram and the page of diagrams
+        would drift apart. olDraw() is the only drawer.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert tpl.count("function olDraw(") == 1
+        assert tpl.count("function olLayout(") == 1
+
+    def test_ties_sharing_a_device_get_their_own_drop(self):
+        """
+        A device can back up more than one feeder. Without a slot per tie the
+        labels land on top of each other and read as noise.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "t.slot" in tpl and "tieSlots" in tpl
