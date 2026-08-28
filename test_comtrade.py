@@ -2328,16 +2328,22 @@ class TestTheDeviceSymbols:
 
     def test_state_is_never_carried_by_colour_alone(self):
         """
-        Red/green is the worst pair for deuteranopia. An open device is drawn
-        hollow with a heavy ring, a tie's blade stands clear of its second
-        terminal, and both carry the word OPEN or CLOSED.
+        Red/green is the worst pair for deuteranopia, every box is filled, and
+        every conductor is the same grey — so the ONLY non-colour cue left is
+        the word. Both a device and a tie must say it.
         """
         tpl = self.TPL.read_text(encoding="utf-8")
-        assert '"OPEN" : "CLOSED"' in tpl or '"CLOSED"' in tpl
-        # every open thing says the word, and the run out to an open tie is dashed
         assert '`${id} \\u00b7 OPEN`' in tpl, "an open device does not say OPEN"
         assert '? "CLOSED" : "OPEN"' in tpl, "a tie does not say its state"
-        assert 'stroke-dasharray="5 4"' in tpl
+
+    def test_every_conductor_is_the_same_grey(self):
+        """Line is line. What is open is said by the device on it."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        body = tpl[tpl.index("function olDraw("):tpl.index("\nfunction olRefresh")]
+        conductors = body[body.index("L.placed.forEach"):body.index("/* Ties,")]
+        assert "stroke-dasharray" not in conductors
+        assert "--sw-open" not in conductors and "--sw-closed" not in conductors
+        assert 'stroke="var(--baseline)"' in conductors
 
     def test_priority_moved_off_the_device_fill(self):
         """
@@ -2401,6 +2407,26 @@ class TestTheFeederPageWalksTheSystem:
         assert 'id="feedersSub"' in tpl
         assert "let olStation" in tpl
         assert "all.filter((s) => s.station === olStation)" in tpl
+
+    def test_feeders_sort_by_circuit_number_in_both_views(self):
+        """
+        The review dropdown sorted by name and the feeder page by file order,
+        so the same fleet appeared in two different sequences. A utility knows
+        a feeder by its number — "Riverbend 4402, Riverbend 4407, Delta Flats
+        4411" is in order; alphabetically it is not.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "const olCircuit = (feeder)" in tpl
+        assert "const olFeederCmp" in tpl
+        # both surfaces go through the same comparator
+        assert tpl.count("olFeederCmp") >= 3
+        assert "OL_FEEDERS = [...new Set(" in tpl
+        assert "feeders: feeders.sort(olFeederCmp)" in tpl
+
+    def test_the_review_dropdown_is_grouped_by_substation(self):
+        """Grouping is what makes the circuit-number ordering legible."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "<optgroup" in tpl
 
     def test_the_substation_list_comes_from_the_tree(self):
         """A substation added to topology.csv must appear without a code change."""

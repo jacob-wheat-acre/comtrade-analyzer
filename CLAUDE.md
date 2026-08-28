@@ -360,6 +360,15 @@ machine.
 - Layout is orthogonal and left-to-right: substation bus at the left, depth is
   the column, a branch takes its own row. Never a diagonal — that is not how a
   one-line is drawn.
+- **Every conductor is the same grey.** Line is line; what is open is said by
+  the device on it, not by the wire leading to it.
+- **Feeders sort by circuit number, never by name** — `olCircuit()` /
+  `olFeederCmp()`, used by the review dropdown *and* the all-feeders page so the
+  two cannot disagree. They did: one sorted by name and the other by file order,
+  and the same fleet appeared in two sequences. A utility knows a feeder by its
+  number, so "Riverbend 4402, Riverbend 4407, Delta Flats 4411" is in order and
+  alphabetically it is not. The review dropdown uses `<optgroup>` per substation,
+  which is what makes that ordering legible.
 - **Fill is switch STATE, on the utility's convention: red closed, green open**
   (`--sw-closed` / `--sw-open`). This is the opposite of the traffic-light
   instinct, so don't "fix" it. It also means fill cannot carry review priority
@@ -368,10 +377,9 @@ machine.
   change and off `applyDrill`.
 - **Every box is filled** with its state colour and carries a black letter.
 - **State is never colour alone.** Red/green is the worst pair for
-  deuteranopia, and filling the boxes removed the hollow-means-open cue — so
-  **anything open says the word**: a tie's label is `TIE_x · OPEN`, and an open
-  device's own name becomes `RCL_y · OPEN` in the state colour. The run out to
-  an open tie is dashed and goes solid once it closes.
+  deuteranopia; the boxes are filled and the conductors are all one grey, so the
+  **word is the only remaining cue and has to stay**: a tie reads `TIE_x · OPEN`
+  and an open device's own name becomes `RCL_y · OPEN` in the state colour.
 - A tie's label is far wider than the box it sits under, so `clamped()` centres
   it but pulls it inside the canvas at either end rather than letting it run
   off.

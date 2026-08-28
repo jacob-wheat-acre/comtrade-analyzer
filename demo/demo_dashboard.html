@@ -2142,8 +2142,20 @@ TOPO.forEach((n) => {
 const olNode = (id) => OL_NODES.get(nkey(id)) || null;
 const olKids = (id) => OL_KIDS.get(nkey(id)) || [];
 
+/* Feeders sort by circuit number, not by name. A utility identifies a feeder
+   by its number, and sorting on the name scatters one substation's circuits
+   across the list — "Riverbend 4402, Riverbend 4407, Delta Flats 4411" is in
+   order; alphabetically it is not. Used by BOTH the review dropdown and the
+   all-feeders page, which is what stops them disagreeing. */
+const olCircuit = (feeder) => {
+  const m = String(feeder || "").match(/(\d+)\s*$/);
+  return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
+};
+const olFeederCmp = (a, b) =>
+  olCircuit(a) - olCircuit(b) || String(a).localeCompare(String(b));
+
 const OL_FEEDERS = [...new Set(TOPO.filter((n) => n.kind !== "source" && n.feeder)
-                                   .map((n) => n.feeder))].sort();
+                                   .map((n) => n.feeder))].sort(olFeederCmp);
 
 let olFeeder = null;      /* selected feeder name */
 let olIncident = null;    /* selected incident id, or null */
@@ -2253,8 +2265,11 @@ function renderOneline() {
   }
 
   const sel = $("olFeeder");
-  sel.innerHTML = OL_FEEDERS.map((f) =>
-    `<option value="${esc(f)}"${f === olFeeder ? " selected" : ""}>${esc(f)}</option>`).join("");
+  sel.innerHTML = olStations().map((st) =>
+    `<optgroup label="${esc(st.station)}">` +
+    st.feeders.map((f) =>
+      `<option value="${esc(f)}"${f === olFeeder ? " selected" : ""}>${esc(f)}</option>`
+    ).join("") + `</optgroup>`).join("");
   sel.onchange = () => { olFeeder = sel.value; olIncident = null; renderOneline(); };
 
   const legendBox = (letter, fill, stroke, sw, ink) =>
@@ -2340,13 +2355,10 @@ function olDraw(host, feeder, opts = {}) {
     const x2 = X(p.depth), y2 = Y(p.row);
     const x1 = par ? X(par.depth) : busX, y1 = par ? Y(par.row) : y2;
     const mid = par ? x1 + (x2 - x1) / 2 : x1 + 22;
-    const tieClosed = p.isTie && inc && inc.restored && p.other
-                      && incDevices.has(nkey(p.other.node_id));
-    const stroke = p.isTie ? `var(${tieClosed ? "--sw-closed" : "--sw-open"})`
-                           : "var(--baseline)";
-    const dash = p.isTie && !tieClosed ? ' stroke-dasharray="5 4"' : "";
+    /* One grey for every conductor. Line is line — what is open is said by
+       the device on it, not by the wire leading to it. */
     g += `<path d="M${x1} ${y1} H${mid} V${y2} H${x2}" fill="none" ` +
-         `stroke="${stroke}" stroke-width="2"${dash}/>`;
+         `stroke="var(--baseline)" stroke-width="2"/>`;
   });
 
   /* Ties, drawn where the layout put them: at the end of the line, one column
@@ -2596,8 +2608,9 @@ function olStations() {
       walk(k);
     });
     walk(src);
-    return { station: src.feeder || src.node_id, feeders };
-  }).filter((st) => st.feeders.length);
+    return { station: src.feeder || src.node_id, feeders: feeders.sort(olFeederCmp) };
+  }).filter((st) => st.feeders.length)
+    .sort((a, b) => String(a.station).localeCompare(String(b.station)));
 }
 
 function showPage(name) {
