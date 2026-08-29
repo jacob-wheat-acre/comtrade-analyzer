@@ -3284,3 +3284,30 @@ class TestEventsBindToDevices:
             rows = list(_csv.DictReader(fh))
         assert "aliases" in rows[0]
         assert any(r["aliases"] for r in rows), "no example alias to copy"
+
+    def test_the_source_of_a_back_feed_is_chosen_not_assumed(self):
+        """
+        An island with two normally-open points has two answers and they are
+        not equivalent — different circuit, different spare capacity, different
+        crew. Which feeder it is restored FROM is the engineer's call.
+        """
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert 'id="olRestore"' in tpl
+        assert "let olRestore" in tpl
+        assert "rsel.onchange = () => { olRestore = rsel.value;" in tpl
+
+    def test_only_the_chosen_tie_closes(self):
+        """Closing every normally-open point at once is not a switching plan."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "const backfeed = new Set(cont && chosen ? [nkey(chosen)] : []);" in tpl
+        assert "it is a parallel" in tpl
+
+    def test_choosing_an_outage_resets_the_source(self):
+        """A tie from the previous island is not a choice on this one."""
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "olOutage = osel.value; olRestore = \"\";" in tpl
+
+    def test_the_read_out_names_the_source_and_the_alternatives(self):
+        tpl = self.TPL.read_text(encoding="utf-8")
+        assert "picked up from <b>${esc(pick.feeder)}</b>" in tpl
+        assert "Also reachable from" in tpl

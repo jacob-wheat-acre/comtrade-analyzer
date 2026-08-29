@@ -693,6 +693,12 @@ aggregates or client-side arithmetic; neither is worth it yet.
 is its subtree, and any normally-open tie inside that island can back-feed the
 whole of it, because nothing between the tie and the open device stops it.
 
+- **Which feeder it is restored FROM is chosen, not assumed** (`#olRestore`).
+  An island with two normally-open points has two answers and they are not
+  equivalent — different circuit, different spare capacity, different crew.
+  Only the chosen tie draws closed; closing every one at once is not a
+  switching plan, it is a parallel. Picking a different outage resets the
+  choice, since a tie from the previous island is not an option on this one.
 - **The gap is the point.** A section with no tie below it is customers who stay
   out until the device itself is fixed. `olGapSummary()` reports that per feeder,
   and it is the number the exercise exists to produce.

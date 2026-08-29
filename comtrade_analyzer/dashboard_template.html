@@ -483,6 +483,9 @@ table.mini-tbl td.r, table.mini-tbl th.r { text-align: right; padding-right: 10p
       <label class="fld"><span>Out of service</span>
         <select id="olOutage"></select>
       </label>
+      <label class="fld" id="olRestoreWrap" hidden><span>Restore from</span>
+        <select id="olRestore"></select>
+      </label>
       <span class="ol-legend" id="olLegend"></span>
     </div>
     <div class="ol-split">
@@ -2416,6 +2419,7 @@ const OL_FEEDERS = [...new Set(TOPO.filter((n) => n.kind !== "source" && n.feede
 let olFeeder = null;      /* selected feeder name */
 let olIncident = null;    /* selected incident id, or null */
 let olOutage = "";        /* device taken out of service in the N-1 view */
+let olRestore = "";       /* the tie chosen to back-feed the island */
 
 /* What an outage at `id` costs, from connectivity alone.
 
@@ -2619,8 +2623,26 @@ function renderOneline() {
     devs.map((d) => `<option value="${esc(d)}">${esc(d)} open</option>`).join(""),
     devs.includes(olOutage) ? olOutage : "");
   if (!devs.includes(olOutage)) olOutage = "";
-  osel.onchange = () => { olOutage = osel.value; if (olOutage) olIncident = null;
-                          renderOneline(); };
+  osel.onchange = () => { olOutage = osel.value; olRestore = "";
+                          if (olOutage) olIncident = null; renderOneline(); };
+
+  /* Which feeder the island is picked up FROM. An island with two normally-open
+     points has two answers and they are not equivalent — different circuit,
+     different spare capacity, different crew. Choosing is the engineer's call,
+     so the view shows one at a time rather than every tie closed at once. */
+  const rwrap = $("olRestoreWrap"), rsel = $("olRestore");
+  const cont = olOutage ? olContingency(olOutage) : null;
+  const back = cont ? cont.ties : [];
+  rwrap.hidden = back.length < 1;
+  if (back.length) {
+    if (!back.some((t) => t.tie.node_id === olRestore)) olRestore = back[0].tie.node_id;
+    fillSelect(rsel, back.map((t) =>
+      `<option value="${esc(t.tie.node_id)}">${esc(t.feeder)} \u00b7 ` +
+      `${esc(t.tie.node_id)}</option>`).join(""), olRestore);
+    rsel.onchange = () => { olRestore = rsel.value; renderOneline(); };
+  } else {
+    olRestore = "";
+  }
 
   const legendBox = (letter, fill, stroke, sw, ink) =>
     `<svg width="20" height="16" viewBox="0 0 20 16" aria-hidden="true">
@@ -2645,7 +2667,7 @@ function renderOneline() {
 
 function olDrawDiagram() {
   const shown = olDraw($("olDiagram"), olFeeder,
-                       { incident: olIncident, outage: olOutage });
+                       { incident: olIncident, outage: olOutage, restore: olRestore });
   const L = olLayout(olFeeder);
   $("onelineNote").textContent =
     `${L.devices.length} device${L.devices.length === 1 ? "" : "s"}, ` +
@@ -2656,12 +2678,17 @@ function olDrawDiagram() {
     const c = olContingency(olOutage);
     const foot = $("onelineFoot");
     if (c) {
-      const moves = c.ties.map((t) =>
-        `${fmt(c.out)} to ${t.feeder} through ${t.tie.node_id}`).join("; ");
+      const pick = c.ties.find((t) => t.tie.node_id === olRestore) || c.ties[0];
+      const others = c.ties.filter((t) => t !== pick);
       foot.innerHTML = c.restorable
         ? `<b>${olOutage} open</b> — <b>${fmt(c.out)}</b> customer${c.out === 1 ? "" : "s"} `
-          + `out, back-fed by ${moves}. Whether that feeder can carry them needs `
-          + `load and capacity this model does not hold.`
+          + `out, picked up from <b>${esc(pick.feeder)}</b> by closing `
+          + `${esc(pick.tie.node_id)}.`
+          + (others.length
+             ? ` Also reachable from ${others.map((t) => esc(t.feeder)).join(" or ")} `
+               + `— choose above.` : "")
+          + ` Whether ${esc(pick.feeder)} can carry them needs load and capacity `
+          + `this model does not hold.`
         : `<b>${olOutage} open</b> — <b>${fmt(c.out)}</b> customer${c.out === 1 ? "" : "s"} `
           + `out with <b>no tie below it</b>. Nothing can pick this section up; `
           + `they stay out until the device itself is restored.`;
@@ -2700,7 +2727,10 @@ function olDraw(host, feeder, opts = {}) {
      inside the island is shown closed — that is the back-feed. */
   const cont = opts.outage ? olContingency(opts.outage) : null;
   const dark = new Set((cont ? cont.island : []).map((n) => nkey(n.node_id)));
-  const backfeed = new Set((cont ? cont.ties : []).map((t) => nkey(t.tie.node_id)));
+  /* Only the tie the engineer picked. Closing every normally-open point at
+     once is not a switching plan, it is a parallel. */
+  const chosen = opts.restore || (cont && cont.ties.length ? cont.ties[0].tie.node_id : "");
+  const backfeed = new Set(cont && chosen ? [nkey(chosen)] : []);
 
   const W = widthOf(host, 620);
   /* padR clears the last device's centred name; padT clears the count badge
