@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import sys
+import hashlib
 import webbrowser
 from pathlib import Path
 
@@ -73,6 +74,51 @@ def build_payload(data: dict) -> dict:
 
 DOCTYPE = "<!doctype html>\n"
 
+# Two different ways this page goes stale on someone else's machine, both of
+# which look identical from the outside — "I fixed it and nothing changed":
+#
+#   1. The browser serves a cached copy. The file is written to the same path
+#      every run, so the URL never changes and Chrome is entitled to reuse it.
+#   2. The tool is running an INSTALLED copy of the package rather than the
+#      checkout. `pip install .` (no -e) copies the template into site-packages,
+#      and pulling the repo afterwards changes nothing that runs.
+#
+# So: stamp every page with the template it was built from, bust the cache on
+# open, and tell the caller which file it actually read.
+NO_CACHE = ('<meta http-equiv="Cache-Control" content="no-store, must-revalidate">\n'
+            '<meta http-equiv="Pragma" content="no-cache">\n')
+
+
+def template_stamp() -> str:
+    """Short hash of the template actually in use, for the page and the log."""
+    return hashlib.sha256(TEMPLATE.read_bytes()).hexdigest()[:8]
+
+
+def stale_install_warning(cwd: str = "") -> str:
+    """
+    Warn when the code being RUN is not the code being EDITED.
+
+    `pip install .` without -e copies the package into site-packages. Pulling
+    the repo after that changes files nothing executes, so every fix appears to
+    do nothing and the obvious suspect — the browser cache — is innocent.
+
+    Only fires when both are true: the running package lives in an installed
+    location, and there is a git checkout of it right here. Someone who
+    deliberately installed a release sees nothing.
+    """
+    here = Path(__file__).resolve()
+    installed = any(part in ("site-packages", "dist-packages") for part in here.parts)
+    if not installed:
+        return ""
+    root = Path(cwd or os.getcwd()).resolve()
+    for cand in (root, *root.parents):
+        if (cand / ".git").is_dir() and (cand / "comtrade_analyzer" / "__init__.py").is_file():
+            return (f"WARNING: running the INSTALLED copy at {here.parent}, "
+                    f"not the checkout at {cand}.\n"
+                    f"         Edits and git pulls there will not take effect. "
+                    f"Fix with:  pip install -e .")
+    return ""
+
 
 def render(analysis_path: str, out_path: str, artifact: bool = False) -> str:
     with open(analysis_path, encoding="utf-8") as fh:
@@ -87,7 +133,12 @@ def render(analysis_path: str, out_path: str, artifact: bool = False) -> str:
     if PLACEHOLDER not in template:
         raise SystemExit(f"{TEMPLATE} is missing the {PLACEHOLDER} placeholder.")
 
-    html = template.replace(PLACEHOLDER, _js_safe(build_payload(data)))
+    stamp = template_stamp()
+    payload = build_payload(data)
+    payload["build"] = {"template": str(TEMPLATE), "stamp": stamp}
+    html = template.replace(PLACEHOLDER, _js_safe(payload))
+    # No-cache first, so it is in <head> before anything else.
+    html = NO_CACHE + html
     # A standalone file needs the doctype or the browser drops into quirks mode
     # (where document.body is the scroller and smooth scrolling silently fails).
     # The Artifact publisher supplies its own wrapper, so --artifact omits it.
@@ -130,10 +181,16 @@ def main():
     size_kb = os.path.getsize(out_path) / 1024
 
     print(f"Dashboard → {out_path}  ({size_kb:,.0f} KB)")
+    print(f"  page {template_stamp()} from {TEMPLATE}")
+    if warn := stale_install_warning():
+        print(warn, file=sys.stderr)
     print("  Publish-ready variant: add --artifact"
           if not args.artifact else "  Artifact variant (no doctype) — publish this one.")
     if args.open:
-        webbrowser.open(f"file://{os.path.abspath(out_path)}")
+        # The query string is what actually defeats the browser cache: the
+        # path is identical every run, so without it Chrome may reuse the copy
+        # it already has.
+        webbrowser.open(f"file://{os.path.abspath(out_path)}?v={template_stamp()}")
 
 
 if __name__ == "__main__":

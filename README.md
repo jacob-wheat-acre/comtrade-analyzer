@@ -529,6 +529,31 @@ names, customer counts and outage estimates.
 
 ---
 
+## "I changed it and nothing happened"
+
+Every run prints the build it used, and the page shows the same hash in its
+bottom-right corner:
+
+```
+Dashboard → .../fleet_dashboard.html  (5,445 KB)
+  page c2efcd51 from .../comtrade_analyzer/dashboard_template.html
+```
+
+If that hash does not change after you pull or edit, the file being read is not
+the file you changed — almost always because the package was installed with
+`pip install .` instead of `pip install -e .`, so the code running lives in
+site-packages. The tool says so outright when it detects it. Fix with:
+
+```bash
+pip install -e .
+```
+
+Browser caching is handled for you: the page is opened with a cache-busting
+query and carries `Cache-Control: no-store`, so you never need to clear
+anything.
+
+---
+
 ## Configuration (`config.json`)
 
 ```jsonc

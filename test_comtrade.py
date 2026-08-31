@@ -3312,3 +3312,69 @@ class TestEventsBindToDevices:
             rows = list(_csv.DictReader(fh))
         assert "aliases" in rows[0]
         assert any(r["aliases"] for r in rows), "no example alias to copy"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 31. Telling a stale page from a fresh one
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTheBuildIsIdentifiable:
+    """
+    Stale output looks exactly like fresh output, which is how "I fixed it and
+    nothing changed" happens. Two causes, both invisible from the outside: the
+    browser reusing a cached copy of a path that never changes, and the tool
+    running an installed copy of the package instead of the checkout.
+    """
+
+    ROOT = Path(__file__).parent
+
+    def test_the_page_carries_the_template_it_was_built_from(self):
+        from comtrade_analyzer.fleet_dashboard import build_payload, template_stamp
+        # render() adds it; the payload alone must not claim a stamp it lacks
+        assert len(template_stamp()) == 8
+        assert "build" not in build_payload({"events": [{}]})
+
+    def test_the_stamp_changes_with_the_template(self, tmp_path, monkeypatch):
+        import comtrade_analyzer.fleet_dashboard as fd
+        before = fd.template_stamp()
+        fake = tmp_path / "t.html"
+        fake.write_text("__FLEET_DATA__ x", encoding="utf-8")
+        monkeypatch.setattr(fd, "TEMPLATE", fake)
+        assert fd.template_stamp() != before
+        fake.write_text("__FLEET_DATA__ y", encoding="utf-8")
+        assert fd.template_stamp() != before
+
+    def test_the_page_asks_not_to_be_cached(self):
+        from comtrade_analyzer.fleet_dashboard import NO_CACHE
+        assert "no-store" in NO_CACHE
+        page = self.ROOT / "demo" / "demo_dashboard.html"
+        if page.is_file():
+            assert "no-store" in page.read_text(encoding="utf-8")[:400]
+
+    def test_the_url_it_opens_defeats_the_cache(self):
+        """
+        The file path is identical every run, so without a changing query the
+        browser is entitled to reuse what it has.
+        """
+        for name in ("fleet_dashboard.py", "app.py"):
+            src = (self.ROOT / "comtrade_analyzer" / name).read_text(encoding="utf-8")
+            assert "template_stamp()" in src and "?v=" in src, name
+
+    def test_running_an_installed_copy_over_a_checkout_is_reported(self):
+        """
+        `pip install .` without -e copies the package. Pulling the repo then
+        changes files nothing executes, and the browser cache takes the blame.
+        """
+        from comtrade_analyzer.fleet_dashboard import stale_install_warning
+        import comtrade_analyzer.fleet_dashboard as fd
+        # here, running from the checkout, it must stay quiet
+        assert stale_install_warning() == ""
+        src = (self.ROOT / "comtrade_analyzer" / "fleet_dashboard.py").read_text(
+            encoding="utf-8")
+        assert "site-packages" in src and "pip install -e ." in src
+
+    def test_every_entry_point_says_which_template_it_used(self):
+        for name in ("fleet_dashboard.py", "batch.py", "app.py"):
+            src = (self.ROOT / "comtrade_analyzer" / name).read_text(encoding="utf-8")
+            assert "stale_install_warning" in src, f"{name} does not warn"
+            assert "page {" in src or "_stamp()" in src, f"{name} does not print the stamp"

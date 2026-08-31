@@ -274,7 +274,12 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
         print(f"  JSON      → {json_path}")
         print(f"  CSV       → {out_dir / 'fleet_events.csv'}")
         if not args.no_dashboard:
+            from .fleet_dashboard import (TEMPLATE, stale_install_warning,
+                                          template_stamp)
             print(f"  Dashboard → {html_path}")
+            print(f"              page {template_stamp()} from {TEMPLATE}")
+            if warn := stale_install_warning():
+                print(warn, file=sys.stderr)
             print(f"              open it in a browser — it is a local file, nothing is uploaded")
     return result
 

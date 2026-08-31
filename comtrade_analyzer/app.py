@@ -687,9 +687,20 @@ class COMTRADEApp(tk.Tk):
         out_dir = Path(result["folder"]) / "analysis"
         html = out_dir / "fleet_dashboard.html"
         self._log_write(f"\nDashboard → {html}\n")
+        # Which build this is. Stale output is indistinguishable from fresh
+        # output, so the log has to say — and warn outright when the running
+        # package is an installed copy rather than the checkout being edited.
+        from .fleet_dashboard import (TEMPLATE as _tpl, stale_install_warning,
+                                      template_stamp as _stamp)
+        self._log_write(f"  page {_stamp()} from {_tpl}\n")
+        if _warn := stale_install_warning():
+            self._log_write(_warn + "\n", tag="error")
         self._log_write("Opening it in your browser…\n")
         try:
-            webbrowser.open(html.resolve().as_uri())
+            # ?v=<template hash> so a rebuilt page is never served from the
+            # browser's cache — the file path is the same on every run.
+            from .fleet_dashboard import template_stamp
+            webbrowser.open(html.resolve().as_uri() + "?v=" + template_stamp())
         except Exception as exc:                       # noqa: BLE001
             self._log_write(f"Could not open a browser: {exc}\n"
                             f"Open this file manually:\n  {html}\n", tag="error")

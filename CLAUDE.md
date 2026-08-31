@@ -956,6 +956,30 @@ or customer counts in test fixtures or commit messages.
 The one path that leaves the network is the feedback draft; it carries counts
 and settings, never device names or event filenames.
 
+## Telling a stale page from a fresh one
+
+Stale output looks exactly like fresh output. That is how "I fixed it and
+nothing changed" happens, and the browser cache gets blamed for both causes:
+
+1. **The browser reuses a cached copy.** The dashboard is written to the same
+   path every run, so the URL never changes. Every `webbrowser.open` of it
+   appends `?v=<template hash>`, and the page carries
+   `Cache-Control: no-store`.
+2. **The tool is running an INSTALLED copy, not the checkout.** `pip install .`
+   without `-e` copies the package into site-packages; pulling the repo
+   afterwards changes files nothing executes. `stale_install_warning()` fires
+   only when the running package is in site-packages *and* a git checkout of it
+   sits at or above the working directory — so a deliberate release install
+   stays quiet. Every entry point prints it.
+
+Every render prints `page <hash> from <path>`, and the page shows the same hash
+bottom-right. **That line is the first thing to check when output looks wrong**:
+a hash that does not change after an edit means the template being read is not
+the one being edited.
+
+`template_stamp()` hashes the template file itself, not a version string, so it
+cannot go stale independently of what it describes.
+
 ## Sharing conventions
 
 This repo follows the pq-analyzer layout for distribution to colleagues:

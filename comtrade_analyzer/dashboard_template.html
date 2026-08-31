@@ -2330,6 +2330,21 @@ function renderFeedback() {
     `address is outside the corporate network, so do not paste customer data.</p>`;
 }
 
+/* Which build this page is. Stale output looks identical to fresh output, so
+   the page has to be able to answer it — the hash is of the template the page
+   was rendered from, and it is printed by the tool when it renders. */
+function renderBuild() {
+  const b = FLEET.build || {};
+  if (!b.stamp) return;
+  const el = document.createElement("p");
+  el.className = "note";
+  el.style.cssText = "margin:14px 0 0;text-align:right;opacity:.75";
+  el.textContent = `Built ${shortTime(FLEET.generated_at) || ""} · page ${b.stamp}`;
+  el.title = b.template || "";
+  const foot = document.querySelector(".foot");
+  if (foot && foot.parentNode) foot.parentNode.appendChild(el);
+}
+
 function renderFooter() {
   $("methodText").innerHTML =
     `Each record is parsed to IEEE C37.111, then screened for fault inception, trip time, ` +
@@ -3235,7 +3250,7 @@ function renderFeederPage() {
 function init() {
   renderHeader(); renderTiles(); renderUnits(); renderRunNote(); renderCharts();
   renderFilters(); renderHead(); renderBody(); renderOneline(); renderScope();
-  renderDataQuality(); renderClasses(); renderRules(); renderFooter(); renderFeedback();
+  renderDataQuality(); renderClasses(); renderRules(); renderFooter(); renderFeedback(); renderBuild();
 
   if (TOPO.length) {
     $("pageNav").hidden = false;
