@@ -372,6 +372,31 @@ def analyze_one(args: tuple) -> dict:
         out["diagnosis"] = explain_parse_error(filepath, exc)
         return out
 
+    # The parse is guarded above; everything after it was not, so one odd file
+    # — an empty channel, an unexpected unit — took down the entire folder run
+    # with a traceback and no results at all. A folder of real events will
+    # always contain something surprising. Report the file and keep going.
+    try:
+        return _analyze_parsed(out, record, basename, feeder_z,
+                               slow_trip_cycles, wave_opts, settings_opts)
+    except Exception as exc:                       # noqa: BLE001
+        out["ok"] = False
+        out["error"] = f"{type(exc).__name__}: {exc}"
+        out["diagnosis"] = {
+            "level": "error", "code": "analysis_failed",
+            "message": f"{basename} parsed but could not be analysed",
+            "detail": f"{type(exc).__name__}: {exc}",
+            "fix": ("The file is readable but something in it is shaped in a "
+                    "way the analysis does not expect. Every other file in the "
+                    "folder was still processed. Send this one with the "
+                    "feedback button."),
+        }
+        return out
+
+
+def _analyze_parsed(out, record, basename, feeder_z, slow_trip_cycles,
+                    wave_opts, settings_opts):
+    """The per-file analysis, once the record is in hand."""
     # Everything below assumes channels were recognised and scaled sensibly.
     # Say so plainly when they were not, rather than emitting confident numbers.
     findings = check_record(record, basename)

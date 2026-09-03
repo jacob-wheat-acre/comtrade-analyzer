@@ -651,7 +651,11 @@ def single_line(net: Network, feeder: str = "", registry: Optional[dict] = None)
         if keep is not None and _normalize(n.node_id) not in keep:
             return
         connector = "" if top else ("\u2514\u2500 " if last else "\u251c\u2500 ")
-        left = f"{prefix}{connector}{_GLYPH.get(n.kind, '\u00b7')} {n.node_id}"
+        # Hoisted out of the f-string: a backslash escape inside an f-string
+        # expression is a SyntaxError before Python 3.12, and this file has to
+        # import on whatever the colleague's PC is running.
+        glyph = _GLYPH.get(n.kind, "\u00b7")
+        left = f"{prefix}{connector}{glyph} {n.node_id}"
         lines.append(f"{left:<{_ID_COL}}{tail(n)}".rstrip())
         child_prefix = "" if top else prefix + ("   " if last else "\u2502  ")
         kids = [c for c in net.children(n.node_id)

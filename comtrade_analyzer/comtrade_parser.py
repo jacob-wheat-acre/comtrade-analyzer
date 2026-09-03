@@ -264,8 +264,17 @@ def _parse_comtrade_dt(s: str) -> datetime:
     """
     Parse COMTRADE date/time string.
 
-    Standard format: dd/mm/yyyy,hh:mm:ss.ssssss
-    Also tolerates: dd/mm/yyyy hh:mm:ss (space separator) and missing fractional.
+    C37.111 says dd/mm/yyyy,hh:mm:ss.ssssss. Real relays disagree: SEL writes
+    mm/dd/yyyy, and some exports use yyyy-mm-dd. Guessing wrongly is not a
+    small error — 11/19/2023 read as dd/mm gives month 19 and the file simply
+    fails to open, which is what a whole folder of real events did.
+
+    So: take the standard order first, and fall back to the reading that
+    produces a real date. Ambiguous dates (both halves <= 12) keep the
+    standard's order rather than silently preferring one vendor.
+
+    Also tolerates a space separator, a missing fractional part, and a
+    two-digit year.
     """
     s = s.strip()
 
@@ -275,7 +284,15 @@ def _parse_comtrade_dt(s: str) -> datetime:
     date_str = parts[0].strip()
     time_str = parts[1].strip() if len(parts) > 1 else "00:00:00.000000"
 
-    d, m, y = date_str.split("/")
+    if "-" in date_str and "/" not in date_str:
+        # yyyy-mm-dd, as some exports write it
+        y, m, d = date_str.split("-")
+    else:
+        d, m, y = date_str.split("/")
+        if int(m) > 12 and int(d) <= 12:
+            d, m = m, d          # the file is mm/dd/yyyy
+    if len(y) == 2:
+        y = ("20" if int(y) < 70 else "19") + y
 
     if "." in time_str:
         time_part, frac = time_str.split(".", 1)
@@ -286,6 +303,9 @@ def _parse_comtrade_dt(s: str) -> datetime:
         frac = "000000"
 
     h, mi, sec = time_part.split(":")
+    # Seconds can be fractional in the field itself on some exports.
+    if "." in sec:
+        sec = sec.split(".", 1)[0]
     return datetime(int(y), int(m), int(d), int(h), int(mi), int(sec), int(frac))
 
 

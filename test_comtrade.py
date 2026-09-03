@@ -3378,3 +3378,74 @@ class TestTheBuildIsIdentifiable:
             src = (self.ROOT / "comtrade_analyzer" / name).read_text(encoding="utf-8")
             assert "stale_install_warning" in src, f"{name} does not warn"
             assert "page {" in src or "_stamp()" in src, f"{name} does not print the stamp"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 32. Real files from real relays
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRealExportsDoNotStopTheRun:
+    """
+    A folder of real events always contains something surprising. Each of these
+    took down an entire folder run on a colleague's PC — not the one file, the
+    whole run, with a traceback and no results.
+    """
+
+    ROOT = Path(__file__).parent
+
+    def test_the_ascii_sketch_imports_on_older_pythons(self):
+        """
+        A backslash escape inside an f-string expression is a SyntaxError
+        before 3.12. topology.py is imported by fleet_gen, so this took the
+        whole application down at startup, not just the sketch.
+        """
+        src = (self.ROOT / "comtrade_analyzer" / "topology.py").read_text(encoding="utf-8")
+        import re
+        for m in re.finditer(r'f"[^"\n]*"', src):
+            body = m.group(0)
+            if "{" in body:
+                inner = "".join(re.findall(r"\{([^}]*)\}", body))
+                assert "\\" not in inner, f"backslash inside an f-string expression: {body}"
+
+    def test_a_channel_with_no_samples_is_not_fatal(self):
+        """np.max on an empty array raises rather than returning zero."""
+        from comtrade_analyzer.diagnostics import check_record
+        import numpy as np
+        empty = {c: np.array([], dtype=float) for c in ("IA", "IB", "IC")}
+        rec = EventRecord(
+            time=np.array([], dtype=float),
+            analog_channels=empty,
+            digital_channels={},
+            analog_info={c: ChannelInfo(name=c, units="A", multiplier=1.0, offset=0.0)
+                         for c in empty},
+            sample_rate=FS, trigger_time=0.0, trigger_index=0,
+            metadata={"station_name": "S", "rec_dev_id": "D", "line_freq": F0},
+        )
+        check_record(rec, "empty.cfg")          # must not raise
+
+    def test_the_date_a_relay_actually_writes(self):
+        """
+        C37.111 says dd/mm/yyyy. SEL writes mm/dd/yyyy, and 11/19/2023 read as
+        dd/mm gives month 19 — the file simply refuses to open.
+        """
+        from comtrade_analyzer.comtrade_parser import _parse_comtrade_dt as f
+        from datetime import datetime
+        assert f("19/11/2023,08:12:02.440000") == datetime(2023, 11, 19, 8, 12, 2, 440000)
+        assert f("11/19/2023,08:12:02.440000") == datetime(2023, 11, 19, 8, 12, 2, 440000)
+        assert f("2023-11-19,08:12:02.440") == datetime(2023, 11, 19, 8, 12, 2, 440000)
+        # ambiguous stays on the standard's order rather than guessing a vendor
+        assert f("01/02/2023,00:00:00") == datetime(2023, 2, 1)
+        assert f("05/06/23 12:30:00") == datetime(2023, 6, 5, 12, 30)
+
+    def test_one_unanalysable_file_does_not_stop_the_others(self, tmp_path, monkeypatch):
+        import comtrade_analyzer.fleet_analyze as fa
+        monkeypatch.setattr(fa, "check_record",
+                            lambda *a, **k: (_ for _ in ()).throw(ValueError("boom")))
+        good = sorted((self.ROOT / "demo" / "incident_events").glob("*.cfg"))
+        if not good:
+            pytest.skip("demo corpus not present")
+        out = fa.analyze_one((str(good[0]), 0.4, 10.0, None, None))
+        assert out["ok"] is False
+        assert "boom" in out["error"]
+        assert out["diagnosis"]["code"] == "analysis_failed"
+        assert "Every other file" in out["diagnosis"]["fix"]

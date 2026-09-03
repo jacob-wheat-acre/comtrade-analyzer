@@ -784,6 +784,26 @@ be activated, which needs `osascript ... set frontmost of (first process whose
 unix id is <pid>)`. It also runs 120 ms after launch so the main window does not
 come up behind whatever the user was looking at.
 
+## Real exports break in ways the fixtures never will
+
+Every one of these took down a whole folder run on a colleague's PC — not the
+one file, the entire run, with a traceback and no results:
+
+- **A backslash escape inside an f-string expression** is a SyntaxError before
+  Python 3.12. `topology.py` is imported by `fleet_gen`, so this killed the
+  application at startup. Hoist the escape into a variable; a test scans the
+  file for it.
+- **`np.max` on an empty channel** raises rather than returning zero. Real
+  exports carry channels with no samples.
+- **The date is not what C37.111 says.** The spec is `dd/mm/yyyy`; SEL writes
+  `mm/dd/yyyy`, and `11/19/2023` read as dd/mm gives month 19 and the file
+  refuses to open. `_parse_comtrade_dt` takes the standard's order, falls back
+  to the reading that yields a real date, and leaves genuinely ambiguous dates
+  on the standard's order rather than silently preferring a vendor.
+- **`analyze_one` guards the analysis, not just the parse.** The parse was
+  already wrapped; everything after it was not. A folder of real events always
+  contains something surprising — report that file and keep going.
+
 ## Windows portability
 
 Developed on macOS, run on Windows. Three things that only fail over there:

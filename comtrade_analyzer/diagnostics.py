@@ -183,8 +183,13 @@ def check_record(record, filename: str = "") -> List[dict]:
             "Harmless if they are frequency, power or spare channels."))
 
     # ── Scaling sanity ───────────────────────────────────────────────────────
-    if cur:
-        peak = max(float(np.max(np.abs(record.analog_channels[c]))) for c in cur)
+    # A real export can carry a channel with no samples at all — np.max on an
+    # empty array raises rather than returning zero, which took down the whole
+    # folder run on one file.
+    peaks = [float(np.max(np.abs(record.analog_channels[c])))
+             for c in cur if len(record.analog_channels[c])]
+    if peaks:
+        peak = max(peaks)
         if peak > _MAX_PLAUSIBLE_AMPS:
             out.append(_finding(
                 WARN, "current_too_large", f"Peak current {peak:,.0f} A is implausibly high",
