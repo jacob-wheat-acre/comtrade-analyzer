@@ -3,17 +3,24 @@ comtrade_parser.py — IEEE C37.111 COMTRADE file parser.
 
 Supports:
   - Revisions 1991, 1999, and 2013
-  - ASCII and BINARY data formats
+  - All four data file types the standard defines (7.4.9): ASCII, BINARY,
+    BINARY32, FLOAT32
   - .cfg + .dat file pairs
   - .cff combined file format (2013)
 
+See EXPORT_GUIDE.md for which of those to ask the relay for, and why.
+
 Parsing assumptions
 -------------------
-* Timestamps in the DAT file are unsigned 32-bit integers in microseconds
+* Sample times come from the CFG rate sections where they exist, and from the
+  DAT timestamp column otherwise.  7.4.7 prefers the rate, and a recorder that
+  populates nrates is entitled to leave the timestamp column zeroed.
+* Timestamps, when used, are unsigned 32-bit integers in microseconds
   (multiplied by 'timemult' when provided).  Some relay vendors write the
   timestamp in different units; if values look wrong, check your vendor docs.
-* Binary format: analog samples are signed 16-bit int; digital channels are
-  packed into 16-bit unsigned words (16 channels per word, LSB = channel 1).
+* Binary format: analog sample width follows the file type (2 bytes for
+  BINARY, 4 for BINARY32/FLOAT32); digital channels are packed into 16-bit
+  unsigned words (16 channels per word, LSB = channel 1).
 * Engineering value = a * raw_integer + b  (from CFG channel descriptor).
 * The trigger index is located by finding the first sample whose cumulative
   elapsed time equals or exceeds (trigger_datetime - start_datetime).
@@ -23,13 +30,29 @@ Parsing assumptions
 
 import os
 import re
-import struct
 from datetime import datetime
 from typing import Optional, List
 
 import numpy as np
 
 from .data_model import EventRecord, ChannelInfo
+
+
+# C37.111 7.4.9 names four data file types, and 8.6 gives the width of each.
+# A relay that offers "Binary32" or "Float32" in its export menu writes that
+# word into the CFG; matching only "BINARY" sent those files down the ASCII
+# path, where every row failed to parse and the record came out empty.
+_ANALOG_DTYPE = {
+    "BINARY":   "<i2",
+    "BINARY32": "<i4",
+    "FLOAT32":  "<f4",
+}
+
+# What a record carries when the CFG left its date/time stamp blank or zeroed,
+# which C37.111 7.4.8 permits. Compare against this rather than testing for a
+# particular year: the record still analyses, it just cannot be placed on a
+# timeline, and incident grouping needs to know that.
+NO_DATETIME = datetime(1970, 1, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +123,7 @@ class COMTRADEParser:
 
         cfg = _parse_cfg_lines(cfg_text.splitlines())
 
-        if cfg["file_type"] == "BINARY":
+        if cfg["file_type"] in _ANALOG_DTYPE:
             # Encode DAT text back to bytes for binary section
             dat_bytes = dat_text.encode("latin-1")
             return _parse_dat_binary_bytes(dat_bytes, cfg)
@@ -114,7 +137,7 @@ class COMTRADEParser:
 
         cfg = _parse_cfg_lines(cfg_lines)
 
-        if cfg["file_type"] == "BINARY":
+        if cfg["file_type"] in _ANALOG_DTYPE:
             return _parse_dat_binary_file(dat_path, cfg)
         else:
             with open(dat_path, "r", encoding="utf-8", errors="replace") as fh:
@@ -203,13 +226,19 @@ def _parse_cfg_lines(lines: list) -> dict:
     n_rates = int(lines[idx].strip())
     idx += 1
 
+    # C37.111 7.4.7: nrates == 0 does NOT mean "no rate line". It means the
+    # sample period is not fixed, and a single line "0,endsamp" still follows.
+    # Reading zero lines there leaves idx on that line and the start date is
+    # then parsed from "0,<sample count>" — an event-triggered recorder's whole
+    # folder fails to open for a rate line we declined to consume.
     sample_rates = []
     total_samples = 0
-    for _ in range(n_rates):
+    for _ in range(max(n_rates, 1)):
         p = _split_cfg_line(lines[idx])
         rate     = float(p[0].strip())
         endsamp  = int(p[1].strip())
-        sample_rates.append({"rate": rate, "end_sample": endsamp})
+        if n_rates:
+            sample_rates.append({"rate": rate, "end_sample": endsamp})
         total_samples = endsamp
         idx += 1
 
@@ -222,6 +251,7 @@ def _parse_cfg_lines(lines: list) -> dict:
     idx += 1
 
     # ---- File type ----
+    # C37.111 7.4.9: ASCII, BINARY, BINARY32 or FLOAT32, non-case-sensitive.
     file_type = lines[idx].strip().upper()
     idx += 1
 
@@ -284,6 +314,12 @@ def _parse_comtrade_dt(s: str) -> datetime:
     date_str = parts[0].strip()
     time_str = parts[1].strip() if len(parts) > 1 else "00:00:00.000000"
 
+    # C37.111 7.4.8 explicitly allows the stamp to be absent: the commas may
+    # follow each other, or the field may be filled with zeros. Neither is a
+    # broken file, so neither may stop it opening.
+    if not date_str or set(date_str) <= set("0/-:. "):
+        return NO_DATETIME
+
     if "-" in date_str and "/" not in date_str:
         # yyyy-mm-dd, as some exports write it
         y, m, d = date_str.split("-")
@@ -338,17 +374,24 @@ def _parse_dat_ascii_lines(lines: list, cfg: dict) -> EventRecord:
         if len(parts) < expected:
             continue  # skip malformed rows
 
+        # Stage the whole row and commit it only if every field parsed.
+        # C37.111 8.4 writes a missing analog value as a null field, so a real
+        # export does hit the failure path — and appending as we went left the
+        # timestamp and the channels before the bad one one sample longer than
+        # the rest. Ragged channels do not raise here; they surface much later
+        # as nonsense in the analysis.
         try:
-            ts = float(parts[1]) * timemult   # microseconds
-            timestamps.append(ts)
-
-            for i in range(n_analog):
-                analog_raw[i].append(float(parts[2 + i]))
-
-            for i in range(n_digital):
-                digital_raw[i].append(int(parts[2 + n_analog + i]))
+            ts     = float(parts[1]) * timemult   # microseconds
+            arow   = [float(parts[2 + i]) for i in range(n_analog)]
+            drow   = [int(parts[2 + n_analog + i]) for i in range(n_digital)]
         except (ValueError, IndexError):
             continue
+
+        timestamps.append(ts)
+        for i, v in enumerate(arow):
+            analog_raw[i].append(v)
+        for i, v in enumerate(drow):
+            digital_raw[i].append(v)
 
     return _build_record(np.array(timestamps), analog_raw, digital_raw, cfg)
 
@@ -367,60 +410,87 @@ def _parse_dat_binary_bytes(data: bytes, cfg: dict) -> EventRecord:
     """
     Parse binary DAT content.
 
-    Per-sample layout (little-endian):
+    Per-sample layout (little-endian), C37.111 8.6:
       uint32   sequence number
-      uint32   timestamp (microseconds × timemult)
-      int16    × n_analog   (raw analog values, signed)
-      uint16   × ⌈n_digital/16⌉  (digital channels packed LSB-first per word)
+      uint32   timestamp (× timemult)
+      analog   × n_analog   — int16 (BINARY), int32 (BINARY32), float32 (FLOAT32)
+      uint16   × ⌈n_digital/16⌉  (status channels packed LSB-first per word)
+
+    Read as one structured array rather than a per-sample struct loop: a
+    128 samples/cycle export of a two-second record is ~15 000 samples, and
+    the loop cost showed up on real files.
     """
     n_analog   = cfg["n_analog"]
     n_digital  = cfg["n_digital"]
     timemult   = cfg["timemult"]
     n_dig_words = (n_digital + 15) // 16   # ceil(nD/16)
+    analog_dt   = _ANALOG_DTYPE[cfg["file_type"]]
 
-    # Bytes per sample
-    sample_size = 4 + 4 + 2 * n_analog + 2 * n_dig_words
+    dt = np.dtype([
+        ("n",  "<u4"),
+        ("ts", "<u4"),
+        ("a",  analog_dt, (n_analog,)),
+        ("d",  "<u2",     (n_dig_words,)),
+    ])
 
-    timestamps  = []
-    analog_raw  = [[] for _ in range(n_analog)]
-    digital_raw = [[] for _ in range(n_digital)]
+    # A truncated final sample is a real occurrence on an interrupted
+    # download; take the whole samples and drop the tail rather than raising.
+    n_samples = len(data) // dt.itemsize
+    rows = np.frombuffer(data, dtype=dt, count=n_samples)
 
-    n_data = len(data)
-    offset = 0
+    timestamps = rows["ts"].astype(np.float64) * timemult
+    analog_raw = [rows["a"][:, i].astype(np.float64) for i in range(n_analog)]
 
-    while offset + sample_size <= n_data:
-        # Sequence number (not used in analysis but consumed)
-        offset += 4
+    digital_raw = []
+    for i in range(n_digital):
+        word = rows["d"][:, i // 16]
+        digital_raw.append((word >> (i % 16)) & 1)
 
-        # Timestamp
-        ts = struct.unpack_from("<I", data, offset)[0] * timemult
-        offset += 4
-        timestamps.append(ts)
-
-        # Analog channels (signed 16-bit)
-        for i in range(n_analog):
-            val = struct.unpack_from("<h", data, offset)[0]
-            offset += 2
-            analog_raw[i].append(float(val))
-
-        # Digital words (16 channels per uint16)
-        dig_words = []
-        for _ in range(n_dig_words):
-            word = struct.unpack_from("<H", data, offset)[0]
-            offset += 2
-            dig_words.append(word)
-
-        for i in range(n_digital):
-            word_idx = i // 16
-            bit_idx  = i % 16
-            digital_raw[i].append((dig_words[word_idx] >> bit_idx) & 1)
-
-    return _build_record(np.array(timestamps), analog_raw, digital_raw, cfg)
+    return _build_record(timestamps, analog_raw, digital_raw, cfg)
 
 
 # ---------------------------------------------------------------------------
 # Record assembly
 # ---------------------------------------------------------------------------
+
+def _time_from_rates(n_samples: int, sample_rates: list):
+    """
+    Sample times in seconds from the CFG rate sections, or None if the CFG
+    does not carry usable ones.
+
+    C37.111 7.4.7: the DAT timestamp is non-critical when nrates and samp are
+    nonzero, and "use of nrates and samp variables is preferred for precise
+    timing". Vendors take that literally — a relay that populates nrates is
+    entitled to write zeros down the whole timestamp column, and reading time
+    from it then gives every sample t=0, which reaches the analysis as a
+    record with no duration and no sample rate.
+    """
+    if not sample_rates or n_samples == 0:
+        return None
+    if any(s["rate"] <= 0 for s in sample_rates):
+        return None
+
+    time = np.empty(n_samples, dtype=np.float64)
+    first = 0        # 0-based index of the first sample in this section
+    t0 = 0.0
+    for sec in sample_rates:
+        last = min(int(sec["end_sample"]), n_samples)   # 1-based, inclusive
+        if last <= first:
+            continue
+        count = last - first
+        step = 1.0 / sec["rate"]
+        time[first:last] = t0 + np.arange(count) * step
+        t0 += count * step
+        first = last
+
+    if first < n_samples:
+        # endsamp under-reports the DAT — extend at the last known rate rather
+        # than leaving the tail uninitialised.
+        step = 1.0 / sample_rates[-1]["rate"]
+        time[first:] = t0 + np.arange(n_samples - first) * step
+
+    return time
+
 
 def _build_record(timestamps_us: np.ndarray, analog_raw: list,
                   digital_raw: list, cfg: dict) -> EventRecord:
@@ -428,9 +498,23 @@ def _build_record(timestamps_us: np.ndarray, analog_raw: list,
     Convert raw parsed arrays into a fully-scaled EventRecord.
 
     Scaling: engineering_value = a * raw_integer + b
-    Time vector: convert microseconds to seconds (relative to recording start).
+    Time vector: from the CFG sample rates where they exist, else the DAT
+    timestamp column.
     """
-    time = timestamps_us * 1e-6  # µs → s
+    # Everything downstream indexes the channels with the same integers it
+    # uses on the time vector, so they have to be the same length. Truncating
+    # to the shortest is the honest reading of a short row: the samples up to
+    # there are real.
+    n_samples = min([len(timestamps_us)]
+                    + [len(c) for c in analog_raw]
+                    + [len(c) for c in digital_raw])
+    timestamps_us = np.asarray(timestamps_us, dtype=np.float64)[:n_samples]
+    analog_raw  = [c[:n_samples] for c in analog_raw]
+    digital_raw = [c[:n_samples] for c in digital_raw]
+
+    time = _time_from_rates(n_samples, cfg["sample_rates"])
+    if time is None:
+        time = timestamps_us * 1e-6  # µs → s
 
     # Apply scaling to each analog channel
     analog_channels: dict = {}

@@ -14,6 +14,14 @@ from typing import Optional
 
 _LINE_FREQ_HZ = 60.0
 
+# The utility's two clearing-time standards. They are not alternatives: the
+# first is what protection has to meet with wildfire (EPSS) settings in force,
+# the second is the everyday Tier 1 limit that applies on any day. A trip can
+# miss the first and meet the second, which is the whole point of screening
+# for EPSS exposure before a WSO day.
+DEFAULT_SLOW_TRIP_CYCLES = 30.0      # wildfire / EPSS: 30 cycles = 500 ms at 60 Hz
+DEFAULT_CLEARING_STANDARD_S = 2.0    # Tier 1 non-wildfire: 2 s = 120 cycles at 60 Hz
+
 # flag_key → (priority, short label, one-line description)
 _FLAGS = {
     "hif_suspect":    (1, "HIF Suspect",
@@ -28,8 +36,15 @@ _FLAGS = {
                        "settings the same fault may trip this device instead, taking out everything "
                        "downstream of it with no reclose. Check coordination before a WSO day."),
     "slow_trip":      (1, "Slow Trip",
-                       "Trip time exceeds configured threshold — possible coordination failure, "
-                       "CT saturation, or relay setting drift"),
+                       "Cleared slower than the wildfire (EPSS) clearing standard. On an EPSS "
+                       "day this operation would not have met it — check coordination, CT "
+                       "saturation and relay setting drift before the next WSO day."),
+    "over_clearing_standard":
+                      (1, "Over Clearing Standard",
+                       "Cleared slower than the everyday Tier 1 clearing standard as well, so "
+                       "this is not only a wildfire-settings concern. A clearing time this long "
+                       "means the fault was carried by a backup element, not the one that should "
+                       "have seen it."),
     "llg_fault":      (2, "LLG Fault",
                        "Double line-to-ground fault — two conductors involved, elevated damage potential"),
     "multiple_shots": (2, "Multiple Reclose Shots",
@@ -50,15 +65,20 @@ _TRIGGERS = {
                        "(smallest > 0.7 x largest)", "—"),
     "no_trip":        ("Fault inception detected but no TRIP channel rising edge",
                        "device pickup settings (normal vs EPSS)"),
-    "slow_trip":      ("Fault inception → trip exceeds the slow-trip threshold",
+    "slow_trip":      ("Fault inception → trip exceeds the wildfire clearing standard",
                        "config.json → triage.slow_trip_cycles"),
+    "over_clearing_standard":
+                      ("Fault inception → trip exceeds the non-wildfire Tier 1 "
+                       "clearing standard", "config.json → triage.clearing_standard_s"),
     "llg_fault":      ("Fault classified LLG — two phases elevated with measurable "
                        "zero-sequence current", "—"),
     "multiple_shots": ("Two or more reclose shots before clearing, without lockout", "—"),
 }
 
 
-def rule_table(slow_trip_cycles: float = 10.0, line_freq_hz: float = _LINE_FREQ_HZ) -> list:
+def rule_table(slow_trip_cycles: float = DEFAULT_SLOW_TRIP_CYCLES,
+               clearing_standard_s: float = DEFAULT_CLEARING_STANDARD_S,
+               line_freq_hz: float = _LINE_FREQ_HZ) -> list:
     """
     The triage rules as data, for display and for export to the dashboard.
 
@@ -71,6 +91,9 @@ def rule_table(slow_trip_cycles: float = 10.0, line_freq_hz: float = _LINE_FREQ_
         if key == "slow_trip":
             ms = slow_trip_cycles * (1000.0 / line_freq_hz)
             trigger += f" ({slow_trip_cycles:g} cycles = {ms:.0f} ms at {line_freq_hz:g} Hz)"
+        elif key == "over_clearing_standard":
+            cyc = clearing_standard_s * line_freq_hz
+            trigger += f" ({clearing_standard_s:g} s = {cyc:.0f} cycles at {line_freq_hz:g} Hz)"
         out.append({
             "key": key, "priority": priority, "label": label,
             "description": note, "trigger": trigger, "setting": setting,
@@ -82,7 +105,8 @@ def rule_table(slow_trip_cycles: float = 10.0, line_freq_hz: float = _LINE_FREQ_
 def triage_event(
     summary: dict,
     feeder_data: Optional[dict] = None,
-    slow_trip_cycles: float = 10.0,
+    slow_trip_cycles: float = DEFAULT_SLOW_TRIP_CYCLES,
+    clearing_standard_s: float = DEFAULT_CLEARING_STANDARD_S,
 ) -> dict:
     """
     Assign a review priority and flag list to an event.
@@ -92,8 +116,12 @@ def triage_event(
     summary          : dict from compute_event_summary()
     feeder_data      : dict from compute_feeder_summary(), or None if feeder
                        analysis was not run (flags that require it are skipped)
-    slow_trip_cycles : trip-delay threshold in cycles; events slower than this
-                       receive the 'slow_trip' Priority-1 flag (default 10 = 167 ms)
+    slow_trip_cycles : the wildfire (EPSS) clearing standard, in cycles; trips
+                       slower than this get the 'slow_trip' Priority-1 flag
+                       (default 30 = 500 ms at 60 Hz)
+    clearing_standard_s : the everyday Tier 1 clearing standard, in seconds;
+                       trips slower than this additionally get the
+                       'over_clearing_standard' flag (default 2 s = 120 cycles)
 
     Returns
     -------
@@ -140,12 +168,22 @@ def triage_event(
             f"inception at {summary['fault_inception_s'] * 1000:.1f} ms, "
             f"no TRIP edge in the record")
 
+    # Two rungs on one ladder, and the second is strictly worse. They stack
+    # rather than replace each other: a 2.5 s clearing time misses the
+    # wildfire standard too, and dropping 'slow_trip' there would hide the
+    # EPSS-day finding on exactly the events where it matters most.
     trip_ms = summary.get("trip_delay_ms")
     if trip_ms is not None and trip_ms > slow_trip_ms:
         flags.append("slow_trip")
         evidence["slow_trip"] = (
-            f"{trip_ms:.1f} ms to trip, threshold {slow_trip_ms:.1f} ms "
+            f"{trip_ms:.1f} ms to trip, wildfire standard {slow_trip_ms:.1f} ms "
             f"({slow_trip_cycles:g} cycles)")
+
+    if trip_ms is not None and trip_ms > clearing_standard_s * 1000.0:
+        flags.append("over_clearing_standard")
+        evidence["over_clearing_standard"] = (
+            f"{trip_ms / 1000.0:.2f} s to trip, Tier 1 non-wildfire standard "
+            f"{clearing_standard_s:g} s")
 
     # ── Priority 2 checks ────────────────────────────────────────────────────
 

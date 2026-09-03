@@ -42,6 +42,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from .topology import PMH_WAYS
+from .triage import DEFAULT_SLOW_TRIP_CYCLES
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -53,6 +54,11 @@ from .topology import PMH_WAYS
 EVENTS_DIRNAME = "incident_events"
 
 F0 = 60.0                       # power frequency, Hz — US distribution
+
+# Read from triage rather than written down here. The generator's ground truth
+# and the classifier have to agree on where a slow trip starts, and the way
+# they drift is one of them carrying its own copy of the number.
+SLOW_TRIP_MS = DEFAULT_SLOW_TRIP_CYCLES * (1000.0 / F0)
 PHASE_ANGLE = {"A": 0.0, "B": -2 * np.pi / 3, "C": 2 * np.pi / 3}
 SAMPLE_RATES = [960, 1920, 1920, 1920, 3840]     # weighted toward 1920 Hz
 T_PRE = 0.050                   # pre-fault run-up, s (≥3 cycles for the baseline)
@@ -702,6 +708,7 @@ _TEMPLATE_WEIGHTS = {
     "lockout_2shot":       9,
     "lockout_3shot":       9,
     "slow_trip":           8,
+    "over_clearing":       3,   # slower than the everyday Tier 1 standard too
     "no_trip":             5,
     "hif":                 6,
     "reclose_1_perm":      7,   # reclosed, faulted again, record ends mid-sequence
@@ -785,7 +792,12 @@ def build_scenario(idx: int, rng: random.Random, device: Device,
         i_fault = rng.uniform(*HIF_FAULT_PEAK)
 
     fast_ms = lambda: rng.uniform(0.016, 0.040)
-    slow_ms = lambda: rng.uniform(0.200, 0.420)
+    # Past the wildfire clearing standard (30 cycles = 500 ms) but inside the
+    # everyday Tier 1 one (2 s). These used to be 200-420 ms, which was slow
+    # against the old made-up 10-cycle threshold and is comfortably fast
+    # against the real one — the template would have generated no slow trips.
+    slow_ms = lambda: rng.uniform(0.55, 1.40)
+    over_standard_ms = lambda: rng.uniform(2.2, 3.4)
     dead1 = lambda: rng.uniform(0.45, 1.10)
     dead2 = lambda: rng.uniform(1.20, 2.20)
     tail = lambda: rng.uniform(0.30, 0.55)
@@ -808,6 +820,15 @@ def build_scenario(idx: int, rng: random.Random, device: Device,
         expect_wso = "INDETERMINATE"
         expect_flags.append("slow_trip")
 
+    elif template == "over_clearing":
+        # Carried by a backup element: past both clearing standards, so it
+        # fires the wildfire flag and the everyday one together.
+        op = over_standard_ms()
+        shots.append(Shot(t_f1, t_f1 + op, _ground_element(ftype, False), None))
+        t_total = t_f1 + op + rng.uniform(0.12, 0.25)
+        expect_wso = "INDETERMINATE"
+        expect_flags += ["slow_trip", "over_clearing_standard"]
+
     elif template == "no_trip":
         # Fault appears and self-extinguishes; no TRIP bit ever asserts.
         clear = t_f1 + rng.uniform(0.05, 0.12)
@@ -822,7 +843,7 @@ def build_scenario(idx: int, rng: random.Random, device: Device,
         t_total = t_f1 + op + rng.uniform(0.15, 0.30)
         expect_wso = "INDETERMINATE"
         expect_flags.append("hif_suspect")
-        if op * 1000 > 10 * (1000 / F0):
+        if op * 1000 > SLOW_TRIP_MS:
             expect_flags.append("slow_trip")
 
     elif template == "reclose_1_success":
@@ -897,8 +918,8 @@ def build_scenario(idx: int, rng: random.Random, device: Device,
 
     # Slow first-shot operate times trip the coordination flag too
     first = shots[0]
-    if first.t_trip is not None and template not in ("slow_trip", "hif"):
-        if (first.t_trip - first.t_fault) * 1000 > 10 * (1000 / F0):
+    if first.t_trip is not None and template not in ("slow_trip", "over_clearing", "hif"):
+        if (first.t_trip - first.t_fault) * 1000 > SLOW_TRIP_MS:
             expect_flags.append("slow_trip")
 
     ts = base_date + timedelta(

@@ -53,7 +53,8 @@ from .analysis import (
     estimate_dc_offset,
 )
 from .feeder_analysis import compute_feeder_summary
-from .triage import rule_table, triage_event
+from .triage import (rule_table, triage_event,
+                     DEFAULT_SLOW_TRIP_CYCLES, DEFAULT_CLEARING_STANDARD_S)
 from .fleet_gen import EVENTS_DIRNAME
 from .incidents import clock_suspects, group_events
 from .wso_impact import (
@@ -361,7 +362,7 @@ def analyze_one(args: tuple) -> dict:
 
     Runs in a worker process, so it takes a plain tuple and returns plain data.
     """
-    filepath, feeder_z, slow_trip_cycles, wave_opts, settings_opts = args
+    filepath, feeder_z, triage_opts, wave_opts, settings_opts = args
     basename = os.path.basename(filepath)
     out = {"file": basename, "path": filepath, "ok": False, "error": None}
 
@@ -378,7 +379,7 @@ def analyze_one(args: tuple) -> dict:
     # always contain something surprising. Report the file and keep going.
     try:
         return _analyze_parsed(out, record, basename, feeder_z,
-                               slow_trip_cycles, wave_opts, settings_opts)
+                               triage_opts, wave_opts, settings_opts)
     except Exception as exc:                       # noqa: BLE001
         out["ok"] = False
         out["error"] = f"{type(exc).__name__}: {exc}"
@@ -394,9 +395,10 @@ def analyze_one(args: tuple) -> dict:
         return out
 
 
-def _analyze_parsed(out, record, basename, feeder_z, slow_trip_cycles,
+def _analyze_parsed(out, record, basename, feeder_z, triage_opts,
                     wave_opts, settings_opts):
     """The per-file analysis, once the record is in hand."""
+    slow_trip_cycles, clearing_standard_s = triage_opts
     # Everything below assumes channels were recognised and scaled sensibly.
     # Say so plainly when they were not, rather than emitting confident numbers.
     findings = check_record(record, basename)
@@ -407,7 +409,8 @@ def _analyze_parsed(out, record, basename, feeder_z, slow_trip_cycles,
         feeder_impedance_ohm_per_mile=feeder_z,
         hif_threshold_a=HIF_THRESHOLD_A,
     )
-    tri = triage_event(summary, feeder, slow_trip_cycles=slow_trip_cycles)
+    tri = triage_event(summary, feeder, slow_trip_cycles=slow_trip_cycles,
+                       clearing_standard_s=clearing_standard_s)
     wso = classify_event(feeder, summary,
                          record_end_ms=float(record.duration_s()) * 1000.0)
 
@@ -1089,8 +1092,15 @@ def main():
                    default=cfg.get("wso", {}).get("epss_tiers", [2, 3]), metavar="N",
                    help="Risk tiers receiving EPSS treatment")
     p.add_argument("--slow-trip-cycles", type=float,
-                   default=cfg.get("triage", {}).get("slow_trip_cycles", 10.0), metavar="CYC",
-                   help="Trip-delay threshold for the slow_trip flag")
+                   default=cfg.get("triage", {}).get(
+                       "slow_trip_cycles", DEFAULT_SLOW_TRIP_CYCLES), metavar="CYC",
+                   help="Wildfire (EPSS) clearing standard; slower trips get the "
+                        "slow_trip flag (default 30 cycles = 500 ms at 60 Hz)")
+    p.add_argument("--clearing-standard-s", type=float,
+                   default=cfg.get("triage", {}).get(
+                       "clearing_standard_s", DEFAULT_CLEARING_STANDARD_S), metavar="SEC",
+                   help="Everyday Tier 1 clearing standard; slower trips additionally "
+                        "get the over_clearing_standard flag (default 2 s)")
     p.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 4) - 1),
                    help="Parallel worker processes")
     p.add_argument("--settings", metavar="FILE",
@@ -1136,7 +1146,9 @@ def main():
     wave_opts = None if args.no_waveforms else tuple(args.waveform_buckets)
     settings_opts = ((args.settings, args.settings_primary)
                      if getattr(args, 'settings', None) else None)
-    payload = [(f, args.feeder_z, args.slow_trip_cycles, wave_opts, settings_opts)
+    triage_opts = (getattr(args, 'slow_trip_cycles', DEFAULT_SLOW_TRIP_CYCLES),
+                   getattr(args, 'clearing_standard_s', DEFAULT_CLEARING_STANDARD_S))
+    payload = [(f, args.feeder_z, triage_opts, wave_opts, settings_opts)
                for f in files]
     if args.jobs > 1 and len(files) > 4:
         with ProcessPoolExecutor(max_workers=args.jobs) as pool:
@@ -1188,11 +1200,12 @@ def main():
             "epss_tiers": args.epss_tiers,
             "epss_max_shots": 0,
             "response_hours": args.response_hours,
-            "slow_trip_cycles": args.slow_trip_cycles,
+            "slow_trip_cycles": triage_opts[0],
+            "clearing_standard_s": triage_opts[1],
             "hif_threshold_a": HIF_THRESHOLD_A,
             "waveforms": bool(wave_opts),
         },
-        "triage_rules":  rule_table(args.slow_trip_cycles),
+        "triage_rules":  rule_table(*triage_opts),
         "epss_classes":  class_table(),
         "files_found": len(files),
         "parse_errors": parse_errors,

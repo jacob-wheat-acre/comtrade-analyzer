@@ -215,6 +215,32 @@ priorities opaque in the first place.
 Priority is the minimum over the flags that fired; `reasons[].decisive` marks
 which ones set it, and the page greys the rest.
 
+**Clearing time is measured against TWO standards, and they stack.** The
+utility has two and they are not alternatives:
+
+| Flag | Default | Standard |
+|---|---|---|
+| `slow_trip` | `triage.slow_trip_cycles` = **30 cyc** (500 ms at 60 Hz) | wildfire / EPSS |
+| `over_clearing_standard` | `triage.clearing_standard_s` = **2 s** (120 cyc) | everyday Tier 1 non-wildfire |
+
+A trip can miss the first and meet the second — that is the whole point of
+screening for EPSS exposure before a WSO day. Past 2 s both fire: dropping
+`slow_trip` there would hide the EPSS-day finding on exactly the events where
+it matters most. `DEFAULT_SLOW_TRIP_CYCLES` / `DEFAULT_CLEARING_STANDARD_S` in
+`triage.py` are the single source; `config.json`, both argparsers, the GUI
+namespace and `fleet_gen.SLOW_TRIP_MS` all read them rather than writing the
+number down again. The old threshold was 10 cycles and was invented.
+
+The two travel together as `triage_opts`, a pair in the worker payload beside
+`wave_opts` and `settings_opts` — a second positional float in that tuple is
+how `batch` and `fleet_analyze` would drift.
+
+**`fleet_gen` had to move with it.** `slow_ms` generated 200-420 ms, slow
+against the invented 10-cycle threshold and comfortably *fast* against the real
+one, so the `slow_trip` template would have produced no slow trips and the
+ground truth would have claimed otherwise. It is now 0.55-1.40 s, with a new
+`over_clearing` template at 2.2-3.4 s so the demo exercises both rungs.
+
 ## Feeder connectivity
 
 `topology.py` is the mainline model: **connectivity only** — no impedance, no
@@ -804,6 +830,42 @@ one file, the entire run, with a traceback and no results:
   already wrapped; everything after it was not. A folder of real events always
   contains something surprising — report that file and keep going.
 
+Four more found by reading the standard rather than the fixtures, all of them
+legal COMTRADE the generators never write. `TestTheParserFollowsC37111` holds
+one written-out fixture per clause, because nothing else reaches them:
+
+- **There are FOUR data file types, not two** (7.4.9): ASCII, BINARY,
+  BINARY32, FLOAT32. `_ANALOG_DTYPE` is the table; the dispatch is
+  `file_type in _ANALOG_DTYPE`, never `== "BINARY"`. A relay that offers
+  "Binary32" in its export menu writes that word into the CFG, and an exact
+  match sent it down the ASCII path where every row failed and the record came
+  out **empty with no error**.
+- **`nrates = 0` still has a rate line** (7.4.7). Zero means the sample period
+  is not fixed; a `0,endsamp` line follows regardless. Reading none leaves the
+  parser one line out of step and the start date is parsed from `0,<count>`.
+  Hence `range(max(n_rates, 1))`.
+- **Time comes from the CFG sample rate, not the DAT timestamp column**
+  (7.4.7: the timestamp is non-critical when nrates and samp are nonzero, and
+  the rate is "preferred for precise timing"). Vendors take that literally and
+  zero the column. `_time_from_rates` is tried first and the timestamps are the
+  fallback — the other order gave every sample t=0, so the record reached the
+  analysis with no duration and no sample rate.
+- **The date/time stamp may be blank or zero-filled** (7.4.8) and that is not a
+  broken file. `NO_DATETIME` is the sentinel; compare against it rather than
+  testing for a year. The waveform still analyses, it just cannot be placed on
+  a timeline.
+
+And one that raised nothing at all: **a null analog field** (8.4, how the
+standard writes a missing value) made the ASCII reader append the timestamp and
+the channels before the bad one, then bail — leaving channels of *different
+lengths*. `_parse_dat_ascii_lines` stages a whole row and commits it only if
+every field parsed, and `_build_record` truncates to the shortest anyway.
+Ragged channels do not raise; they surface much later as nonsense.
+
+`EXPORT_GUIDE.md` is the user-facing half of all this — what to ask the relay
+for, with the clause numbers. Written to be handed to whoever configures the
+exports, and reproduced in the GUI's Help dialog. Keep the two in step.
+
 ## Windows portability
 
 Developed on macOS, run on Windows. Three things that only fail over there:
@@ -1008,6 +1070,11 @@ This repo follows the pq-analyzer layout for distribution to colleagues:
 diagnostic to run before asking anyone for help, and `.bat` launchers for
 double-click use on Windows. Keep those three in step with any change to
 installation or dependencies.
+
+`EXPORT_GUIDE.md` is the fourth: what to ask the relay for, cited to C37.111,
+written to be handed to whoever configures the exports rather than read here.
+Its substance is duplicated in the GUI's Help dialog because that is where
+someone actually stuck will look — change one and change the other.
 
 ## Keeping this file current
 

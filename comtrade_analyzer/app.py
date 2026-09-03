@@ -616,6 +616,7 @@ class COMTRADEApp(tk.Tk):
         import webbrowser
         from .batch import sweep
         from .fleet_analyze import load_config
+        from .triage import DEFAULT_SLOW_TRIP_CYCLES, DEFAULT_CLEARING_STANDARD_S
         from .wso_impact import load_registry
 
         folder = params["path"]
@@ -651,7 +652,10 @@ class COMTRADEApp(tk.Tk):
             no_waveforms=False,
             waveform_buckets=[180, 280],
             feeder_z=feeder.get("feeder_z") or 0.4,
-            slow_trip_cycles=cfg.get("triage", {}).get("slow_trip_cycles", 10.0),
+            slow_trip_cycles=cfg.get("triage", {}).get(
+                "slow_trip_cycles", DEFAULT_SLOW_TRIP_CYCLES),
+            clearing_standard_s=cfg.get("triage", {}).get(
+                "clearing_standard_s", DEFAULT_CLEARING_STANDARD_S),
             epss_tiers=cfg.get("wso", {}).get("epss_tiers", [2, 3]),
             response_hours=cfg.get("wso", {}).get("avg_response_hours", 2.0),
             # Found beside the events when absent. Drives the feeder one-line
@@ -1079,6 +1083,49 @@ class COMTRADEApp(tk.Tk):
                 "Expand this section to fill in the engineer sign-off block\n"
                 "at the end of the Word report:\n"
                 "  Name, Title, Contact (phone / email)")
+
+        section("Exporting Events From The Relay")
+
+        concept("Why every event is two files",
+                "A COMTRADE record is a SET of files sharing one basename.\n"
+                "Copy them together and never rename one without the other.\n"
+                "\n"
+                "  .cfg   Required.  Channel names, units, the scaling that\n"
+                "         turns stored integers into amps and volts, sample\n"
+                "         rate, line frequency, start and trigger times.\n"
+                "  .dat   Required.  The samples themselves — raw integers.\n"
+                "  .hdr   Optional.  Free-form notes.  Not needed.\n"
+                "  .inf   Optional.  Extra structured info.  Not needed.\n"
+                "\n"
+                "A .dat on its own is unreadable: the multiplier and offset\n"
+                "that give it engineering units live in the .cfg.\n"
+                "\n"
+                "The 2013 revision also allows a single .cff carrying all\n"
+                "four sections.  This tool reads that too.")
+
+        concept("What to export  —  and why downloads are slow",
+                "Ask for:  2013 revision, BINARY, 16 samples/cycle, RAW,\n"
+                "with at least 2 cycles of pre-fault data.\n"
+                "\n"
+                "  Binary, not ASCII\n"
+                "    The same data, about 4.5x smaller on a typical feeder\n"
+                "    record.  The standard recommends binary for large files\n"
+                "    outright.  Nothing is lost — only the encoding changes.\n"
+                "    If remote downloads are slow, this is the fix.\n"
+                "\n"
+                "  16 samples/cycle\n"
+                "    Enough for RMS, DFT phasors, sequence components and\n"
+                "    trip timing.  32 works and doubles the size; 128 is for\n"
+                "    harmonics work.  4/cycle can only represent up to the\n"
+                "    2nd harmonic and gives wrong phasors and timing.\n"
+                "\n"
+                "  Raw, not filtered\n"
+                "    The relay's filter strips DC offset and smears the fault\n"
+                "    inception edge — the two things this tool measures. You\n"
+                "    can filter raw data later; you cannot unfilter it.\n"
+                "\n"
+                "EXPORT_GUIDE.md in the repo has the full version with the\n"
+                "C37.111 clause numbers, to hand to whoever sets up exports.")
 
         section("Feeder / Recloser Analysis")
 

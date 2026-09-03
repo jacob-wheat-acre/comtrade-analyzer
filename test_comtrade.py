@@ -1085,9 +1085,9 @@ class TestTriageRulesAreASingleSourceOfTruth:
 
     def test_a_fired_flag_carries_its_evidence(self):
         out = triage_event({"fault_type": "SLG", "fault_inception_s": 0.05,
-                            "trip_time_s": 0.39, "trip_delay_ms": 339.3})
+                            "trip_time_s": 0.66, "trip_delay_ms": 612.5})
         reason = next(r for r in out["reasons"] if r["key"] == "slow_trip")
-        assert "339.3 ms" in reason["evidence"] and "166.7 ms" in reason["evidence"]
+        assert "612.5 ms" in reason["evidence"] and "500.0 ms" in reason["evidence"]
         assert reason["decisive"] is True
 
     def test_the_dashboard_does_not_hardcode_priorities(self):
@@ -3444,8 +3444,234 @@ class TestRealExportsDoNotStopTheRun:
         good = sorted((self.ROOT / "demo" / "incident_events").glob("*.cfg"))
         if not good:
             pytest.skip("demo corpus not present")
-        out = fa.analyze_one((str(good[0]), 0.4, 10.0, None, None))
+        out = fa.analyze_one((str(good[0]), 0.4, (30.0, 2.0), None, None))
         assert out["ok"] is False
         assert "boom" in out["error"]
         assert out["diagnosis"]["code"] == "analysis_failed"
         assert "Every other file" in out["diagnosis"]["fix"]
+
+
+# ---------------------------------------------------------------------------
+# 33. The parser against the standard, not against the fixtures
+# ---------------------------------------------------------------------------
+
+class TestTheParserFollowsC37111:
+    """
+    Checked against IEEE Std C37.111-2013 clause by clause. Every case here is
+    legal COMTRADE that the generators never produce, so only a written-out
+    fixture catches it — and each one either refused to open a real file or
+    read it wrongly without saying so.
+    """
+
+    N = 128
+    RATE = 1920.0            # 32 samples/cycle at 60 Hz
+
+    def _cfg(self, file_type, nrates=1, start="01/01/2024,00:00:00.000000"):
+        lines = [
+            "STN,DEV_1,2013", "3,2A,1D",
+            "1,IA,A,,A,1.0,0.0,0,-32767,32767,1,1,P",
+            "2,VA,A,,V,10.0,0.0,0,-32767,32767,1,1,P",
+            "1,TRIP,,,0", "60",
+        ]
+        lines += ["1", f"{self.RATE:g},{self.N}"] if nrates else ["0", f"0,{self.N}"]
+        lines += [start, "01/01/2024,00:00:00.010000", file_type, "1.0"]
+        return "\r\n".join(lines) + "\r\n"
+
+    def _write(self, tmp_path, file_type, nrates=1, zero_ts=False,
+               start="01/01/2024,00:00:00.000000"):
+        """One synthetic record in the requested encoding. Returns the .cfg."""
+        import numpy as np
+        base = tmp_path / "rec"
+        base.with_suffix(".cfg").write_text(
+            self._cfg(file_type, nrates, start), encoding="utf-8")
+
+        t = np.arange(self.N) / self.RATE
+        ia = 1000.0 * np.sin(2 * np.pi * 60 * t)
+        va = 700.0 * np.cos(2 * np.pi * 60 * t)
+        trip = (np.arange(self.N) > 64).astype(int)
+        ts = np.zeros(self.N) if zero_ts else np.arange(self.N) * (1e6 / self.RATE)
+
+        if file_type == "ASCII":
+            rows = [f"{i + 1},{int(ts[i])},{ia[i]:.0f},{va[i] / 10:.0f},{trip[i]}"
+                    for i in range(self.N)]
+            base.with_suffix(".dat").write_text("\r\n".join(rows) + "\r\n",
+                                                encoding="utf-8")
+        else:
+            width = {"BINARY": "<i2", "BINARY32": "<i4", "FLOAT32": "<f4"}[file_type]
+            dt = np.dtype([("n", "<u4"), ("ts", "<u4"),
+                           ("a", width, (2,)), ("d", "<u2", (1,))])
+            rows = np.zeros(self.N, dtype=dt)
+            rows["n"] = np.arange(1, self.N + 1)
+            rows["ts"] = ts.astype("<u4")
+            rows["a"][:, 0] = ia
+            rows["a"][:, 1] = va / 10.0
+            rows["d"][:, 0] = trip
+            base.with_suffix(".dat").write_bytes(rows.tobytes())
+        return str(base.with_suffix(".cfg"))
+
+    # -- 7.4.9: four data file types, not one -------------------------------
+
+    @pytest.mark.parametrize("file_type", ["ASCII", "BINARY", "BINARY32", "FLOAT32"])
+    def test_every_encoding_the_standard_defines_reads_the_same(self, tmp_path, file_type):
+        """
+        Clause 7.4.9 names ASCII, binary, binary32 and float32, and a relay
+        that offers "Binary32" in its export menu writes that word into the
+        CFG. Matching only "BINARY" sent those down the ASCII path, where
+        every row failed to parse and the record came out empty — no error,
+        just nothing.
+        """
+        from comtrade_analyzer.comtrade_parser import COMTRADEParser
+        rec = COMTRADEParser().parse(self._write(tmp_path, file_type))
+        assert len(rec.time) == self.N
+        assert rec.analog_channels["IA"].max() == pytest.approx(1000, abs=2)
+        assert rec.analog_channels["VA"].max() == pytest.approx(700, abs=12)
+        assert int(np.sum(np.diff(rec.digital_channels["TRIP"]) > 0)) == 1
+
+    # -- 7.4.7: nrates and the sample rate ----------------------------------
+
+    def test_nrates_zero_still_consumes_its_rate_line(self, tmp_path):
+        """
+        Clause 7.4.7: nrates=0 means the sample period is not fixed, and a
+        line still follows. Reading none left the parser one line out of step
+        and the start date was then read from "0,128" — every file from an
+        event-triggered recorder refused to open.
+        """
+        from comtrade_analyzer.comtrade_parser import COMTRADEParser
+        rec = COMTRADEParser().parse(self._write(tmp_path, "BINARY", nrates=0))
+        assert len(rec.time) == self.N
+        assert rec.metadata["start_time"].year == 2024
+
+    def test_time_comes_from_the_sample_rate_not_the_timestamp_column(self, tmp_path):
+        """
+        Clause 7.4.7 makes the DAT timestamp non-critical when nrates and samp
+        are nonzero, and prefers the rate "for precise timing". A relay that
+        populates nrates may leave the timestamp column zeroed; reading time
+        from it gave every sample t=0, so the record had no duration and no
+        sample rate by the time it reached the analysis.
+        """
+        from comtrade_analyzer.comtrade_parser import COMTRADEParser
+        rec = COMTRADEParser().parse(
+            self._write(tmp_path, "BINARY", zero_ts=True))
+        assert rec.time[1] - rec.time[0] == pytest.approx(1.0 / self.RATE)
+        assert rec.duration_s() > 0
+        assert rec.samples_per_cycle() == pytest.approx(32, abs=0.5)
+
+    # -- 7.4.8: the date may legitimately be missing -------------------------
+
+    @pytest.mark.parametrize("stamp", ["", "00/00/0000,00:00:00.000000"])
+    def test_a_missing_date_does_not_stop_the_file_opening(self, tmp_path, stamp):
+        """
+        Clause 7.4.8 permits the stamp to be absent: the commas may follow
+        each other, or the field may be zero-filled. Neither is a broken file.
+        The record cannot be placed on a timeline, but the waveform is intact
+        and must still be analysed.
+        """
+        from comtrade_analyzer.comtrade_parser import COMTRADEParser, NO_DATETIME
+        rec = COMTRADEParser().parse(
+            self._write(tmp_path, "BINARY", start=stamp or ",00:00:00.000000"))
+        assert rec.metadata["start_time"] == NO_DATETIME
+        assert len(rec.time) == self.N
+        assert rec.analog_channels["IA"].max() == pytest.approx(1000, abs=2)
+
+    # -- 8.4: a null field is missing data, not corruption -------------------
+
+    def test_a_short_ascii_row_never_leaves_channels_of_different_lengths(self, tmp_path):
+        """
+        Clause 8.4 writes a missing analog value as a null field. The parser
+        appended the timestamp and each channel as it went, so a row that
+        failed partway through left the timestamp and the channels before the
+        bad one one sample longer than the rest. Ragged channels raise nothing
+        here; they surface much later as nonsense in the analysis.
+        """
+        from comtrade_analyzer.comtrade_parser import COMTRADEParser
+        cfg = self._write(tmp_path, "ASCII")
+        dat = Path(cfg).with_suffix(".dat")
+        rows = dat.read_text(encoding="utf-8").splitlines()
+        rows[10] = ",".join(["11", "5208", "", "70", "0"])       # null analog
+        dat.write_text("\r\n".join(rows) + "\r\n", encoding="utf-8")
+
+        rec = COMTRADEParser().parse(cfg)
+        lengths = ({len(rec.time)}
+                   | {len(v) for v in rec.analog_channels.values()}
+                   | {len(v) for v in rec.digital_channels.values()})
+        assert len(lengths) == 1, f"ragged record: {lengths}"
+        assert lengths.pop() == self.N - 1
+
+
+# ---------------------------------------------------------------------------
+# 34. Clearing time is measured against two standards
+# ---------------------------------------------------------------------------
+
+class TestTheTwoClearingStandards:
+    """
+    30 cycles is the wildfire (EPSS) clearing standard; 2 seconds is the
+    everyday Tier 1 non-wildfire one. They are rungs on one ladder, not
+    alternatives, and the second is strictly worse.
+    """
+
+    def _summary(self, trip_ms):
+        return {"fault_type": "SLG", "fault_inception_s": 0.05,
+                "trip_time_s": 0.05 + trip_ms / 1000.0, "trip_delay_ms": trip_ms}
+
+    def test_a_fast_trip_fires_neither(self):
+        assert triage_event(self._summary(80.0))["flags"] == []
+
+    def test_past_the_wildfire_standard_fires_only_the_wildfire_flag(self):
+        flags = triage_event(self._summary(700.0))["flags"]
+        assert "slow_trip" in flags
+        assert "over_clearing_standard" not in flags
+
+    def test_past_the_everyday_standard_fires_both(self):
+        """
+        Dropping slow_trip on the worst events would hide the EPSS-day finding
+        on exactly the ones where it matters most, so the flags stack.
+        """
+        flags = triage_event(self._summary(2500.0))["flags"]
+        assert {"slow_trip", "over_clearing_standard"} <= set(flags)
+
+    def test_both_thresholds_are_tunable_and_reported(self):
+        from comtrade_analyzer.triage import rule_table
+        rows = {r["key"]: r for r in rule_table(slow_trip_cycles=20.0,
+                                                clearing_standard_s=1.5)}
+        assert "20 cycles" in rows["slow_trip"]["trigger"]
+        assert "1.5 s" in rows["over_clearing_standard"]["trigger"]
+        assert rows["over_clearing_standard"]["setting"].endswith("clearing_standard_s")
+        assert rows["over_clearing_standard"]["priority"] == 1
+
+        flags = triage_event(self._summary(1800.0), slow_trip_cycles=20.0,
+                             clearing_standard_s=1.5)["flags"]
+        assert "over_clearing_standard" in flags
+
+    def test_the_evidence_names_the_standard_that_was_missed(self):
+        """
+        A bare label without the measured value against the threshold is what
+        made the priorities opaque in the first place.
+        """
+        out = triage_event(self._summary(2500.0))
+        ev = {r["key"]: r["evidence"] for r in out["reasons"]}
+        assert "500.0 ms" in ev["slow_trip"] and "2.50 s" in ev["over_clearing_standard"]
+        assert "2 s" in ev["over_clearing_standard"]
+
+    def test_the_defaults_are_the_utilitys_standards(self):
+        from comtrade_analyzer.triage import (DEFAULT_SLOW_TRIP_CYCLES,
+                                              DEFAULT_CLEARING_STANDARD_S)
+        assert DEFAULT_SLOW_TRIP_CYCLES == 30.0      # 500 ms at 60 Hz
+        assert DEFAULT_CLEARING_STANDARD_S == 2.0
+
+        cfg = json.loads((Path(__file__).parent / "comtrade_analyzer"
+                          / "config.json").read_text(encoding="utf-8"))
+        assert cfg["triage"]["slow_trip_cycles"] == DEFAULT_SLOW_TRIP_CYCLES
+        assert cfg["triage"]["clearing_standard_s"] == DEFAULT_CLEARING_STANDARD_S
+
+    def test_the_clearing_histogram_reaches_the_everyday_standard(self):
+        """
+        The top bin used to be tested as `>= 20 && < 30`, so a three-second
+        clearing time — the worst thing the chart can show — fell out of every
+        bin and was drawn nowhere at all.
+        """
+        src = (Path(__file__).parent / "comtrade_analyzer"
+               / "dashboard_template.html").read_text(encoding="utf-8")
+        block = src.split("function renderTrip()")[1].split("\nfunction ")[0]
+        assert "Infinity" in block, "the top clearing-time bin must be open"
+        assert "clearing_standard_s" in block
+        assert "thresholds:" in block, "both standards must be marked"

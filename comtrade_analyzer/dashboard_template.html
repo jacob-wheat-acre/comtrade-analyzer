@@ -1091,11 +1091,21 @@ function histogram(el, bins, opts = {}) {
     }
   });
 
-  if (opts.threshold) {
-    const tx = padL + opts.threshold.at * slot;
-    s += `<line x1="${tx}" x2="${tx}" y1="${padT - 6}" y2="${padT + plotH}" stroke-width="1" style="stroke:var(--st-critical)"></line>`;
-    s += `<text x="${tx + 5}" y="${padT + 2}" font-size="10.5" style="fill:var(--st-critical)">${esc(opts.threshold.label)}</text>`;
-  }
+  // Marks are an array: clearing time is measured against two standards at
+  // once, and a chart that can only draw one of them cannot say which was
+  // missed. Labels alternate above and below the plot so two marks a single
+  // bin apart do not overprint each other.
+  (opts.thresholds || []).forEach((t, i) => {
+    const tx = padL + t.at * slot;
+    // A mark in the right half labels itself leftwards or the caption runs
+    // off the canvas — and the last standard is, by construction, near the
+    // right edge. Stack the captions so two marks a bin or two apart do not
+    // overprint; the top of the plot is empty where the slow bars are.
+    const end = tx > padL + plotW * 0.55;
+    s += `<line x1="${tx}" x2="${tx}" y1="${padT - 6}" y2="${padT + plotH}" stroke-width="1" stroke-dasharray="3 3" style="stroke:var(--st-critical)"></line>`;
+    s += `<text x="${tx + (end ? -5 : 5)}" y="${padT + 2 + i * 13}" font-size="10.5"` +
+         `${end ? ' text-anchor="end"' : ""} style="fill:var(--st-critical)">${esc(t.label)}</text>`;
+  });
   if (opts.axisLabel) {
     s += `<text x="${padL + plotW / 2}" y="${H - 6}" font-size="10.5" text-anchor="middle" style="fill:var(--muted)">${esc(opts.axisLabel)}</text>`;
   }
@@ -1390,34 +1400,46 @@ function renderShots() {
 }
 
 function renderTrip() {
-  const edges = [0, 1, 2, 3, 5, 10, 15, 20, 30];
-  const thresholdCycles = SET.slow_trip_cycles || 10;
+  // The scale runs to the everyday clearing standard, not just past the
+  // wildfire one. It used to stop at 30 with the top bin tested as `< 30`,
+  // so a three-second clearing time — the worst thing this chart can show —
+  // fell out of every bin and was drawn nowhere at all. The last bin is open.
+  const edges = [0, 1, 2, 3, 5, 10, 20, 30, 60, 120, Infinity];
+  const wildfireCyc = SET.slow_trip_cycles || 30;
+  const standardCyc = (SET.clearing_standard_s || 2) * 60;
+  const cyc = (e) => (e.trip_delay_cycles === null || e.trip_delay_cycles === undefined
+    ? null : e.trip_delay_cycles);
   const bins = edges.slice(0, -1).map((lo, i) => {
     const hi = edges[i + 1];
-    const count = scopedEvents().filter((e) =>
-      e.trip_delay_cycles !== null && e.trip_delay_cycles !== undefined &&
-      e.trip_delay_cycles >= lo && e.trip_delay_cycles < hi).length;
+    const inBin = (e) => cyc(e) !== null && cyc(e) >= lo && cyc(e) < hi;
+    const span = hi === Infinity ? `${lo}+` : `${lo}–${hi}`;
+    const ms = (c) => Math.round((c * 1000) / 60);
     return {
-      label: hi === edges[edges.length - 1] ? `${lo}+` : `${lo}–${hi}`,
-      count,
-      color: lo >= thresholdCycles ? "--st-critical" : "--c-permanent",
-      tipTitle: `${lo}–${hi} cycles (${Math.round((lo * 1000) / 60)}–${Math.round((hi * 1000) / 60)} ms)`,
-      note: lo >= thresholdCycles ? "Past the slow-trip threshold — flagged Priority 1" : "",
-      emphasize: lo >= thresholdCycles,
+      // The bin's lower edge, not its range: ten bins of "30–60" collide at
+      // this width, and an axis of edges is how a histogram is read anyway.
+      // The full span stays in the tooltip and on the drill chip.
+      label: hi === Infinity ? `${lo}+` : String(lo),
+      count: scopedEvents().filter(inBin).length,
+      color: lo >= wildfireCyc ? "--st-critical" : "--c-permanent",
+      tipTitle: `${span} cycles (${hi === Infinity ? `over ${ms(lo)}` : `${ms(lo)}–${ms(hi)}`} ms)`,
+      note: lo >= standardCyc
+        ? "Past the everyday Tier 1 clearing standard — carried by a backup element"
+        : (lo >= wildfireCyc ? "Past the wildfire (EPSS) clearing standard — Priority 1" : ""),
+      emphasize: lo >= wildfireCyc,
       filter: () => applyDrill({ reset: true,
-        chip: { label: `Clearing ${lo}–${hi} cycles`,
-                test: (e) => e.trip_delay_cycles !== null && e.trip_delay_cycles !== undefined
-                             && e.trip_delay_cycles >= lo && e.trip_delay_cycles < hi } }),
+        chip: { label: `Clearing ${span} cycles`, test: inBin } }),
     };
   });
-  const at = edges.findIndex((e) => e >= thresholdCycles);
+  const markAt = (c) => Math.max(edges.findIndex((e) => e >= c), 0);
   const scoped = scopedEvents();
-  const noTrip = scoped.length - scoped.filter((e) =>
-    e.trip_delay_cycles !== null && e.trip_delay_cycles !== undefined).length;
+  const noTrip = scoped.length - scoped.filter((e) => cyc(e) !== null).length;
   $("tripNote").textContent = `Fault inception → trip${noTrip ? ` · ${noTrip} with no trip` : ""}`;
   histogram($("chartTrip"), bins, {
     axisLabel: "Cycles at 60 Hz",
-    threshold: { at, label: `${thresholdCycles} cyc` },
+    thresholds: [
+      { at: markAt(wildfireCyc), label: `${wildfireCyc} cyc wildfire` },
+      { at: markAt(standardCyc), label: `${SET.clearing_standard_s || 2} s Tier 1` },
+    ],
     height: 210,
   });
 }

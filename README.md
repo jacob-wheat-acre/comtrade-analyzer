@@ -275,11 +275,23 @@ Every event is automatically assigned a review priority:
 
 | Priority | Meaning | Flags |
 |---|---|---|
-| **1 — Immediate review** | Rare or safety-critical | HIF suspect, lockout, 3-phase fault, no trip detected, slow trip |
-| **2 — Routine review** | Elevated risk, weekly batch | LLG fault, multiple reclose shots |
+| **1 — Immediate review** | Rare or safety-critical | HIF suspect, lockout, 3-phase fault, slow trip, over clearing standard |
+| **2 — Routine review** | Elevated risk, weekly batch | Rode through, LLG fault, multiple reclose shots |
 | **3 — Archive** | Routine transient | Everything else |
 
-The threshold for "slow trip" defaults to 10 cycles (167 ms at 60 Hz) and is configurable in `config.json` under `triage.slow_trip_cycles`.
+### The two clearing-time standards
+
+Clearing time is measured against two thresholds, because the utility has two:
+
+| Flag | Default | What it means |
+|---|---|---|
+| `slow_trip` | **30 cycles** (500 ms at 60 Hz) | The **wildfire (EPSS) clearing standard**. Slower than this and the operation would not have met the standard on an EPSS day. |
+| `over_clearing_standard` | **2 seconds** | The **everyday Tier 1 non-wildfire standard**. Slower than this and the fault was carried by a backup element on *any* day — not only a wildfire-settings concern. |
+
+They stack rather than replace each other: a 2.5 s clearing time fires both,
+because it misses the wildfire standard too. Tune them in `config.json` under
+`triage.slow_trip_cycles` and `triage.clearing_standard_s`, or per-run with
+`--slow-trip-cycles` / `--clearing-standard-s`.
 
 ---
 
@@ -563,7 +575,8 @@ anything.
     "fault_threshold_multiplier": 2.0   // fault current = this × pre-fault RMS
   },
   "triage": {
-    "slow_trip_cycles": 10.0            // trip delays longer than this → Priority 1 flag
+    "slow_trip_cycles": 30.0,           // wildfire (EPSS) clearing standard, cycles
+    "clearing_standard_s": 2.0          // everyday Tier 1 clearing standard, seconds
   },
   "wso": {
     "epss_max_shots": 0,                // shots allowed under EPSS (0 = none)
@@ -626,13 +639,28 @@ Creates a desktop shortcut that launches the GUI. On Windows, uses `SHGetFolderP
 
 ## COMTRADE Format Notes
 
-The analyzer reads IEEE C37.111 COMTRADE files (`.cfg` + `.dat`, ASCII or binary). It expects:
+**See [EXPORT_GUIDE.md](EXPORT_GUIDE.md)** for what to export from the relay and
+why — the `.cfg`/`.dat`/`.hdr` file set, binary vs ASCII (a 4.5× size difference
+on the same data, which is the answer to "downloads are slow"), sample rate, and
+raw vs filtered. It is written to be handed to whoever configures the exports.
+
+The short version: **2013 revision, Binary, 16 samples/cycle, raw, with at
+least 2 cycles of pre-fault data.**
+
+The analyzer reads all four data encodings the standard defines — ASCII,
+Binary, Binary32 and Float32 — as `.cfg` + `.dat` pairs or as a single 2013
+`.cff`. It expects:
 
 - **Analog channels** named with standard keywords for phase (A/B/C/N) and quantity (I/V) — see `config.json` `channel_keywords` for the full list
 - **Digital channels** including at least a TRIP signal for trip-time detection; CLOSE/52A channels improve reclose sequence accuracy
 - **Sample rate** ≥ 1 cycle of data before the trigger for pre-fault baseline
 
 Channels are auto-detected from names — no manual mapping required for standard SEL relay exports.
+
+Timing comes from the `.cfg` sample rate rather than the `.dat` timestamp
+column, which is what C37.111 7.4.7 prefers and what several relays require:
+a recorder that populates `nrates` is entitled to leave the timestamp column
+zeroed.
 
 ---
 
@@ -654,6 +682,7 @@ For current AcSELerator users: AcSELerator can batch-export `.cev` files to COMT
 
 ```
 comtrade-analyzer/
+├── EXPORT_GUIDE.md           What to export from the relay, and why
 ├── pyproject.toml            Package metadata and console entry points
 ├── comtrade_analyzer/
 │   ├── batch.py              Bulk folder analysis (comtrade-batch) — incremental + watch

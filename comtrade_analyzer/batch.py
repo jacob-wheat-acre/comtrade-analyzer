@@ -45,7 +45,8 @@ from .fleet_analyze import (
 )
 from .incidents import clock_suspects, group_events
 from .fleet_dashboard import render as render_dashboard
-from .triage import rule_table
+from .triage import (rule_table,
+                     DEFAULT_SLOW_TRIP_CYCLES, DEFAULT_CLEARING_STANDARD_S)
 from .wso_impact import _normalize, class_table, load_registry
 
 MANIFEST = "analyzed.json"
@@ -125,7 +126,9 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
     wave_opts = None if args.no_waveforms else tuple(args.waveform_buckets)
     settings_opts = ((args.settings, args.settings_primary)
                      if getattr(args, 'settings', None) else None)
-    payload = [(f, args.feeder_z, args.slow_trip_cycles, wave_opts, settings_opts)
+    triage_opts = (getattr(args, 'slow_trip_cycles', DEFAULT_SLOW_TRIP_CYCLES),
+                   getattr(args, 'clearing_standard_s', DEFAULT_CLEARING_STANDARD_S))
+    payload = [(f, args.feeder_z, triage_opts, wave_opts, settings_opts)
                for f in fresh]
 
     t0 = time.time()
@@ -242,11 +245,12 @@ def sweep(args, registry: dict, cfg: dict, quiet: bool = False) -> Optional[dict
             "epss_tiers": args.epss_tiers,
             "epss_max_shots": 0,
             "response_hours": args.response_hours,
-            "slow_trip_cycles": args.slow_trip_cycles,
+            "slow_trip_cycles": triage_opts[0],
+            "clearing_standard_s": triage_opts[1],
             "hif_threshold_a": 50.0,
             "waveforms": bool(wave_opts),
         },
-        "triage_rules":  rule_table(args.slow_trip_cycles),
+        "triage_rules":  rule_table(*triage_opts),
         "epss_classes":  class_table(),
         "files_found": len(files),
         "parse_errors": parse_errors,
@@ -331,8 +335,15 @@ examples:
                    default=cfg.get("wso", {}).get("epss_tiers", [2, 3]), metavar="N",
                    help="Risk tiers receiving EPSS treatment")
     p.add_argument("--slow-trip-cycles", type=float,
-                   default=cfg.get("triage", {}).get("slow_trip_cycles", 10.0), metavar="CYC",
-                   help="Trip-delay threshold for the slow_trip flag")
+                   default=cfg.get("triage", {}).get(
+                       "slow_trip_cycles", DEFAULT_SLOW_TRIP_CYCLES), metavar="CYC",
+                   help="Wildfire (EPSS) clearing standard; slower trips get the "
+                        "slow_trip flag (default 30 cycles = 500 ms at 60 Hz)")
+    p.add_argument("--clearing-standard-s", type=float,
+                   default=cfg.get("triage", {}).get(
+                       "clearing_standard_s", DEFAULT_CLEARING_STANDARD_S), metavar="SEC",
+                   help="Everyday Tier 1 clearing standard; slower trips additionally "
+                        "get the over_clearing_standard flag (default 2 s)")
 
     p.add_argument("--no-dashboard", action="store_true", help="Write JSON and CSV only")
     p.add_argument("--settings", metavar="FILE",
