@@ -12,11 +12,11 @@ code, and the traps.
 ## Module map
 
 Everything lives in the `comtrade_analyzer/` package; imports between these are
-relative (`from .analysis import ...`). Small and cleanly layered — you can read
-any of these whole.
+relative (`from .analysis import ...`).
 
 ```
 comtrade_parser.py   IEEE C37.111 CFG + DAT reader (ASCII and binary)
+cev_parser.py        SEL Compressed Event (.CEV) reader — produces EventRecord
 data_model.py        EventRecord — the one object everything passes around
 analysis.py          RMS, fault inception, trip time, DFT phasors, sequence
                      components, fault classification, DC offset
@@ -38,13 +38,11 @@ fleet_gen.py         Synthetic event generator   → comtrade-demo-fleet
 dashboard_template.html   Dashboard markup/CSS/JS, __FLEET_DATA__ placeholder
 ```
 
-Root `main.py` and `app.py` are two-line shims so `python main.py` and the
-desktop shortcut keep working from a checkout. Console entry points are declared
-in `pyproject.toml`; `pip install -e .` for development.
+Root `main.py` and `app.py` are two-line shims. Console entry points are in
+`pyproject.toml`; `pip install -e .` for development.
 
-**When editing `dashboard_template.html`:** it holds three `<script>` blocks, and
-a stray edit into one of them is not caught until the page loads. Syntax-check
-before rendering:
+**When editing `dashboard_template.html`:** syntax-check its three `<script>`
+blocks before rendering:
 
 ```bash
 python3 - <<'EOF'
@@ -104,14 +102,11 @@ the regression bar for anything in `analysis.py`.
 as **LLG**, not SLG. Its unfaulted phases are driven at 140 A against an 800 A
 faulted phase, which lands `ratio_mid` at 0.154 versus the classifier's `< 0.15`
 SLG gate — it misses by four thousandths and falls through to the LLG catch-all.
-This predates the packaging work (verified against pristine `HEAD`). The honest
-fix is the fixture, not the threshold: drop `I_FAULT_BC` from 140 to ~110 A so
-the unfaulted phases carry roughly load current, as they physically would. Do
-**not** move the 0.15 threshold to make it pass.
+The honest fix is the fixture, not the threshold: drop `I_FAULT_BC` from 140 to
+~110 A. Do **not** move the 0.15 threshold.
 
 Plots block on `plt.show()` unless `--save-plots` is passed, so headless
-regression runs need `--save-plots` and `MPLBACKEND=Agg`. There is no pytest suite; if you
-add one, `classify_fault` and the sequence math are the places it pays off.
+regression runs need `--save-plots` and `MPLBACKEND=Agg`.
 
 ## Magnitude conventions — read this before touching the math
 
@@ -141,31 +136,28 @@ I1 = (Ia + a·Ib + a²·Ic) / 3
 I2 = (Ia + a²·Ib + a·Ic) / 3
 ```
 
-Phase rotation is assumed **ABC**. There is no ACB handling anywhere; on an ACB
-system I1 and I2 swap. If that ever needs supporting, it belongs in one place
-here, not sprinkled through the callers.
+Phase rotation is assumed **ABC**. There is no ACB handling; on an ACB system
+I1 and I2 swap. If that ever needs supporting, it belongs in one place here.
 
 `compute_sequence_components()` returns **magnitudes only**, NaN-padded for the
 first `window_samples - 1` samples — use `np.nanmedian`/`np.nanmax`, never bare
-`np.median`. `compute_phasors_at()` returns **complex** `seq_i`/`seq_v` in its
-dict; that's the one to use when angle matters.
+`np.median`. `compute_phasors_at()` returns **complex** `seq_i`/`seq_v`; that's
+the one to use when angle matters.
 
 ## Phasor reference
 
-All phasors from `compute_phasors_at()` are rotated so the **fault-window Va sits
-at 0°**, with `VAN`/`VA`/`Van`/`V_A` preferred and the first voltage channel as
-fallback (`ref_channel` in the returned dict says which was used). Pre-fault
-phasors are rotated by the *same* angle, so pre/fault angles are directly
-comparable. Windows are one cycle each, butted against inception: fault window
-starts at inception, pre-fault window ends at it.
+All phasors from `compute_phasors_at()` are rotated so the **fault-window Va
+sits at 0°**, with `VAN`/`VA`/`Van`/`V_A` preferred and the first voltage
+channel as fallback. Pre-fault phasors are rotated by the *same* angle, so
+pre/fault angles are directly comparable. Windows are one cycle each, butted
+against inception.
 
 ## Channel naming
 
-Channels are auto-detected from names via `config.json` → `channel_keywords`,
-with per-call candidate tuples in `analysis.py` (`_find_channel`,
-`_find_raw`). Matching is case-insensitive but **not** fuzzy. A new relay export
-with unfamiliar channel names is a config/keyword problem — extend the keyword
-list; don't add another hardcoded tuple.
+Channels are auto-detected via `config.json` → `channel_keywords`, with
+per-call candidate tuples in `analysis.py` (`_find_channel`, `_find_raw`).
+Matching is case-insensitive but **not** fuzzy. A new relay export with
+unfamiliar channel names is a config/keyword problem — extend the keyword list.
 
 ## WSO / EPSS — what the analysis is actually for
 
@@ -183,318 +175,183 @@ sensitive/faster. Both create conversions, and they are not the same:
 | record ends before any dead time | unknowable | `INDETERMINATE` |
 | no fault current | nothing | `NOT_EXPOSED` |
 
-`EPSS_CANDIDATE` is the one the tool exists to surface, and it is usually the
-*larger* outage: a lateral fuse drops 30 customers, the recloser above it drops
-the whole feeder section. It cannot be confirmed without the device's normal
-and EPSS pickup settings — that work is pending a SUBNET settings export.
+`EPSS_CANDIDATE` is the one the tool exists to surface. It cannot be confirmed
+without the device's normal and EPSS pickup settings — that work is pending a
+SUBNET settings export.
 
-**Do not treat a no-trip event as a misoperation.** It was `no_trip` at
-Priority 1 with "possible relay misoperation" wording; on real rising-edge
-current triggers that would flag every healthy below-pickup record as urgent.
-It is now `Rode Through` at Priority 2, pointing at coordination review.
+**Do not treat a no-trip event as a misoperation.** It is `Rode Through` at
+Priority 2, pointing at coordination review.
 
-`INDETERMINATE` exists because "no reclose in the record" was being read as "no
-reclose happened". In this fleet 38 of 40 such records end a median 190 ms after
-the trip, while measured dead times run 455–2050 ms — none of them could have
-shown a reclose. `_MAX_DEAD_TIME_MS` (5 s) sets the cutoff.
+`INDETERMINATE` exists because "no reclose in the record" ≠ "no reclose
+happened". `_MAX_DEAD_TIME_MS` (5 s) sets the cutoff.
 
 ## Tuning the triage rules
 
-`triage.py` is the single source of truth and the dashboard renders it. To
-change the scheme, edit **`_FLAGS`** (priority, label, why it matters) and
-**`_TRIGGERS`** (how it fires, which setting tunes it) side by side — they are
-adjacent on purpose. `rule_table()` joins them, `fleet_analyze`/`batch` export
-it as `triage_rules`, and the page's Triage rules card renders it. Do **not**
-re-introduce a flag→priority map in the template; a test fails if you do.
+`triage.py` is the single source of truth. To change the scheme, edit
+**`_FLAGS`** (priority, label, why it matters) and **`_TRIGGERS`** (how it
+fires, which setting tunes it) side by side. `rule_table()` joins them,
+`fleet_analyze`/`batch` export it as `triage_rules`, and the dashboard renders
+it. Do **not** re-introduce a flag→priority map in the template; a test fails.
 
 When adding a flag, also append to `evidence[...]` inside `triage_event()` so
-the per-event "Why Priority N" block can say what actually triggered it — a
-bare label without the measured value against the threshold is what made the
-priorities opaque in the first place.
+the per-event "Why Priority N" block shows the measured value against the
+threshold.
 
 Priority is the minimum over the flags that fired; `reasons[].decisive` marks
-which ones set it, and the page greys the rest.
+which ones set it.
 
-**Clearing time is measured against TWO standards, and they stack.** The
-utility has two and they are not alternatives:
+**Clearing time is measured against TWO standards, and they stack.**
 
 | Flag | Default | Standard |
 |---|---|---|
 | `slow_trip` | `triage.slow_trip_cycles` = **30 cyc** (500 ms at 60 Hz) | wildfire / EPSS |
 | `over_clearing_standard` | `triage.clearing_standard_s` = **2 s** (120 cyc) | everyday Tier 1 non-wildfire |
 
-A trip can miss the first and meet the second — that is the whole point of
-screening for EPSS exposure before a WSO day. Past 2 s both fire: dropping
-`slow_trip` there would hide the EPSS-day finding on exactly the events where
-it matters most. `DEFAULT_SLOW_TRIP_CYCLES` / `DEFAULT_CLEARING_STANDARD_S` in
-`triage.py` are the single source; `config.json`, both argparsers, the GUI
-namespace and `fleet_gen.SLOW_TRIP_MS` all read them rather than writing the
-number down again. The old threshold was 10 cycles and was invented.
+A trip can miss the first and meet the second. Past 2 s both fire.
+`DEFAULT_SLOW_TRIP_CYCLES` / `DEFAULT_CLEARING_STANDARD_S` in `triage.py` are
+the single source; `config.json`, both argparsers, the GUI namespace and
+`fleet_gen.SLOW_TRIP_MS` all read them.
 
-The two travel together as `triage_opts`, a pair in the worker payload beside
-`wave_opts` and `settings_opts` — a second positional float in that tuple is
-how `batch` and `fleet_analyze` would drift.
+The two travel together as `triage_opts`; a second positional float in that
+tuple is how `batch` and `fleet_analyze` would drift.
 
-**`fleet_gen` had to move with it.** `slow_ms` generated 200-420 ms, slow
-against the invented 10-cycle threshold and comfortably *fast* against the real
-one, so the `slow_trip` template would have produced no slow trips and the
-ground truth would have claimed otherwise. It is now 0.55-1.40 s, with a new
-`over_clearing` template at 2.2-3.4 s so the demo exercises both rungs.
+**`fleet_gen` had to move with it.** `slow_ms` is now 0.55-1.40 s; a new
+`over_clearing` template at 2.2-3.4 s exercises both rungs.
 
 ## Feeder connectivity
 
 `topology.py` is the mainline model: **connectivity only** — no impedance, no
-laterals, no fuses, no load flow. It exists to answer what event files alone
-cannot: are two records the same fault seen at two depths, what goes dark when
-a device opens, and which feeder could back it up.
+laterals, no fuses, no load flow.
 
-The format is one row per node, five columns, because real topology gets typed
-into a spreadsheet from a wall map — there is no GIS export:
+Format: one row per node, five columns:
 
 ```
 feeder,node_id,kind,parent,tie_to
 ```
 
-- `feeder` — the feeder this node belongs to; the **station name** on a source row.
-- `node_id` — must match `device_id` in `devices.csv` for anything that records.
-- `kind` — `source | breaker | recloser | sectionalizer | pmh | tie`.
-- `parent` — the node immediately upstream; empty only on a source.
-- `tie_to` — the far-end node; read on `kind=tie` rows only.
-- `model` — `PMH-9` / `PMH-11` / `PMH-10`; read on `kind=pmh` rows only.
+- `kind` — `source | breaker | recloser | sectionalizer | pmh | tie`
+- `parent` — the node immediately upstream; empty only on a source
+- `tie_to` — the far-end node; read on `kind=tie` rows only
+- `model` — `PMH-9` / `PMH-11` / `PMH-10`; read on `kind=pmh` rows only
 
-Each protective device **owns the section immediately downstream of it**, so a
-feeder is a source, a head device, two or three mid-line reclosers and its ties
-— six or seven lines. A mainline **forks**: `parent` gives branching for free,
-and the fork is the point — opening the device above it drops both limbs while
-the branch recloser drops one. In `fleet_gen._FEEDERS` a feeder carries
-`branches`, a tuple of `(tap_point, count)`; limb devices are lettered from `B`
-so they never collide with the trunk's `R` numbering. Beware: a substation bus
-feeding several feeders is **not** a fork, and a test that forgets to exclude
-sources passes on the bus instead. Normally-closed edges form one tree per source; `kind=tie`
-rows *are* the normally-open edges, and closing one re-parents a subtree onto
-another feeder.
+Each protective device owns the section immediately downstream. Normally-closed
+edges form one tree per source; `kind=tie` rows are normally-open edges.
 
 **Customers are not in this file.** They stay in `devices.csv`
-(`customers_served`); `customers_below()` sums the subtree from the registry.
-Two places to edit a customer count is how they drift.
+(`customers_served`); `customers_below()` sums the subtree.
 
-`subtree()` stops at a normally-open tie — a N.O. tie carries nothing, and
-traversing it would double the outage on every lockout. `cross_ties=True` is the
+`subtree()` stops at a normally-open tie. `cross_ties=True` is the
 post-restoration view.
 
-Lookups are punctuation- and case-insensitive via `wso_impact._normalize`, which
-is **imported, not re-implemented** — a second copy is exactly how the
-diagnostics channel check drifted from the analysis it mirrored.
+Lookups are punctuation- and case-insensitive via `wso_impact._normalize`,
+which is **imported, not re-implemented**.
 
-`validate()` returns diagnostics-shaped findings (symptom, evidence, fix) for the
-mistakes hand-authoring actually produces: duplicate ids, a typo'd parent, a
-loop, an orphan branch, a tie with no far end, a tie authored from both sides.
-A test enforces the fix text, same bar as `diagnostics.py`.
+`validate()` returns diagnostics-shaped findings (symptom, evidence, fix) for:
+duplicate ids, typo'd parent, loop, orphan branch, tie with no far end, tie
+authored from both sides, feeder name mismatch. A test enforces the fix text.
 
-The tool does **not** simulate FLISR — that runs in the ADMS. It draws the
-feeder and places events on it; the engineer judges whether the scheme behaved.
+**`topology_builder.html`** (`comtrade-topology --build`) ensures every parent
+and tie is a dropdown of already-entered rows. It carries **no second
+validator** — everything real belongs to `topology.validate()`.
 
-**`topology_builder.html` is how a topology gets typed in.** `comtrade-topology
---build` opens it. Its one job is that a connection can never point at a name
-that does not exist: every parent and tie is a **dropdown of the rows already
-entered**, and the "+ PMH cabinet" button writes one row per way, which is the
-tedious part.
+**Sidecars are found from the events folder.** `fleet_analyze.find_sidecar()`
+looks one level up only when the folder is named `incident_events`/`events`.
+**Both `batch.py` and `fleet_analyze` need this wiring.**
 
-It carries **no second validator**. Everything real — over-connected cabinets,
-orphan branches, duplicate ids, feeder-name mismatches — belongs to
-`topology.validate()`, and the page points at `comtrade-topology` for it. Two
-implementations of the rules is how the page and the tool would start
-disagreeing. A test greps the page for those rule names and fails if any
-reappear.
+`fleet_gen` generates `topology.csv` and `devices.csv` from the same tables so
+they cannot drift. `demo/topology.csv` is tracked; a real `topology.csv` is
+gitignored.
 
-The round-trip test is the one that matters: drive the page, take the CSV it
-writes, and put it through the real loader and validator.
-
-`demo/topology.csv` is tracked (invented, matching `demo/devices.csv`); a real
-`topology.csv` is gitignored operational data, and
-`comtrade_analyzer/topology_template.csv` is what you copy.
-
-**Sidecars are found from the events folder.** The docs tell people to point at
-the events folder, and the registry and topology sit *beside* it, not in it.
-`fleet_analyze.find_sidecar()` looks one level up, but only when the folder is
-named `incident_events`/`events` — otherwise it would drag in an unrelated
-parent's files. `batch.py` shipped with no topology lookup at all, so the
-documented command produced a dashboard whose feeder pages could never appear.
-**Both entry points need wiring, not just `fleet_analyze`.**
-
-`fleet_gen` generates `topology.csv` and `devices.csv` from the same
-`_SUBSTATIONS` / `_FEEDERS` / `_TIES` tables, so the demo's tree and its
-registry cannot drift. Hand-authored files are the other path; the template is
-what you copy for those.
-
-**`customers_served` is a device's OWN section, not its whole feeder.** What a
-trip actually drops is the subtree below it, which is `customers_below()` —
-`fleet_analyze` puts that on every event as `customers_affected`. Without a
-topology the two are equal, which is the right fallback for a plain folder.
+**`customers_served` is a device's OWN section.** `customers_below()` is what
+a trip actually drops; `fleet_analyze` puts that on every event as
+`customers_affected`.
 
 ## Device naming
 
-The utility's convention, and the generator follows it:
+- **Breakers**: `BKR_<four letters of feeder name><circuit>` — `_breaker_id()`
+- **Reclosers**: `RCL_###-###` from `_grid_num(circuit * 100 + offset)`. Offsets: 0 head, 1..n trunk, 20+ branch, 50+ ties, 70 cabinets.
+- **PMH cabinets**: `PMH_###-###` same grid; ways are that plus `_W1`, `_W2`, …
+- **Ties are reclosers**, named like them. No `TIE_` prefix.
 
-- **Breakers**: `BKR_<four letters of the feeder name><circuit>` — Valley Oak
-  3301 → `BKR_VALL3301`. `_breaker_id()`.
-- **Reclosers**: `RCL_###-###`, a six-digit grid reference. `_grid_num()`
-  derives it from `circuit * 100 + offset`, so numbers are unique and stable
-  without a global counter — inserting a device renumbers nothing else.
-  Offsets: 0 head, 1..n trunk, 20+ branch limbs, 50+ ties, 70 cabinets.
-- **PMH cabinets**: `PMH_###-###` on the same grid convention — it is the same
-  kind of thing, gear at a location. Its ways are that plus `_W1`, `_W2`, …
-- **Ties are reclosers** and are named like them. There is no `TIE_` prefix.
+**A feeder sits on the bus it is named for.** A feeder alone on its bus heads
+with a **breaker**. This rule is absolute and a test enforces it outright.
 
-**A feeder sits on the bus it is named for.** Sawmill Grade, Summit Tap,
-Almond Row, Delta Flats and Bear Gulch were feeders off Cedar Hollow /
-Ridgeline / Valley Oak / Riverbend, which made the pickers read as though they
-shared a bus with a substation they are not named for. Nine substations,
-thirteen feeders, and a feeder alone on its bus heads with a **breaker**.
+`_TIES` names its endpoints by **(feeder, offset)**, not by device id.
 
-The rule is **absolute** and a test enforces it outright. It was briefly written
-with Bear Gulch as a recorded exception; an exception list is how the next one
-added under the wrong bus would have looked deliberate.
-
-`_TIES` names its endpoints by **(feeder, offset)**, not by device id, so a
-change to the convention cannot silently break every tie — which is exactly
-what happened the first time.
-
-**Tests must derive ids from the tree, never write them down.** A stale id in a
-grouping test does not fail: `incidents._same_fault` falls back to matching on
-the feeder when a device is not in the topology, so the test passes with the
-path logic switched off. `TestIncidentGrouping._ev()` asserts the device exists
-(pass `unknown=True` for the deliberate no-topology case).
+**Tests must derive ids from the tree, never write them down.**
+`TestIncidentGrouping._ev()` asserts the device exists (`unknown=True` for the
+deliberate no-topology case).
 
 ## Automatic PMH cabinets
 
-`PMH_WAYS` = **PMH-9: 2, PMH-11: 3, PMH-10: 4**. Only **automatic** cabinets
-are mapped, and only their **switch** ways — a fused way is not connectivity
-anyone switches, so it stays off the drawing like every other fuse.
+`PMH_WAYS` = **PMH-9: 2, PMH-11: 3, PMH-10: 4**. Only automatic cabinets are
+mapped, and only their switch ways.
 
-**Every way is its own switch — one row per way, not one per cabinet.** Any of
-the two, three or four ways can be the one that opens, and opening way 2 drops
-only what is below way 2, so a cabinet cannot be a single node. Ways of one
-enclosure share a `cabinet` id and agree on `model`; way 1 is the source way
-under the upstream device and the rest hang off it, which is what being on one
-bus means. A normally-open way is a `tie` anchored to that way.
+**Every way is its own row** — one row per way, not one per cabinet. Ways of one
+enclosure share a `cabinet` id and agree on `model`.
 
-`validate()` checks the group: ways counted against the model
-(`cabinet_over_connected`), ways disagreeing on model
-(`cabinet_model_disagrees`), a way with no cabinet (`way_without_cabinet`).
+`validate()` checks: `cabinet_over_connected`, `cabinet_model_disagrees`,
+`way_without_cabinet`.
 
-**A PMH way switch is a load-interrupter, not a protective device.** It does not
-clear faults, so it leaves no oscillography and is *not* in `RECORDING_KINDS` —
-`fleet_gen.build_incident` never picks one as an event origin. It *is* in
-`SWITCHING_KINDS` and in the registry, because it carries customers and it
-matters for N-1. A cabinet with events would be a bug, and a test says so.
-
-**A cabinet takes ONE position on the feeder and its ways cluster inside it** —
-a tight two-column block on a short internal bus, which is how this gear is
-drawn on a print. `olLayout` gathers a cabinet's ways into one placement with a
-`slot` number, and lays out the children of *all* the ways together so they do
-not land on each other. `PT` is the position map: every draw call reads it, and
-cluster slots are the only thing that shifts a node off `X(depth), Y(row)`.
-
-- A way position is a **switch**, lettered `S`. The enclosure is what says it is
-  a cabinet, so the boxes do not repeat it.
-- The enclosure caption is the **cabinet name only**. The model is what the way
-  count is validated against, not something anyone reads off a drawing — the
-  ways are right there to be counted.
-- A way's number sits **outside its row** — above the top row, below the bottom
-  — because the internal bus runs between them.
-- The enclosure caption goes **above** the box. Below, it lands in the next row
-  on top of the following device.
-- A way inside a cluster draws no incoming conductor; the internal bus feeds it.
-- `H` must allow for `clusterDrop`: a cabinet's lower row, the enclosure and its
-  labels all extend below the row the cabinet sits on.
-
-**A text-vs-text sweep is not enough here.** It passed while the enclosure
-caption sat on top of a tie's box. Check labels against device glyphs too, and
-exclude the count badges — badge text sits inside its own pill by design, so
-including them reports every device as a collision.
+**A PMH way switch is a load-interrupter, not a protective device.** It is not
+in `RECORDING_KINDS` — `fleet_gen.build_incident` never picks one as an event
+origin. A cabinet with events would be a bug; a test says so.
 
 ## Relay settings
 
-`relay_settings.py` reads the SUBNET export as a **catalog**, not a native SEL
-settings file — it is a flattened table, one row per relay.
+`relay_settings.py` reads the SUBNET export as a **catalog** — a flattened
+table, one row per relay.
 
 - Pickups are **secondary**; `primary = pickup * CTR`. Comparisons use RMS
-  current over the fault window, never peak: peak carries DC offset and would
-  overstate the multiple.
+  current over the fault window, never peak.
 - The normal-day group is `NOMINAL_SG`. **The EPSS group is inferred** (most
-  sensitive populated group outside the nominal one) and every surface says so.
-  If a column ever identifies it explicitly, read that instead of inferring.
-- `TemplateDate` holds the template *name*, not a date. The trip and location
-  modes run together (`3PhTrip3PhLoc`) — keep the letter run lazy and stop it
-  crossing a digit, or the Loc match swallows the Trip mode.
+  sensitive populated group outside the nominal one).
+- `TemplateDate` holds the template *name*, not a date. Keep the trip/location
+  mode regex lazy so it doesn't cross a digit.
 - `sanity_check()` returns diagnostics-shaped findings: missing CTR, missing
-  NOMINAL_SG, a single populated group, and pickups whose magnitude suggests
-  they are already primary.
+  NOMINAL_SG, a single populated group, pickups whose magnitude suggests they
+  are already primary.
 
-Settings turn `EPSS_CANDIDATE` from a guess into a verdict; a ride-through that
-cannot reach the EPSS pickup either is reclassified `NOT_EXPOSED`.
+Settings turn `EPSS_CANDIDATE` from a guess into a verdict.
 
 ## Binding real events to devices
 
-**An event's device id is CFG line 1, field 2 (`rec_dev_id`) — whatever was
-typed into the relay.** On a real export that is almost never the name the
-device has on a one-line. `devices.csv` has an **`aliases`** column for exactly
-this: the strings the relays emit, separated by `;` or `|`, indexed alongside
-the canonical id so an event already carrying the real name still matches.
+**An event's device id is CFG line 1, field 2 (`rec_dev_id`).** `devices.csv`
+has an **`aliases`** column for the strings relays emit, separated by `;` or
+`|`.
 
-`fleet_analyze.resolve_devices()` runs it, and **must run before
-`group_events`** — a test asserts the ordering in both entry points. It rewrites
-`device_id` to the canonical name and keeps the original in `device_id_raw`.
+`fleet_analyze.resolve_devices()` **must run before `group_events`** — a test
+asserts the ordering in both entry points. It rewrites `device_id` to the
+canonical name and keeps the original in `device_id_raw`.
 
-**The rewrite is the point, not the lookup.** Incident grouping, the topology
-and the one-line all key on `device_id`. An event left under the relay's
-spelling is not merely unlabelled — it is invisible to all three, and the damage
-is quiet: on the demo renamed to relay-style ids, grouping degraded from 115
-incidents to 123 because `on_same_path` could not resolve a single device, and
-every count still added up.
-
-Unmatched ids are an **error-level** data-quality finding listing the exact
-strings and their counts, because those strings are what you paste into
-`aliases`. An alias claimed by two devices is also an error; the first row in
-`devices.csv` keeps it rather than whichever was read last.
+Unmatched ids are an **error-level** data-quality finding. An alias claimed by
+two devices is also an error; the first row in `devices.csv` keeps it.
 
 ## Diagnostics
 
 `diagnostics.py` exists because a batch that reports "0 events analyzed" with
-no reason is the worst outcome on someone else's machine. Every finding must
-carry three things — symptom, evidence, fix — and a test enforces the fix text.
+no reason is the worst outcome. Every finding must carry: symptom, evidence,
+fix — a test enforces the fix text.
 
-**A diagnostic must mirror what the analysis actually does, not approximate
-it.** The first version classified channels by *units*; `analysis._find_channel`
-matches by *name*. A vendor file with units "A" and channels called `CH1_ANLG`
-passed the check and then classified every event UNKNOWN. `phase_currents_unnamed`
-now replicates the real candidate tuples. If you change those tuples, change
-this too.
+**A diagnostic must mirror what the analysis actually does.** `phase_currents_unnamed`
+replicates the real candidate tuples from `analysis._find_channel`. If you
+change those tuples, change this too.
 
 `check_record()` runs on every parsed record; `explain_parse_error()` turns an
-exception into a remedy. `batch.sweep` rolls findings up by code so one bad
-export setting is reported once, not ten thousand times, and the dashboard
-shows them as a banner above everything else.
+exception into a remedy. `batch.sweep` rolls findings up by code.
 
 ## Ground truth must track the classifier
 
-`fleet_gen.expect_wso` and `wso_impact.classify_event` have to agree. When the
-model gained EPSS_CANDIDATE and INDETERMINATE the generator was not updated and
-the demo build shipped showing 60% detector agreement — the panel that exists
-to prove the tool works. `TestTheGeneratorsGroundTruthMatchesTheClassifier`
-guards it. Changing the classes means changing the generator and regenerating
-`demo/fleet_truth.json` in the same commit.
+`fleet_gen.expect_wso` and `wso_impact.classify_event` must agree.
+`TestTheGeneratorsGroundTruthMatchesTheClassifier` guards it. Changing the
+classes means changing the generator and regenerating `demo/fleet_truth.json`
+in the same commit.
 
 ## Plotting releases its figures
 
 Every function in `plotting.py` calls `plt.close(fig)` after `savefig` and
-returns `None`; the interactive branch (`plt.show()`) still returns the figure
-because the caller's window owns it. This is load-bearing, not tidiness:
-pyplot holds a global reference to every figure it creates, no caller uses the
-return value on the save path, and leaving them open leaked ~45 MB per event.
-A 100-event folder run through the GUI reached multiple GB, went to swap, and
-the window stopped redrawing — reported as "the app screen blacks out".
+returns `None`; the interactive branch still returns the figure. This is
+load-bearing: leaving figures open leaked ~45 MB per event.
 
 `TestPlottingReleasesItsFigures` guards it. If you add a plotting function,
 close its figure on the save path.
@@ -502,597 +359,284 @@ close its figure on the save path.
 ## The feeder one-line
 
 The `#onelineCard` section draws the selected feeder from `FLEET.topology`,
-which `fleet_analyze` embeds as **nodes, not a path** — the dashboard is one
-self-contained file and cannot go back to `topology.csv` on someone else's
-machine.
+which `fleet_analyze` embeds as **nodes, not a path**.
 
-- **The SVG label sizes and the geometry move together.** `.ol-name`,
-  `.ol-tie-name`, `.ol-tie-label`, `.ol-badge` and `.ol-letter` are sized in
-  CSS, but `RAD`, `rowH`, `colW`, the paddings, the badge width and the
-  `clamped()` width estimate are all in the drawing code. Change a font size
-  without them and labels start colliding — sweep every feeder and every
-  substation for clipping and overlap afterwards, which is what caught it each
-  time.
-- Layout is orthogonal and left-to-right: substation bus at the left, depth is
-  the column, a branch takes its own row. Never a diagonal — that is not how a
-  one-line is drawn.
-- **Every conductor is the same grey.** Line is line; what is open is said by
-  the device on it, not by the wire leading to it.
-- **Feeders sort by circuit number, never by name** — `olCircuit()` /
-  `olFeederCmp()`, used by the review dropdown *and* the all-feeders page so the
-  two cannot disagree. They did: one sorted by name and the other by file order,
-  and the same fleet appeared in two sequences. A utility knows a feeder by its
-  number, so "Riverbend 4402, Riverbend 4407, Delta Flats 4411" is in order and
-  alphabetically it is not. The review dropdown uses `<optgroup>` per substation,
-  which is what makes that ordering legible.
-- **Fill is switch STATE, on the utility's convention: red closed, green open**
-  (`--sw-closed` / `--sw-open`). This is the opposite of the traffic-light
-  instinct, so don't "fix" it. It also means fill cannot carry review priority
-  — that moved to a badge above the device, icon plus record count. The badge
-  follows the current filter, which is why `olRefresh()` hangs off every filter
-  change and off `applyDrill`.
-- **Every box is filled** with its state colour and carries a black letter.
-- **State is colour alone on the drawing** — filled boxes, one grey for every
-  conductor, no OPEN/CLOSED text. That is the utility's convention and was
-  asked for explicitly. Red/green is the worst pair for deuteranopia, so the
-  word survives in the **tooltip and the `aria-label`** on both devices and
-  ties, and a test asserts it stays there. Don't strip those.
-- A tie is labelled with its own id and, below it, the **feeder it backfeeds
-  from** — the far device id is in the tooltip. On the drawing what matters is
-  which circuit the backfeed comes from, and that is a feeder, not a device.
-- A tie's label is far wider than the box it sits under, so `clamped()` centres
-  it but pulls it inside the canvas at either end rather than letting it run
-  off.
-- With no incident selected the drawing is the **normal state** of the system —
-  every protective device closed, every tie open. Selecting an incident opens
-  the device that locked out and closes the tie that restored the section.
-- **Every device is a box, and the letter inside says what it is** — `B`
-  breaker, `R` recloser, `S` sectionalizer (`OL_LETTER` / `olDevice`). No
-  circles anywhere, including the incident-role rings: this is the drawing
-  convention in use at the utility, and a circle would read as a different
-  *kind* of thing rather than the same thing annotated.
-- **A tie is a recloser**, so it draws as a box with an `R` like any other,
-  green because it is normally open. It carries its own name and `OPEN`/
-  `CLOSED`, because a tie is a device somebody can operate.
-- **A tie is laid out as a child, at the end of the line** — one column further
-  out than the device it hangs off, on its own row when the mainline continues
-  past it, with the run to it dashed. It used to hang below its device as a
-  stub, and two ties in one column then read as **two open switches in series**,
-  which is not a thing: a section fed through two open ties has no source at
-  all. Real devices are walked before ties so the mainline keeps the parent's
-  row and the tie branches away from it.
-- `L.devices` excludes ties; `L.ties` is just them; `L.placed` is both and is
-  only used for drawing conductors. Counting ties as devices silently inflates
-  the device totals with switches that carry nothing.
-- The letter is black on a filled box — both the light and dark state reds are
-  light enough to carry it — and follows `--ink` on a hollow (open) box, or it
-  would vanish against a dark background.
-- A tie is drawn as the **open-switch symbol** — two terminals with the blade
-  hinged at the first and standing clear of the second — and carries **its own
-  name and state**, because a tie *is* a device: a motor-operated switch
-  somebody can close. The legend draws the symbols rather
-  than naming them. A tie is authored once, from whichever side, so `olLayout`
-  anchors it to whichever end is on the drawn feeder and labels the other; near
-  the right edge the whole assembly mirrors instead of clipping.
-- Selecting an incident rings the clearing device solid and the devices that
-  held dashed, dims the rest, and drills the table to that incident's records.
+**Fill is switch STATE: red closed, green open** (`--sw-closed` / `--sw-open`).
+This is the opposite of the traffic-light instinct — don't "fix" it. Fill
+cannot carry review priority; that moved to a badge above the device. State is
+colour alone on the drawing; the word `OPEN`/`CLOSED` survives in **tooltips
+and `aria-label`** — a test asserts it stays there.
 
-**No device id, feeder name or tie name may appear in the template.** Those are
-operational data; a leaked one ships to everyone who clones the repo. A test
-scans for `BKR_`, `RCL_`, `TIE_` and `BUS_`.
+**Every box is filled** with its state colour and carries a black letter.
+`OL_LETTER` / `olDevice`: `B` breaker, `R` recloser, `S` sectionalizer. No
+circles.
 
-`olRefresh()` redraws the diagram only on the review page. Rebuilding the
+**A tie draws as a box with `R`**, green because normally open. It is laid out
+as a child at the end of the line — one column further out than the device it
+hangs off, with the run to it dashed. Real devices are walked before ties so
+the mainline keeps the parent's row.
+
+`L.devices` excludes ties; `L.ties` is just them; `L.placed` is both.
+
+A tie is labelled with its own id and the **feeder it backfeeds from** beneath.
+The far device id is in the tooltip.
+
+**`olDraw()` returns its record count and never writes a caption.** It fills
+thirteen cards on the all-feeders page.
+
+**Two pages, one drawer.** `#pageNav` switches between fleet review and
+`#pageFeeders`. Both go through `olDraw(host, feeder, opts)`. A test counts the
+definitions.
+
+**`olRefresh()` redraws the diagram only on the review page.** Rebuilding the
 incident list there would fight the click that triggered it.
 
 **`[hidden] { display: none !important; }` is load-bearing.** `hidden` is a UA
-rule at element specificity, so *any* class rule setting `display` beats it.
-`.pagenav` did exactly that and the tab showed with no listeners attached — a
-visible control that does nothing.
+rule at element specificity, so any class rule setting `display` beats it.
 
-**`olDraw()` returns its record count and never writes a caption.** It fills
-thirteen cards on the all-feeders page; when it wrote `#onelineNote` itself,
-every draw clobbered the last one's caption and the review page's own count
-came out as an em dash.
+**`applyStation()` must sync both dropdowns** (`#fStation` and `#feedersSub`)
+and redraw every panel that reads `AGG`. These used to hold separate state.
 
-**Two pages, one drawer.** `#pageNav` switches between the fleet review and
-`#pageFeeders`, which follows the same substation scope as the review
-(`#feedersSub`) — thirteen feeders at once is a scroll, not a view, though
-"All substations" still offers it. The list comes
-from `olStations()`, read off the tree, so a substation added to `topology.csv`
-appears with no code change.
+**Feeders sort by circuit number, never by name** — `olCircuit()` /
+`olFeederCmp()`, used by the review dropdown *and* the all-feeders page. A
+utility knows a feeder by its number.
 
-**A tie can be walked through.** Clicking one calls `olJumpThroughTie()`: the
-far end is whichever end is not the feeder you are looking at, and if it is at
-another substation the dropdown switches too. `olRevealTie()` then scrolls that
-feeder's card into view and flashes the same tie there — landing on a page of
-feeders with nothing marked is no better than not moving. On the review page the
-same click switches `olFeeder` instead. Both go through
-`olDraw(host, feeder, opts)` — a second copy of the layout is how the two would
-drift apart, and a test counts the definitions. The all-feeders page passes
-`opts.onDevice` so a click there filters the table *and* returns you to it.
+With no incident selected the drawing shows **normal state** — every protective
+device closed, every tie open. Selecting an incident opens the clearing device
+and closes the restoring tie.
 
-Build the card shells before drawing into them: an SVG sized from a container
-that is still `display:none` comes out at the fallback width.
+**No device id, feeder name or tie name may appear in the template.** A test
+scans for `BKR_`, `RCL_`, `TIE_`, `BUS_`.
 
-A device can back up more than one feeder; laid out as children, the second and
-later ties fall to their own rows like any other sibling, which is what keeps
-their labels apart.
+**A tie can be walked through.** `olJumpThroughTie()` / `olRevealTie()` handles
+navigation. The all-feeders page passes `opts.onDevice` so a click filters the
+table and returns you to it.
 
-## No hero
-
-There is no hero pane. The headline count is the **first KPI tile** (`Events
-analyzed`, with devices / feeders / days beneath it), the event grid is an
-ordinary card, and the EPSS conversion argument lives on the "EPSS exposure by
-zone" card (`#zoneFoot`) and in the class table — where the decision is
-actually made. It was previously a full-width pane of three paragraphs above
-any number.
-
-`renderRunNote()` fills the grid card's caption. `renderHero` is gone; anything
-that used to call it now calls `renderTiles` / `renderUnits` / `renderRunNote`.
-
-The event grid picks its **column count from the card width**, so it fills the
-card rather than sitting as a small square in one corner — which means
-`renderUnits()` has to be in the resize handler. Check for horizontal overflow
-at a few widths after touching it, and note that an element wider than the
-viewport inside `.table-scroll` is fine: the page-level test is
-`document.body.scrollWidth > window.innerWidth`.
-
-`.grid-2` is `align-items: start`. Stretched, the tallest card in a row set the
-height for all of them, and the zone card's paragraph left the fault-mix and
-triage charts sitting in several hundred pixels of nothing.
-
-## Scoping the review to one feeder
-
-**The one-line's own feeder dropdown is the page scope.** A feeder is the level
-an engineer works at: reclose shots, clearing time, fault mix and the triage
-backlog only mean something against one circuit, and averaged over thirteen they
-say nothing. `#fStation` scopes coarser, to a substation.
-
-The tiles, hero and charts render a **precomputed aggregate**, so scoping means
-handing them a different one — `aggregate_by_station()` and
-`aggregate_by_feeder()` run `aggregate()` once per substation, once per feeder
-and once for the fleet, and the page swaps `AGG`/`TOT`. **Narrowest wins**:
-feeder, else substation, else fleet. Re-deriving those sums in JavaScript is how
-this page and `fleet_events.csv` would start disagreeing.
-
-`applyStation()` must redraw **every** panel that reads `AGG` — hero, units,
-tiles, charts — plus the table and the one-line, which read `currentRows()`. A
-scope that moves the table and leaves the tiles showing the fleet is worse than
-no scope: the numbers are simply wrong. A test lists the calls.
-
-Three things that are easy to miss:
-
-- **Never rebuild a `<select>` inside its own `change` handler.** These
-  handlers re-render the page and the render rewrites the very control that
-  fired the event; replacing its options mid-event invalidates the browser's
-  selection index and the displayed value snaps back to the first option — the
-  control looks stuck. `fillSelect()` rebuilds only when the option list
-  actually changed, and otherwise just moves the value.
-- **Feeder names are matched on a normalised key** (`fkey()` / `feederAgg()`),
-  not character-for-character. The dropdown is labelled from `topology.csv`; the
-  per-feeder totals and the events are keyed by the feeder in the COMTRADE
-  header. Those are typed by different people at different times, and a
-  mismatch **splits the page in half**: the panels that count events themselves
-  narrow, the ones that read an aggregate do not. That is what "clearing time
-  changes but reclose shots doesn't" means — go and check the names.
-  `topology.validate()` reports it as `feeder_name_mismatch` so it surfaces at
-  the CSV rather than in a browser.
-- **Never hand a panel a WIDER aggregate than its own caption.** A run written
-  before per-feeder aggregates existed has nothing at that scope, and falling
-  back to the fleet's put 207-event numbers under a heading naming one feeder.
-  The give-away is a *split* page: clearing time, the unit grid and the table
-  narrow (they count events), while reclose shots, fault mix, the triage
-  backlog and the tiles do not (they read an aggregate). `deriveAggregate()`
-  counts the scoped events in the page instead. It does counts only —
-  customer-hours need registry maths that belongs in Python, so it reports them
-  as unavailable and marks itself `derived: true` so the page can say why.
-- **A scope pick is never refused.** `applyFeederScope` used to drop any feeder
-  with no aggregate under that name, so the control looked stuck. The pick now
-  always applies; the tiles fall back to the wider aggregate and the note names
-  the split.
-- **A panel that filters `EV` itself keeps showing the fleet while everything
-  around it narrows.** `renderUnits()` and the clearing-time histogram in
-  `renderTrip()` each did exactly that, and the histogram is the one nobody
-  spots — it still draws bars, just the wrong ones. Everything that counts
-  events itself goes through `scopedEvents()`, and a test greps the render
-  block for stray `EV.filter` / `EV.slice` / `EV.forEach`.
-- The one-line offers **only that substation's feeders** when scoped, or it
-  sits on a feeder with nothing in view and reads as empty.
-- Following a tie to another substation calls `applyStation()`, and that must
-  set `$("fStation").value` — the dropdown was left naming the old substation
-  while every panel below it showed the new one.
-
-**There is ONE substation scope**, the `station` variable, shared by both pages.
-`#fStation` on the review and `#feedersSub` on the feeders page both call
-`applyStation()`, and it syncs both controls. They used to hold separate state,
-so picking a substation on the feeders page left the review's tiles on whatever
-they were — two controls for the same idea, quietly disagreeing.
-
-Other filters (zone, fault, priority, class, search) still drive only the table
-and the one-line. Making the tiles follow those too needs per-combination
-aggregates or client-side arithmetic; neither is worth it yet.
+Build card shells before drawing into them: an SVG sized from a container that
+is still `display:none` comes out at the fallback width.
 
 ## N-1: the contingency view
 
-`#olOutage` takes one device out of service and shows what it costs. This needs
-**no live switching state and no load flow** — with the device open the island
-is its subtree, and any normally-open tie inside that island can back-feed the
-whole of it, because nothing between the tie and the open device stops it.
+`#olOutage` takes one device out of service. With no live switching state and no
+load flow, the island is the subtree and any N.O. tie inside it can restore it.
 
-- **Which feeder it is restored FROM is chosen, not assumed** (`#olRestore`).
-  An island with two normally-open points has two answers and they are not
-  equivalent — different circuit, different spare capacity, different crew.
-  Only the chosen tie draws closed; closing every one at once is not a
-  switching plan, it is a parallel. Picking a different outage resets the
-  choice, since a tie from the previous island is not an option on this one.
-- **The gap is the point.** A section with no tie below it is customers who stay
-  out until the device itself is fixed. `olGapSummary()` reports that per feeder,
-  and it is the number the exercise exists to produce.
-- **It does not claim the transfer is feasible.** Customers moved comes from
-  connectivity; whether the receiving feeder can carry them needs load and
-  capacity this model deliberately does not hold. Report the count, not a
-  verdict, and do not invent a threshold — a test holds the wording.
-- The contingency and the incident overlay are **mutually exclusive**. Selecting
-  either clears the other; two different stories on one drawing is unreadable.
-- `olSubtree()` in the page mirrors `topology.subtree()`: a normally-open tie is
-  a leaf and is never traversed. If one changes, change the other.
+- **Restoration feeder is chosen, not assumed** (`#olRestore`). Only the chosen
+  tie draws closed; closing every one at once is not a switching plan.
+- **The gap is the point.** A section with no tie is customers who stay out.
+  `olGapSummary()` reports that per feeder.
+- **It does not claim the transfer is feasible.** Report the count, not a
+  verdict. A test holds the wording.
+- The contingency and incident overlay are **mutually exclusive**.
+- `olSubtree()` in the page mirrors `topology.subtree()`: a N.O. tie is a leaf.
 
-Per-device customers travel in the **topology payload**, not the event table —
-a device with no events is still part of an outage.
-
-**Next, and not yet built:** tie type. An automatic PMH throws over in seconds,
-an ADMS tie takes tens of minutes, a manual one takes hours. Same connectivity,
-very different customer-minutes, so restoration time belongs on the tie.
+Per-device customers travel in the **topology payload**, not the event table.
 
 ## Dashboard cross-filtering
 
 Chart marks carry `data-click` and are registered through `clickRef()` /
-`bindClicks()`, mirroring the tooltip registry. Both maps are cleared together
-on resize.
+`bindClicks()`. Both maps are cleared together on resize.
 
-`applyDrill()` **clears before it sets** — the other order wiped the value it
-had just assigned, and every dropdown-backed drill silently did nothing while
-the chip-backed ones worked. Where a dropdown exists (zone, fault, priority,
-EPSS class) the drill sets it so the control shows what happened; dimensions
-with no dropdown (shot count, clearing band, one device) become the removable
+`applyDrill()` **clears before it sets.** Where a dropdown exists (zone, fault,
+priority, EPSS class) the drill sets it. Other dimensions become the removable
 `#drillChip` predicate, which `currentRows()` applies alongside the selects.
 
-Note SVG elements have no `.click()` method, so a test harness must
-`dispatchEvent(new MouseEvent("click", {bubbles:true}))`. Real user clicks fire
-the listener normally.
+SVG elements have no `.click()` method; tests must use
+`dispatchEvent(new MouseEvent("click", {bubbles:true}))`.
+
+## Scoping the review to one feeder
+
+**The one-line's own feeder dropdown is the page scope.** `aggregate_by_station()`
+and `aggregate_by_feeder()` pre-compute aggregates; the page swaps `AGG`/`TOT`.
+**Narrowest wins**: feeder, else substation, else fleet.
+
+`applyStation()` must redraw **every** panel that reads `AGG` — hero, units,
+tiles, charts — plus the table and the one-line. A test lists the calls.
+
+Key traps:
+- **Never rebuild a `<select>` inside its own `change` handler.** `fillSelect()`
+  rebuilds only when the option list actually changed.
+- **Feeder names are matched on a normalised key** (`fkey()` / `feederAgg()`).
+  A mismatch splits the page: panels that count events narrow, those that read
+  an aggregate do not. `topology.validate()` reports `feeder_name_mismatch`.
+- **Never hand a panel a WIDER aggregate than its own caption.** `deriveAggregate()`
+  counts scoped events instead. It reports customer-hours as unavailable and
+  marks itself `derived: true`.
+- **A scope pick is never refused.** `applyFeederScope` always applies; tiles
+  fall back to the wider aggregate and a note names the split.
+- **A panel that filters `EV` itself keeps showing the fleet while everything
+  around it narrows.** Everything that counts events goes through `scopedEvents()`.
+  A test greps the render block for stray `EV.filter` / `EV.slice` / `EV.forEach`.
+- The one-line offers **only that substation's feeders** when scoped.
+- Following a tie to another substation calls `applyStation()` and must set
+  `$("fStation").value`.
+
+**There is ONE substation scope**, the `station` variable, shared by both pages.
 
 ## The GUI is a launcher
 
-**`batch.sweep` has two callers.** `batch.main` builds its args with argparse;
-the GUI assembles a `SimpleNamespace` by hand in `app.py`. Add an option to the
-parser and the GUI is silently short of it, and "Run analysis" dies with
-`AttributeError` on the worker thread — which the user sees as the button doing
-nothing. Read optional args as `getattr(args, name, default)`, the way
-`settings` already is. `TestTheGuiAndTheCliAgreeOnSweepsArguments` walks both
-files and fails on any bare `args.X` the GUI does not set.
+**`batch.sweep` has two callers.** `batch.main` uses argparse; the GUI assembles
+a `SimpleNamespace`. Add an option to the parser and the GUI is silently short
+of it. Read optional args as `getattr(args, name, default)`.
+`TestTheGuiAndTheCliAgreeOnSweepsArguments` walks both files and fails on any
+bare `args.X` the GUI does not set.
 
-Folder mode runs `batch.sweep` and opens the dashboard; it renders nothing per
-event. The old per-event folder loop is what leaked figures until the window
-stopped redrawing. Single-file mode keeps the detailed plot/report path.
-
-The dashboard carries everything the Word report used to show — provenance,
-per-channel peaks, phasor diagram, digital operations log, DC offset — via
-`extract_report_detail()` in `fleet_analyze.py`. The .docx is no longer the way
-anyone looks at an event; treat it as legacy output, not the deliverable.
+Folder mode runs `batch.sweep` and opens the dashboard. Single-file mode keeps
+the detailed plot/report path.
 
 ## The GUI, matplotlib and Tk
 
-**`plotting.py` must never call `matplotlib.use()`.** It used to force
-`"TkAgg"`, and because `app.py` imports it *after* pinning `"Agg"`, the force
-won — so the GUI ran the interactive Tk backend while the worker thread
-rendered figures. Tk is not thread-safe; that corrupted the Tcl interpreter and
-the process died with SIGSEGV in `Tcl_DeleteHashEntry` under `Tcl_DeleteInterp`
-when the user quit, half an hour after the run that caused it. The backend
-belongs to the caller: `app.py` pins Agg, the CLI takes matplotlib's default.
+**`plotting.py` must never call `matplotlib.use()`.** `app.py` pins `"Agg"`;
+the force overrode it, ran the interactive Tk backend in the worker thread, and
+the process died with SIGSEGV in `Tcl_DeleteHashEntry`.
 `TestPlottingDoesNotForceAnInteractiveBackend` guards both halves.
 
 **Cross-thread UI updates go through `COMTRADEApp._ui_call()`**, never a bare
-`self.after()`. The analysis thread outlives a window close, and callbacks
-landing in a torn-down interpreter is the other half of the same crash.
-`_on_close` sets `_closing` and is wired to `WM_DELETE_WINDOW`.
+`self.after()`. `_on_close` sets `_closing` and is wired to `WM_DELETE_WINDOW`.
 
 ## macOS GUI dialogs
 
-`filedialog.askdirectory()` / `askopenfilename()` open a native panel owned by
-our process. A Python launched from a .app bundle or a Terminal is frequently
-not the *active* application, and the panel then opens **behind** the main
-window — the dialog is modal, so the window it hides stops responding and the
-app looks frozen with an unclickable Finder panel somewhere underneath.
-
-`COMTRADEApp._come_to_front()` fixes it and must be called before every modal
-dialog. Raising the Tk window is not sufficient on its own: the *process* has to
-be activated, which needs `osascript ... set frontmost of (first process whose
-unix id is <pid>)`. It also runs 120 ms after launch so the main window does not
-come up behind whatever the user was looking at.
+`COMTRADEApp._come_to_front()` must be called before every modal dialog. It
+activates the process via `osascript` so the panel doesn't open behind the
+window. It also runs 120 ms after launch.
 
 ## Real exports break in ways the fixtures never will
 
-Every one of these took down a whole folder run on a colleague's PC — not the
-one file, the entire run, with a traceback and no results:
+Four traps that took down a whole folder run:
 
 - **A backslash escape inside an f-string expression** is a SyntaxError before
-  Python 3.12. `topology.py` is imported by `fleet_gen`, so this killed the
-  application at startup. Hoist the escape into a variable; a test scans the
-  file for it.
-- **`np.max` on an empty channel** raises rather than returning zero. Real
-  exports carry channels with no samples.
-- **The date is not what C37.111 says.** The spec is `dd/mm/yyyy`; SEL writes
-  `mm/dd/yyyy`, and `11/19/2023` read as dd/mm gives month 19 and the file
-  refuses to open. `_parse_comtrade_dt` takes the standard's order, falls back
-  to the reading that yields a real date, and leaves genuinely ambiguous dates
-  on the standard's order rather than silently preferring a vendor.
-- **`analyze_one` guards the analysis, not just the parse.** The parse was
-  already wrapped; everything after it was not. A folder of real events always
-  contains something surprising — report that file and keep going.
+  Python 3.12. Hoist the escape into a variable; a test scans `topology.py`.
+- **`np.max` on an empty channel** raises rather than returning zero.
+- **The date format.** The spec is `dd/mm/yyyy`; SEL writes `mm/dd/yyyy`.
+  `_parse_comtrade_dt` tries standard order, falls back to the reading that
+  yields a real date.
+- **`analyze_one` guards the analysis, not just the parse.** Report that file
+  and keep going.
 
-Four more found by reading the standard rather than the fixtures, all of them
-legal COMTRADE the generators never write. `TestTheParserFollowsC37111` holds
-one written-out fixture per clause, because nothing else reaches them:
+Four more from the standard (`TestTheParserFollowsC37111`):
 
-- **There are FOUR data file types, not two** (7.4.9): ASCII, BINARY,
-  BINARY32, FLOAT32. `_ANALOG_DTYPE` is the table; the dispatch is
-  `file_type in _ANALOG_DTYPE`, never `== "BINARY"`. A relay that offers
-  "Binary32" in its export menu writes that word into the CFG, and an exact
-  match sent it down the ASCII path where every row failed and the record came
-  out **empty with no error**.
-- **`nrates = 0` still has a rate line** (7.4.7). Zero means the sample period
-  is not fixed; a `0,endsamp` line follows regardless. Reading none leaves the
-  parser one line out of step and the start date is parsed from `0,<count>`.
-  Hence `range(max(n_rates, 1))`.
-- **Time comes from the CFG sample rate, not the DAT timestamp column**
-  (7.4.7: the timestamp is non-critical when nrates and samp are nonzero, and
-  the rate is "preferred for precise timing"). Vendors take that literally and
-  zero the column. `_time_from_rates` is tried first and the timestamps are the
-  fallback — the other order gave every sample t=0, so the record reached the
-  analysis with no duration and no sample rate.
-- **The date/time stamp may be blank or zero-filled** (7.4.8) and that is not a
-  broken file. `NO_DATETIME` is the sentinel; compare against it rather than
-  testing for a year. The waveform still analyses, it just cannot be placed on
-  a timeline.
+- **Four data file types, not two** (7.4.9): ASCII, BINARY, BINARY32, FLOAT32.
+  `_ANALOG_DTYPE` is the table; dispatch is `file_type in _ANALOG_DTYPE`.
+- **`nrates = 0` still has a rate line** (7.4.7): `range(max(n_rates, 1))`.
+- **Time comes from the CFG sample rate, not the DAT timestamp column** (7.4.7):
+  `_time_from_rates` is tried first; timestamps are the fallback.
+- **The date/time stamp may be blank or zero-filled** (7.4.8). `NO_DATETIME` is
+  the sentinel.
 
-And one that raised nothing at all: **a null analog field** (8.4, how the
-standard writes a missing value) made the ASCII reader append the timestamp and
-the channels before the bad one, then bail — leaving channels of *different
-lengths*. `_parse_dat_ascii_lines` stages a whole row and commits it only if
-every field parsed, and `_build_record` truncates to the shortest anyway.
-Ragged channels do not raise; they surface much later as nonsense.
+And one silent: **a null analog field** (8.4) left channels of different lengths.
+`_parse_dat_ascii_lines` stages a whole row and commits it only if every field
+parsed. `_build_record` truncates to the shortest channel.
 
-`EXPORT_GUIDE.md` is the user-facing half of all this — what to ask the relay
-for, with the clause numbers. Written to be handed to whoever configures the
-exports, and reproduced in the GUI's Help dialog. Keep the two in step.
+`EXPORT_GUIDE.md` is the user-facing half — keep it in step with the GUI's Help
+dialog.
 
 ## Windows portability
 
-Developed on macOS, run on Windows. Three things that only fail over there:
-
-- **Pin `encoding="utf-8"` on every text open/read_text/write_text.** Windows
-  defaults to cp1252; `dashboard_template.html` carries °, →, ±, Ω, ∠ and box
-  drawing, so an unpinned read raises there and nowhere here.
+- **Pin `encoding="utf-8"` on every text open/read_text/write_text.**
   `TestTextIOPinsItsEncoding` scans the package for this.
-- **A process pool needs spawn**, which re-imports the caller's `__main__` in
-  every worker. `batch.sweep` catches a broken pool and finishes serially; the
-  GUI passes `jobs=1` outright — 100 events take 1.2 s serial vs 0.7 s pooled,
-  which is not worth the fragility inside a GUI.
-- `.bat` is Windows-only, `.command` is macOS-only. Keep both in step.
+- **A process pool needs spawn.** `batch.sweep` catches a broken pool and
+  finishes serially; the GUI passes `jobs=1`.
+- Keep `.bat` (Windows) and `.command` (macOS) launchers in step.
 
-## Install instructions are platform-specific
+## Install / sharing
 
-Windows PowerShell 5.1 ships with Windows and is what colleagues will use. It
-rejects `&&` between commands (*"The token '&&' is not a valid statement
-separator"*), has no `source`, and blocks `Activate.ps1` under the default
-execution policy on a managed PC. A single "works everywhere" install line does
-not exist — README and GIT_GUIDE both carry separate PowerShell, cmd.exe and
-POSIX blocks, one command per line.
+Windows PowerShell 5.1 rejects `&&`, has no `source`, and blocks `Activate.ps1`
+under the default execution policy. README and GIT_GUIDE carry separate
+PowerShell, cmd.exe and POSIX blocks, one command per line. The documented
+Windows path skips activation and calls `.\.venv\Scripts\python.exe` directly.
 
-The documented Windows path deliberately **skips activation** and calls
-`.\.venv\Scripts\python.exe` directly, because activation is the step most
-likely to fail and is not required. Keep it that way.
+`GIT_GUIDE.md`, `check_install.py`, and `.bat` launchers are the sharing
+convention: `git clone` + `pip install -e .` so `git pull` updates in place.
+`install_shortcut.py` must never write `COMTRADE Analyzer.bat` (tracked file).
 
 ## Icons and desktop shortcuts
 
-Three traps here, all learned the hard way in pq-analyzer and replicated in
-`make_icon.py` / `install_shortcut.py`. They are generated on a Mac and consumed
-on Windows, so nothing on the machine that writes them notices a mistake.
+Three traps in `make_icon.py` / `install_shortcut.py`:
 
-- **Save the .ico from the LARGEST frame.** Pillow silently drops every
-  requested size larger than the image being saved, so `frames[0].save(...)`
-  on the 16 px frame yields a one-entry 16x16 file and Windows falls back to
-  the interpreter's own icon. `_verify_ico()` reads the directory back and
-  exits non-zero if a size is missing.
-- **`bitmap_format="bmp"`.** Windows only reads PNG inside an .ico at 256x256
-  and skips — not fails, skips — smaller PNG entries.
+- **Save the .ico from the LARGEST frame.** `_verify_ico()` reads the directory
+  back and exits non-zero if a size is missing.
+- **`bitmap_format="bmp"`.** Windows skips PNG entries smaller than 256x256.
 - **`IconLocation = '<path>,0'`, then read it back.** Without the index Windows
-  draws the target's icon, and the target is a .bat, whose icon is the generic
-  gears. `Save()` reports nothing when the shell declines a value.
-- **Delete the .lnk before recreating it**, and call `SHChangeNotify` after.
-  A rewritten .lnk keeps its cached bitmap, which looks exactly like the
-  installer not having run.
-
-`install_shortcut.py` must never write `COMTRADE Analyzer.bat`. The .bat is a
-tracked file; generating a second copy is how the two drifted apart in
-pq-analyzer, and you got whichever half depending on what you ran last.
+  draws the target's icon (a .bat gets generic gears).
 
 ## Incidents — one fault, several records
 
-A fault does not produce one event file. It produces a record at the device
-that cleared it, a record at every device between there and the substation that
-saw the same current and correctly did **not** trip, and — after a lockout —
-a record on a *neighbouring feeder* when a tie picks the stranded section back
-up. `fleet_gen.build_incident` emits all of them.
+A fault produces a record at the clearing device, at every upstream device that
+correctly did not trip, and — after lockout — on a neighbouring feeder when a
+tie picks the section back up. `fleet_gen.build_incident` emits all of them.
 
-What holds a set together, and what does not:
-
-- **Same fault current.** On a radial mainline there is no branch between the
-  devices on one path, so every device upstream of the fault sees the *same*
-  magnitude. What differs is pre-fault **load** — an upstream device feeds
-  everything below it — and that is topology, not impedance.
-- **Load steps down** on a witness record after the device below opens.
-  `Shot.load_after` carries it. Leaving load flat across a downstream trip is
-  the detail a protection engineer spots first.
-- **Fault current is sized against the feeder head**, not the device that
-  cleared. Every device on the path needs unfaulted/faulted RMS under the
-  classifier's 0.15 gate, and the head carries the most load — size it there or
-  the witness records misclassify as LLG.
-- **The tie pickup is tens of seconds later**, on another feeder. `classify_event`
-  and any time-window correlation must not expect it inside a fault window;
-  grouping it needs the topology.
-- **`incident_id` lives in `fleet_truth.json` only.** A relay has no idea the
-  other records exist, so the pipeline has to re-derive the grouping the way it
-  must on a real SUBNET pull. Putting it in the CFG would be cheating.
+**`incident_id` lives in `fleet_truth.json` only.** A relay has no idea the
+other records exist; the pipeline re-derives grouping from time + topology.
 
 ## Incident grouping
 
-`incidents.py` rebuilds the sets from what a real pull actually has. Two joins,
-and they are not the same rule:
+Two joins, not the same rule:
 
 - **Same fault** — inside `window_s` (config `incidents.window_s`, 2 s) **and**
-  `on_same_path()`. Both are required. Time alone merges unrelated faults across
-  the fleet during a storm; topology alone merges every fault that feeder ever
-  had.
-- **Restoration** — a `LOAD` record on the far side of a tie that backs up a
-  section someone just locked out, inside `restore_window_s` (15 min). Purely
-  topological: the tie close is tens of seconds later, on another feeder, under
-  a different device id, so no time window finds it.
+  `on_same_path()`. Both are required.
+- **Restoration** — a `LOAD` record on the far side of a tie inside
+  `restore_window_s` (15 min). Purely topological.
 
-With **no topology** it degrades to same-feeder-and-window. That over-merges two
-faults a second apart on one feeder, which is stated rather than hidden.
+With **no topology** it degrades to same-feeder-and-window, which over-merges.
 
-`clock_suspects()` reports pairs that share a path and a fault type but miss the
-window. A relay minutes out — or a whole timezone out from a missed setting —
-looks exactly like a separate fault, and silently splitting the incident is the
-failure mode worth naming.
+`clock_suspects()` reports pairs that share a path and fault type but miss the
+window — a relay minutes or a timezone out looks exactly like a separate fault.
 
-**`upstream_also_tripped` is an observation, not a verdict.** Two devices on one
-path both operating is invisible in either record alone, but fuse saving and a
-genuine over-trip look identical from here. The tool surfaces it; the engineer
-looks at the one-line and decides. This is not a FLISR verification machine —
-FLISR runs in the ADMS.
-
-Grouping accuracy is validated against `fleet_truth.json` and printed with the
-other detector-agreement numbers. It only means something on generated data, so
-treat it as a regression guard.
+**`upstream_also_tripped` is an observation, not a verdict.** The tool surfaces
+it; the engineer decides. This is not a FLISR verification machine.
 
 ## The LOAD class — cold load is not a three-phase fault
 
-`classify_fault` returns **`LOAD`** for a balanced current rise on all three
-phases with the voltage still up. Cold-load inrush when a tie closes onto a
-restored section is indistinguishable from a 3PH fault in current alone, and it
-was being reported as one; voltage is the only discriminator, so
-`_voltage_held_up()` gates the 3PH branch on it (`_LOAD_STEP_V_RATIO`, 0.85).
-
-With **no voltage channels it stays 3PH** — an unknown is not evidence of a
-load step. `triage` fires no flags on a LOAD record and `wso_impact` returns
-`NOT_EXPOSED`, because there is no fault for EPSS to convert. Without this,
-every FLISR restoration read as a Priority 1 three-phase fault on a healthy
-feeder.
-
-This did not move any real fault: all five generators classify unchanged.
+`classify_fault` returns **`LOAD`** for a balanced current rise with voltage
+still up. `_voltage_held_up()` gates the 3PH branch on it (`_LOAD_STEP_V_RATIO`,
+0.85). With **no voltage channels it stays 3PH**. This did not move any real
+fault: all five generators classify unchanged.
 
 ## The demo set
 
-`demo/` is **tracked on purpose** — 201 synthetic records from 115 incidents,
-the registry, the topology, the ground truth, and a pre-built
-`demo_dashboard.html`. It exists because the tool had to be demonstrated before
-SUBNET was returning COMTRADE files, and a colleague's managed PC may not get
-the Python install working on the first try. The pre-built HTML is the
-zero-dependency fallback.
+`demo/` is tracked — 201 synthetic records from 115 incidents, registry,
+topology, ground truth, and a pre-built `demo_dashboard.html`.
 
-The records live in **`demo/incident_events/`** — named for what it holds, since
-the corpus is organised around incidents rather than loose events.
-`fleet_analyze.resolve_inputs` looks for that name first and falls back to a
-plain `events/` dump, which is what a real SUBNET pull is.
+Records live in **`demo/incident_events/`**. Regenerate with
+`fleet_gen --count 115 --seed 20260601`. **`--count` counts incidents.**
+Rebuild the HTML after any dashboard change.
 
-Regenerate it with `fleet_gen --count 115 --seed 20260601`; the seed is what
-makes it reproducible. **`--count` counts incidents, not records** — each yields
-roughly 1.7 files. Rebuild the HTML after any dashboard change, or it goes stale
-against the code. `demo/analysis/` and `fleet/` stay ignored — those are
-scratch.
-
-Any dashboard built from a set with a `fleet_truth.json` beside it shows a
-DEMO DATA badge. Ground truth only exists for generated events, so that badge
-is a reliable "this is not real plant" signal.
+Any dashboard built from a set with `fleet_truth.json` shows a DEMO DATA badge.
 
 ## Feedback
 
-Both the GUI (`✉ Feedback`) and the dashboard footer open a **pre-filled mail
-draft** via `mailto:` — neither sends anything. The message goes to the user's
-own mail client to read, edit and send, which matters because the address is
-outside the corporate network.
-
-Attached context is counts, versions and settings — **never device names or
-event filenames**. Those are operational data and this is the one path in the
-tool that leaves the network.
+Both the GUI (`✉ Feedback`) and the dashboard footer open a `mailto:` draft —
+neither sends anything. Attached context is counts, versions and settings —
+**never device names or event filenames**.
 
 ## Operational data
 
-`devices.csv` is real operational data and is gitignored — only
-`devices_template.csv` is tracked, plus `demo/devices.csv`, which is invented.
-Never commit a populated registry, and don't put real device IDs, feeder names
-or customer counts in test fixtures or commit messages.
-
-The one path that leaves the network is the feedback draft; it carries counts
-and settings, never device names or event filenames.
+`devices.csv` is real operational data and is gitignored. Never commit a
+populated registry, and don't put real device IDs, feeder names or customer
+counts in test fixtures or commit messages.
 
 ## Telling a stale page from a fresh one
 
-Stale output looks exactly like fresh output. That is how "I fixed it and
-nothing changed" happens, and the browser cache gets blamed for both causes:
+1. **The browser reuses a cached copy.** Every `webbrowser.open` appends
+   `?v=<template hash>`. The page carries `Cache-Control: no-store`.
+2. **The tool is running an INSTALLED copy.** `stale_install_warning()` fires
+   when the running package is in site-packages *and* a git checkout sits at or
+   above the working directory. Every entry point prints it.
 
-1. **The browser reuses a cached copy.** The dashboard is written to the same
-   path every run, so the URL never changes. Every `webbrowser.open` of it
-   appends `?v=<template hash>`, and the page carries
-   `Cache-Control: no-store`.
-2. **The tool is running an INSTALLED copy, not the checkout.** `pip install .`
-   without `-e` copies the package into site-packages; pulling the repo
-   afterwards changes files nothing executes. `stale_install_warning()` fires
-   only when the running package is in site-packages *and* a git checkout of it
-   sits at or above the working directory — so a deliberate release install
-   stays quiet. Every entry point prints it.
-
-Every render prints `page <hash> from <path>`, and the page shows the same hash
-bottom-right. **That line is the first thing to check when output looks wrong**:
-a hash that does not change after an edit means the template being read is not
-the one being edited.
-
-`template_stamp()` hashes the template file itself, not a version string, so it
-cannot go stale independently of what it describes.
-
-## Sharing conventions
-
-This repo follows the pq-analyzer layout for distribution to colleagues:
-`git clone` + `pip install -e .` so `git pull` updates the tool in place, with
-`GIT_GUIDE.md` as the from-scratch walkthrough, `check_install.py` as the
-diagnostic to run before asking anyone for help, and `.bat` launchers for
-double-click use on Windows. Keep those three in step with any change to
-installation or dependencies.
-
-`EXPORT_GUIDE.md` is the fourth: what to ask the relay for, cited to C37.111,
-written to be handed to whoever configures the exports rather than read here.
-Its substance is duplicated in the GUI's Help dialog because that is where
-someone actually stuck will look — change one and change the other.
+Every render prints `page <hash> from <path>`. `template_stamp()` hashes the
+template file itself.
 
 ## Keeping this file current
 
-Update it in the **same commit** as the change it describes, and *revise* the
-relevant section rather than appending a new one — this file drifted into two
-contradictory WSO sections that way, one of them still describing the
-superseded three-class model.
+Update in the **same commit** as the change it describes; revise the relevant
+section rather than appending.
 
-`TestTheProjectNotesStayCurrent` guards the parts that can be checked: every
-module appears in the map, every EPSS class is mentioned, and the superseded
-wording stays gone. It cannot check whether the prose is *true*, so when you
-change behaviour, re-read the section that covers it.
+`TestTheProjectNotesStayCurrent` guards: every module appears in the map, every
+EPSS class is mentioned, superseded wording stays gone, and **this file is
+≤ 40,000 characters**. It cannot check whether the prose is *true*.
 
 ## Conventions
 
-- Thresholds belong in `config.json`, not inline. `slow_trip_cycles`,
-  `fault_threshold_multiplier`, `epss_tiers` are all user-tunable by design.
-- Classification is explicitly "not a replacement for a relay algorithm" — keep
-  that framing in docstrings and report prose. It's a review aid.
-- 60 Hz is a default, not an assumption: use `record.line_freq()` and
-  `record.samples_per_cycle()` rather than hardcoding 60 or a sample count.
+- Thresholds belong in `config.json`, not inline.
+- Classification is "not a replacement for a relay algorithm" — keep that
+  framing in docstrings and report prose.
+- 60 Hz is a default: use `record.line_freq()` and `record.samples_per_cycle()`.

@@ -113,14 +113,24 @@ def check_record(record, filename: str = "") -> List[dict]:
     # channels are called CH1_ANLG therefore parses, passes a units-based
     # check, and then silently classifies every event UNKNOWN. Mirror the real
     # lookup so the diagnosis agrees with the analysis.
-    names_upper = {n.upper() for n in an}
     PHASE_CANDIDATES = {
         "A": ("IA", "Ia", "I_A", "I-A", "IA1"),
         "B": ("IB", "Ib", "I_B", "I-B", "IB1"),
         "C": ("IC", "Ic", "I_C", "I-C", "IC1"),
     }
+
+    def _name_matches(ch_upper, cand):
+        k = cand.upper()
+        if ch_upper == k:
+            return True
+        # prefix+separator: "IA:unf" matches "IA" because ':' is non-alphanumeric
+        return (ch_upper.startswith(k)
+                and len(ch_upper) > len(k)
+                and not ch_upper[len(k)].isalnum())
+
     missing_phases = [ph for ph, cands in PHASE_CANDIDATES.items()
-                      if not any(c.upper() in names_upper for c in cands)]
+                      if not any(_name_matches(n.upper(), c)
+                                 for c in cands for n in an)]
     if an and missing_phases:
         out.append(_finding(
             ERROR, "phase_currents_unnamed",
@@ -186,8 +196,14 @@ def check_record(record, filename: str = "") -> List[dict]:
     # A real export can carry a channel with no samples at all — np.max on an
     # empty array raises rather than returning zero, which took down the whole
     # folder run on one file.
+    # Sanity-check only channels that look like phase/ground currents by name.
+    # Channels labeled 'A' but with non-current names (spectral indices, timers)
+    # carry implausible values by design; flagging them misleads the engineer.
+    _CURR_PREFIXES = ("IA", "IB", "IC", "IN", "IG", "CURR", "IARMS", "IBRMS", "ICRMS")
+    cur_named = [c for c in cur
+                 if any(_name_matches(c.upper(), p) for p in _CURR_PREFIXES)]
     peaks = [float(np.max(np.abs(record.analog_channels[c])))
-             for c in cur if len(record.analog_channels[c])]
+             for c in (cur_named or cur) if len(record.analog_channels[c])]
     if peaks:
         peak = max(peaks)
         if peak > _MAX_PLAUSIBLE_AMPS:
@@ -205,7 +221,14 @@ def check_record(record, filename: str = "") -> List[dict]:
                 "settings. Fault-location and HIF thresholds assume primary amps."))
 
     if volt:
-        vpeak = max(float(np.max(np.abs(record.analog_channels[v]))) for v in volt)
+        # Normalize to volts before threshold comparison so kV-unit channels
+        # (common in FLOAT32 exports) are not flagged as "only 7 V".
+        def _to_volts(name):
+            raw = float(np.max(np.abs(record.analog_channels[name])))
+            unit = (record.analog_info[name].units or "").strip().upper()
+            return raw * 1000.0 if unit == "KV" else raw
+
+        vpeak = max(_to_volts(v) for v in volt)
         if vpeak > _MAX_PLAUSIBLE_VOLTS:
             out.append(_finding(
                 WARN, "voltage_too_large", f"Peak voltage {vpeak:,.0f} V is implausibly high",

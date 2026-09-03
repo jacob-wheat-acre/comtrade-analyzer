@@ -84,7 +84,11 @@ def plot_event(
                                                     "V_A", "V_B", "V_C",
                                                     "VOLT"))
     if digital_channels is None:
-        digital_channels = list(record.digital_channels.keys())
+        if len(record.digital_channels) > 20:
+            from .analysis import extract_key_digital_bits
+            digital_channels = [b["name"] for b in extract_key_digital_bits(record)]
+        else:
+            digital_channels = list(record.digital_channels.keys())
 
     # Filter to channels that actually exist
     current_channels = [n for n in current_channels if n in record.analog_channels]

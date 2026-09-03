@@ -381,7 +381,8 @@ def _parse_dat_ascii_lines(lines: list, cfg: dict) -> EventRecord:
         # the rest. Ragged channels do not raise here; they surface much later
         # as nonsense in the analysis.
         try:
-            ts     = float(parts[1]) * timemult   # microseconds
+            ts_str = parts[1].strip()
+            ts     = (float(ts_str) if ts_str else 0.0) * timemult   # µs; blank → 0 (rate-derived timing takes over in _build_record)
             arow   = [float(parts[2 + i]) for i in range(n_analog)]
             drow   = [int(parts[2 + n_analog + i]) for i in range(n_digital)]
         except (ValueError, IndexError):
@@ -552,8 +553,15 @@ def _build_record(timestamps_us: np.ndarray, analog_raw: list,
     else:
         trigger_index = 0
 
-    # Primary sample rate
+    # Primary sample rate — use CFG declaration; fall back to time-array estimate
+    # when the relay writes rate=0 (common in FLOAT32 and some long HIF records).
     sample_rate = cfg["sample_rates"][0]["rate"] if cfg["sample_rates"] else 0.0
+    if sample_rate <= 0 and len(time) > 1:
+        # Use the first inter-sample interval rather than the total span —
+        # long HIF records can have trailing gaps that inflate the total.
+        dt = float(time[1] - time[0])
+        if dt > 0:
+            sample_rate = 1.0 / dt
 
     metadata = {
         "station_name": cfg["station_name"],

@@ -24,6 +24,7 @@ from typing import Optional
 import numpy as np
 
 from .comtrade_parser import COMTRADEParser
+from .cev_parser import CEVParser
 from .data_model import EventRecord
 from .analysis import compute_event_summary
 from .plotting import plot_event, plot_rms_currents, plot_sequence_components, plot_phasors
@@ -47,7 +48,7 @@ def find_comtrade_files(path: str) -> list:
         return [path]
 
     found = []
-    for pattern in ("*.cfg", "*.CFG", "*.cff", "*.CFF"):
+    for pattern in ("*.cfg", "*.CFG", "*.cff", "*.CFF", "*.cev", "*.CEV"):
         found.extend(glob.glob(os.path.join(path, pattern)))
         found.extend(glob.glob(os.path.join(path, "**", pattern), recursive=True))
 
@@ -101,7 +102,7 @@ def export_json(summary: dict, output_path: str):
 # Summary printer
 # ---------------------------------------------------------------------------
 
-def print_summary(summary: dict):
+def print_summary(summary: dict, record=None):
     """Print the event summary in a protection-engineer-friendly format."""
     W = 62
     print()
@@ -157,8 +158,23 @@ def print_summary(summary: dict):
         print()
         print("  Peak voltages:")
         for name, val in mv.items():
-            units = "V"
+            units = (record.analog_info[name].units
+                     if record and name in record.analog_info
+                     else "V")
             print(f"    {name:10s}  {val:>9.2f} {units}")
+
+    key_bits = summary.get("key_bits", [])
+    if key_bits:
+        print()
+        print("  Relay bit transitions:  (↑ assert  ↓ clear,  ms rel. to trigger)")
+        trig_t = summary.get("trigger_time", 0.0)
+        for bit in key_bits:
+            parts = []
+            for tr in bit["transitions"]:
+                arrow = "↑" if tr["edge"] == "rise" else "↓"
+                rel_ms = (tr["time_s"] - trig_t) * 1000.0
+                parts.append(f"{arrow}{rel_ms:+.1f}")
+            print(f"    {bit['name']:<16s} {'  '.join(parts)}")
 
     print("=" * W)
 
@@ -173,7 +189,10 @@ def process_file(filepath: str, args: argparse.Namespace) -> Optional[EventRecor
     print(f"  File: {filepath}")
     print(f"{'─' * 60}")
 
-    parser = COMTRADEParser()
+    if filepath.lower().endswith('.cev'):
+        parser = CEVParser()
+    else:
+        parser = COMTRADEParser()
     try:
         record = parser.parse(filepath)
     except Exception as exc:
@@ -186,7 +205,7 @@ def process_file(filepath: str, args: argparse.Namespace) -> Optional[EventRecor
 
     summary = compute_event_summary(record)
     summary["trigger_time"] = record.trigger_time
-    print_summary(summary)
+    print_summary(summary, record)
 
     base = os.path.splitext(filepath)[0]
 
@@ -370,6 +389,8 @@ examples:
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = build_parser().parse_args()
 
     if not os.path.exists(args.path):

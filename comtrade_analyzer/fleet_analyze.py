@@ -44,6 +44,7 @@ import numpy as np
 _HERE = Path(__file__).parent
 
 from .comtrade_parser import COMTRADEParser
+from .cev_parser import CEVParser
 from .diagnostics import check_record, explain_parse_error, worst_level
 from .relay_settings import load_settings
 from .analysis import (
@@ -89,7 +90,7 @@ def load_config() -> dict:
 
 def _find_cfg(folder: str) -> list:
     found = []
-    for pat in ("*.cfg", "*.CFG", "*.cff", "*.CFF"):
+    for pat in ("*.cfg", "*.CFG", "*.cff", "*.CFF", "*.cev", "*.CEV"):
         found.extend(glob.glob(os.path.join(folder, pat)))
         found.extend(glob.glob(os.path.join(folder, "**", pat), recursive=True))
     return sorted(set(found))
@@ -367,7 +368,10 @@ def analyze_one(args: tuple) -> dict:
     out = {"file": basename, "path": filepath, "ok": False, "error": None}
 
     try:
-        record = COMTRADEParser().parse(filepath)
+        if filepath.lower().endswith('.cev'):
+            record = CEVParser().parse(filepath)
+        else:
+            record = COMTRADEParser().parse(filepath)
     except Exception as exc:                       # noqa: BLE001 — report, don't crash the batch
         out["error"] = f"{type(exc).__name__}: {exc}"
         out["diagnosis"] = explain_parse_error(filepath, exc)

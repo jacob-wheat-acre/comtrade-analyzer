@@ -188,6 +188,32 @@ def detect_digital_transitions(
     }
 
 
+def extract_key_digital_bits(record: EventRecord) -> list:
+    """
+    Return digital channels that transition anywhere in the record.
+
+    Each entry: {'name': str, 'transitions': [{'sample': int, 'time_s': float,
+    'edge': 'rise'|'fall'}]}.  Sorted by first transition time.  Channels that
+    never change — steady-state held high or low throughout — are omitted; they
+    carry no fault-story information.
+    """
+    result = []
+    for name, sig in record.digital_channels.items():
+        diff = np.diff(sig.astype(np.int16))
+        rises = list(np.where(diff > 0)[0] + 1)
+        falls = list(np.where(diff < 0)[0] + 1)
+        if not rises and not falls:
+            continue
+        transitions = (
+            [{"sample": int(s), "time_s": float(record.time[s]), "edge": "rise"} for s in rises]
+            + [{"sample": int(s), "time_s": float(record.time[s]), "edge": "fall"} for s in falls]
+        )
+        transitions.sort(key=lambda x: x["sample"])
+        result.append({"name": name, "transitions": transitions})
+    result.sort(key=lambda x: x["transitions"][0]["sample"])
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Symmetrical components
 # ---------------------------------------------------------------------------
@@ -398,7 +424,7 @@ def compute_event_summary(record: EventRecord) -> dict:
         "n_analog":        len(record.analog_channels),
         "n_digital":       len(record.digital_channels),
         "analog_channels": list(record.analog_channels.keys()),
-        "digital_channels": list(record.digital_channels.keys()),
+        "key_bits":        extract_key_digital_bits(record),
         "trigger_time":    record.trigger_time,
         "fault_type":      "UNKNOWN",
         "fault_inception_s": None,
@@ -558,8 +584,14 @@ def compute_phasors_at(
     def _find_raw(raw, *candidates):
         upper = {k.upper(): v for k, v in raw.items()}
         for c in candidates:
-            if c.upper() in upper:
-                return c, upper[c.upper()]
+            key = c.upper()
+            if key in upper:
+                return c, upper[key]
+            for ch_key, val in upper.items():
+                if (ch_key.startswith(key)
+                        and len(ch_key) > len(key)
+                        and not ch_key[len(key)].isalnum()):
+                    return c, val
         return None, 0+0j
 
     ia_name, _ = _find_raw(fault_raw, "IA", "Ia", "I_A")
@@ -598,9 +630,21 @@ def _auto_select_currents(record: EventRecord) -> List[str]:
 
 
 def _find_channel(record: EventRecord, candidates: tuple) -> Optional[np.ndarray]:
-    """Return the first matching analog channel array, case-insensitive."""
+    """Return the first matching analog channel array, case-insensitive.
+
+    Exact match first; then prefix match where the candidate is followed by a
+    non-alphanumeric separator (handles 'IA:unf (Apri)' and similar exports
+    that append units or descriptions after a colon or space).  'IARMS' does
+    NOT match 'IA' because 'R' is alphanumeric.
+    """
     ch_upper = {k.upper(): v for k, v in record.analog_channels.items()}
     for name in candidates:
-        if name.upper() in ch_upper:
-            return ch_upper[name.upper()]
+        key = name.upper()
+        if key in ch_upper:
+            return ch_upper[key]
+        for ch_key, val in ch_upper.items():
+            if (ch_key.startswith(key)
+                    and len(ch_key) > len(key)
+                    and not ch_key[len(key)].isalnum()):
+                return val
     return None

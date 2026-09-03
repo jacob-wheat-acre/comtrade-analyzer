@@ -1024,6 +1024,12 @@ class TestTheProjectNotesStayCurrent:
         missing = [c["key"] for c in class_table() if c["key"] not in notes]
         assert not missing, f"CLAUDE.md does not mention: {missing}"
 
+    def test_notes_are_within_the_size_limit(self):
+        notes = self._NOTES.read_text(encoding="utf-8")
+        assert len(notes) <= 40_000, (
+            f"CLAUDE.md is {len(notes):,} characters — trim it to ≤ 40,000"
+        )
+
 
 class TestTheGeneratorsGroundTruthMatchesTheClassifier:
     """
